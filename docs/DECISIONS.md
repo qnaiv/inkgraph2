@@ -72,3 +72,16 @@
 ## D17 (2026-10-17) コードの実装はAntigravity CLI（agy）に任せる
 - Grokは仕様書の作成、検証、レビューを担当し、コードの記述はAntigravity CLI（`agy`）が行う。
 - 作業の記録は `docs/AGY_LOG.md` に残す。
+
+## D20 (2026-10-17) 人手ラベル（フィードバック zip）を正解とした評価
+- 正解は Web 版の確認モードが書き出すフィードバック zip（`feedback.json`、format 1）。`tools/eval_labels.py` が試合ごとのラベルに変換する（`--write-labels labels/` で `labels/<動画名>.json`）。
+- ラベル形式（1試合）：
+  - `video`（例 joined_match02.mp4）、`match_id`、`battle`（[開始, 終了] 秒）
+  - `result` / `mode` / `stage`：`review.fix` の値、なければ `review.rmarks[項目]=='ok'` のときの検出値、どちらもなければ null（ラベルなし）
+  - `own.ka` / `own.deaths` / `own.specials`：同上
+  - `count_final`：`review.fix.count`、なければ null
+  - `events.{death,kill,special}`：`times`＝検出のうち `review.marks["種類@秒"]=='ok'` のもの＋`review.added` の追加分（wrong/deleted は除外）、`unreviewed`＝マークのない検出、`status`＝complete（全件確認）/ partial（一部確認）/ none（未確認）。検出時刻は death=own_deaths.start、kill=own_kills.start、special=special.ready
+  - `tower_holder`：`review.tower_holder`（[開始, 終了, own|enemy|neutral] の区間リスト）。**現在の確認モードには入力 UI がないため常に null**
+  - `count_series`：`review.count_series`（[秒, 味方, 相手]）。同じく入力 UI なし
+- 照合：イベントは許容幅 ±2.0 秒（`--tol`）で時刻順に1対1対応を取り、TP/FP/FN から適合率・再現率を出す。partial のときは未確認の時刻の近くの検出は数えない。勝敗などの単一値は一致/不一致。ヤグラ保持は試合中の整数秒ごとに最も近い系列サンプル（0.7秒以内）と比べ、味方/相手それぞれの適合率・再現率を出す。カウント系列は秒単位の完全一致率。null の項目と、ラベルのない試合は「ラベルなし」と表示する。
+- 現状のラベルは feedback_sample.zip（試合2のみ、デス・スペシャルは一部未確認）だけ。試合1・3はラベルなし。
