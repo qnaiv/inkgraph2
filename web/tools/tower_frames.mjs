@@ -4,8 +4,8 @@ import fs from 'node:fs'; import path from 'node:path';
 import { prepAssets } from '../src/core/assets.js'; import { towerRow } from '../src/core/tower.js';
 const D = path.resolve(import.meta.dirname, '..'); const A = prepAssets(JSON.parse(fs.readFileSync(path.join(D, 'public/assets', fs.readdirSync(path.join(D, 'public/assets')).find(f => f.endsWith('.json'))))));
 const W = 1280, H = 720; let T = [0, 0, 0, 0, 0];
-for (const n of [1, 2, 3]) {
-  const J = JSON.parse(fs.readFileSync(`/tmp/tw${n}.json`)); const mk = fs.readFileSync(`/tmp/tw${n}_mk.raw`), bd = fs.readFileSync(`/tmp/tw${n}_bd.raw`);
+for (const n of (process.env.TW_N||'1,2,3').split(',').map(Number)) {
+  const J = JSON.parse(fs.readFileSync(`${process.env.TW_DIR || '/tmp'}/tw${n}.json`)); const mk = fs.readFileSync(`${process.env.TW_DIR || '/tmp'}/tw${n}_mk.raw`), bd = fs.readFileSync(`${process.env.TW_DIR || '/tmp'}/tw${n}_bd.raw`);
   let N = 0, ho = 0, hx = 0, cnt = 0, det = 0; const conf = {}; const t0 = Date.now();
   J.rows.forEach((row, k) => {
     const data = new Uint8ClampedArray(W * H * 4);
