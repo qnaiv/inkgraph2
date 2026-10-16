@@ -49,3 +49,8 @@
 - qnaiv/inkgraph2 のIssues（#1〜#25）に切り、Projectに自動追加する。
 - ラベル：priority:高/中/低、phase:精度改善/分析/Webアプリ/基盤。
 - 自分のK/D/SP・勝敗と抑え/打開・勝率重み付けを高、味方/敵スコアは低、アシストは扱わない。
+
+## D14 (2026-10-17) Windows対応：日本語パスの画像I/OとCJKフォント
+- 画像の読み書きは `imread_unicode` / `imwrite_unicode`（np.fromfile+imdecode / imencode+tofile）に統一。理由：Windowsで cv2.imread が日本語ファイル名のテンプレートを読めず、モード・ステージ判定が壊れていた。
+- matplotlib の font.family は候補リストのうち実在するフォントだけを設定（findfont警告の大量出力を防ぐ）。CJKフォントが無ければ警告1回。
+- ボックスで joined_match01 を再解析し、既存出力と同値（モード ガチヤグラ／ステージ クサヤ温泉）を確認。

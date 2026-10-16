@@ -2,7 +2,8 @@
 python -m inkgraph.towerviz out/1080p/match01  -> tower.png"""
 import os, sys, json
 import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
-plt.rcParams['font.family']=['Noto Sans CJK JP','Yu Gothic','Meiryo','DejaVu Sans']
+from inkgraph.common import setup_cjk_font
+setup_cjk_font()
 def plot(m,path,title=''):
     S=m.get('tower_series') or []
     if not S: return

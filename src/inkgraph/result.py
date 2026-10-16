@@ -1,7 +1,7 @@
 """Result-screen reading (no OCR): celebration WIN!/LOSE, results panel header (mode/stage),
 personal stats row (K+A / deaths / specials), 8-player scoreboard. All coords on 1280x720 frames."""
 import os, glob, cv2, numpy as np
-from .common import tpl, TPL, frames
+from .common import tpl, TPL, frames, imread_unicode
 _T={}
 def T(n):
     if n not in _T: _T[n]=tpl(n)
@@ -31,7 +31,7 @@ def classify(img):
     return ('board' if bw>0.5 else 'personal',None,(dx,dy))
 def _banner_score(img,dx,dy):
     def sc(name,x,y):
-        reg=img[max(0,y+dy-15):y+dy+45,max(0,x+dx-15):x+dx+125]; t=cv2.imread(os.path.join(TPL,name))
+        reg=img[max(0,y+dy-15):y+dy+45,max(0,x+dx-15):x+dx+125]; t=imread_unicode(os.path.join(TPL,name))
         if reg.shape[0]<t.shape[0] or reg.shape[1]<t.shape[1]: return 0
         g=lambda a: cv2.cvtColor(a,cv2.COLOR_BGR2HSV)[...,2]
         return float(cv2.matchTemplate(g(reg),g(t),cv2.TM_CCOEFF_NORMED).max())
@@ -40,7 +40,7 @@ def _banner_score(img,dx,dy):
 MODE_BOX=(552,50,650,84); STAGE_BOX=(655,52,800,84)
 def _crop(img,box,dx,dy): x0,y0,x1,y1=box; return img[y0+dy:y1+dy,x0+dx:x1+dx]
 def _lib(kind):
-    return {os.path.splitext(os.path.basename(p))[0]:cv2.imread(p,0) for p in glob.glob(os.path.join(TPL,'res_'+kind,'*.png'))}
+    return {os.path.splitext(os.path.basename(p))[0]:imread_unicode(p,0) for p in glob.glob(os.path.join(TPL,'res_'+kind,'*.png'))}
 def _norm_text(c): return cv2.resize(_wb(c,170),(120,32),interpolation=cv2.INTER_AREA).astype(np.float32)
 def header_crops(img,dx,dy): return _crop(img,MODE_BOX,dx,dy),_crop(img,STAGE_BOX,dx,dy)
 def _best(c,lib):

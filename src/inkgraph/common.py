@@ -2,7 +2,27 @@ import os, cv2, numpy as np
 ROOT=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TPL=os.path.join(ROOT,'templates'); MODELS=os.path.join(ROOT,'models')
 W,H=1280,720
-def tpl(name): return cv2.imread(os.path.join(TPL,name),0)
+def imread_unicode(path,flags=cv2.IMREAD_COLOR):
+    """cv2.imread that works with non-ASCII paths on Windows. Returns None on failure."""
+    try: buf=np.fromfile(path,dtype=np.uint8)
+    except (OSError,ValueError): return None
+    return cv2.imdecode(buf,flags) if buf.size else None
+def imwrite_unicode(path,img,params=None):
+    """cv2.imwrite that works with non-ASCII paths on Windows."""
+    ok,buf=cv2.imencode(os.path.splitext(path)[1] or '.png',img,params or [])
+    if ok: buf.tofile(path)
+    return bool(ok)
+def setup_cjk_font():
+    """Set matplotlib font.family to installed CJK fonts only (avoids findfont spam)."""
+    import matplotlib, logging
+    from matplotlib import font_manager
+    want=['Noto Sans CJK JP','Yu Gothic','Meiryo','MS Gothic','Hiragino Sans','IPAexGothic']
+    have={f.name for f in font_manager.fontManager.ttflist}
+    fams=[f for f in want if f in have]
+    if not fams: logging.getLogger('inkgraph').warning('no CJK font found; Japanese text may render as boxes')
+    matplotlib.rcParams['font.family']=fams+['DejaVu Sans']
+    return fams
+def tpl(name): return imread_unicode(os.path.join(TPL,name),0)
 def wb(img,th=190):
     g=img if img.ndim==2 else cv2.cvtColor(np.ascontiguousarray(img),cv2.COLOR_BGR2GRAY)
     return cv2.threshold(g,th,255,cv2.THRESH_BINARY)[1]

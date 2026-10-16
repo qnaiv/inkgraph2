@@ -5,7 +5,8 @@ import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch, Rectangle
 from matplotlib.lines import Line2D
-plt.rcParams['font.family']=['Noto Sans CJK JP','Yu Gothic','Meiryo','MS Gothic','DejaVu Sans']
+from inkgraph.common import setup_cjk_font
+setup_cjk_font()
 plt.rcParams['hatch.linewidth']=0.8
 
 C_OWN_DEAD='#e57373'; C_KILL='#2e7d32'; C_SP='#f9a825'; C_SPLOST='#8d6e63'; C_SPUNUSED='#bdbdbd'

@@ -3,7 +3,7 @@ usage: python eval_results.py [--build]"""
 import sys,os,json,pickle,cv2,numpy as np
 sys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))
 from inkgraph import result as R
-from inkgraph.common import TPL
+from inkgraph.common import TPL, imwrite_unicode
 ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 J=lambda *p: os.path.join(ROOT,*p)
 # (id, video, tail start, end, truth)
@@ -44,7 +44,7 @@ def build(S):
         fr=(S[mid]['personal'] or S[mid]['board'])
         if fr:
             _,_,off,img=fr[len(fr)//2]; m,s=R.header_crops(img,*off)
-            cv2.imwrite(os.path.join(TPL,'res_mode',f"{tr['mode']}__{mid}.png"),R._wb(m)); cv2.imwrite(os.path.join(TPL,'res_stage',f"{tr['stage']}__{mid}.png"),R._wb(s))
+            imwrite_unicode(os.path.join(TPL,'res_mode',f"{tr['mode']}__{mid}.png"),R._wb(m)); imwrite_unicode(os.path.join(TPL,'res_stage',f"{tr['stage']}__{mid}.png"),R._wb(s))
     np.savez(os.path.join(TPL,'res_digits','digits.npz'),X=np.array(X),y=np.array(y),src=np.array(src)); R._D=None
     print('digit samples',len(y),'classes',sorted(set(y)))
 def evaluate(S):

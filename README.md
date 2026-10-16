@@ -18,6 +18,10 @@ pip install -r requirements.txt
 
 ffmpeg / ffprobe に PATH が通っている必要があります（分割・結合で使用）。
 
+Windows の注意点（v6〜）:
+- テンプレート画像は日本語ファイル名（例 `templates/res_mode/ガチヤグラ__m1.png`）。`cv2.imread` は Windows で非ASCIIパスを読めないため、コードは `inkgraph.common.imread_unicode` / `imwrite_unicode`（`np.fromfile`+`cv2.imdecode` / `cv2.imencode`+`tofile`）を使う。新しいコードでも `cv2.imread/imwrite` を直接使わないこと。
+- グラフの日本語フォントは `setup_cjk_font()` が Noto Sans CJK JP → Yu Gothic → Meiryo → MS Gothic → Hiragino Sans → IPAexGothic の順で、インストール済みのものだけを使う（Windows標準なら Yu Gothic / Meiryo）。どれも無い場合は警告を1回だけ出す。
+
 ## 使い方
 
 ### 1. 試合ごとに切り出し（autosplit）
