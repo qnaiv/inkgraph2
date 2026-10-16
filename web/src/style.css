@@ -1,0 +1,12 @@
+*{box-sizing:border-box}body{margin:0;font-family:"Yu Gothic UI","Meiryo","Noto Sans CJK JP",sans-serif;background:#f5f6f8;color:#222}
+header{display:flex;align-items:center;gap:24px;background:#1f2a44;color:#fff;padding:8px 20px}header h1{font-size:20px;margin:0}
+nav button{background:none;border:0;color:#cfd8ea;font-size:15px;padding:8px 14px;cursor:pointer;border-radius:6px}nav button.on{background:#3b4d7a;color:#fff}
+main{padding:16px 20px;max-width:1400px;margin:auto}.card{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 3px #0001}
+h2{font-size:18px;margin:4px 0 10px}h3{font-size:15px;margin:10px 0 6px}.row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}.grow{flex:1;min-width:300px}
+button.b{background:#3b6fd8;color:#fff;border:0;border-radius:6px;padding:7px 14px;font-size:14px;cursor:pointer}button.b.sec{background:#e3e8f2;color:#223}button.b.red{background:#d84b4b}
+button.b:disabled{opacity:.5}select,input{font-size:14px;padding:5px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid #e5e7eb;padding:6px 8px;text-align:left}th{background:#f0f2f7;font-weight:600}
+tr.click{cursor:pointer}tr.click:hover{background:#f5f8ff}.win{color:#1565c0;font-weight:700}.lose{color:#c62828;font-weight:700}.muted{color:#777;font-size:13px}
+video{width:100%;max-width:880px;background:#000;border-radius:8px}.kpi{display:flex;gap:12px;flex-wrap:wrap}.kpi div{background:#f0f4ff;border-radius:8px;padding:8px 14px;min-width:120px}.kpi b{display:block;font-size:22px}
+.mk{border:1px solid #ccc;background:#fff;border-radius:5px;padding:2px 7px;cursor:pointer;margin-right:3px}.mk.on-ok{background:#2e7d32;color:#fff}.mk.on-wrong{background:#c62828;color:#fff}.mk.on-deleted{background:#666;color:#fff}
+tr.wrong td,tr.deleted td{text-decoration:line-through;color:#999}tr.added td{background:#fffbe6}.log{height:220px;overflow:auto;font-size:13px;background:#fafafa;border:1px solid #eee;padding:6px}
+.pos{color:#1565c0}.neg{color:#c62828}svg text{font-family:inherit}.legend span{display:inline-block;margin-right:14px;font-size:13px}.legend i{display:inline-block;width:12px;height:12px;margin-right:4px;vertical-align:-1px}
