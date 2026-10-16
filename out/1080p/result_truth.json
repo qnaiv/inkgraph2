@@ -1,0 +1,6 @@
+{"mode":"ガチヤグラ (Tower Control), バンカラマッチ(チャレンジ)","stage":"クサヤ温泉",
+ "match01":{"result":"LOSE","count":"36-67","own":{"kills_plus_assists":8,"deaths":8,"specials":5},"source":"personal result screen (no full board recorded)"},
+ "match02":{"result":"WIN","own":{"kills_plus_assists":4,"deaths":6,"specials":3},"source":"personal result screen (no full board recorded)"},
+ "match03":{"result":"LOSE","count":"62-83","own":{"kills_plus_assists":4,"deaths":6,"specials":5},
+   "board":{"WIN(enemy)":[["び",12,7,5],["テトー",11,3,4],["やるきげんきピョニキ",11,4,6],["たー",9,7,1]],
+            "LOSE(ally)":[["MASA.T",10,10,4],["ゴッドアーム!!!!",4,5,2],["fält<<CC<:Ξ",5,11,3],["// qwe",4,6,5]],"cols":"name,K+A,deaths,specials"}}}

@@ -1,0 +1,13 @@
+raw/
+*.mp4
+*.mkv
+.venv/
+__pycache__/
+*.pyc
+frames/
+thumbs/
+work/
+proto/
+upload/
+out/**/frames/
+*.npy
