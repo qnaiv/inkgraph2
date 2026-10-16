@@ -1290,3 +1290,56 @@ tr.added td {
 .collapsible-card[open] summary {
   margin-bottom: var(--sp-4);
 }
+
+/* ヤグラ保持ラベル（確認モード）: 帯の区間クリック + ポップオーバー */
+.tw-seg { outline: none; }
+.tw-seg .tw-focus { opacity: 0; }
+.detail-body:not(.review-on) .tw-seg { pointer-events: none; }
+.detail-body.review-on .tw-seg { cursor: pointer; }
+.detail-body.review-on .tw-seg:hover .tw-fill { filter: brightness(1.25); }
+.tw-seg:focus-visible .tw-focus { opacity: 1; }
+
+.tw-pop {
+  position: absolute;
+  z-index: 30;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  font-size: var(--fs-sm);
+}
+.tw-pop-head { display: flex; align-items: baseline; gap: var(--sp-2); }
+.tw-pop-title { font-weight: var(--fw-bold); color: var(--text); }
+.tw-pop-range { color: var(--text); }
+.tw-pop-det { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); }
+.tw-pop-choices { display: flex; gap: var(--sp-2); }
+.tw-pill {
+  flex: 1;
+  height: 32px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+.tw-pill:hover { background: var(--surface-hover); color: var(--text); }
+.tw-pill:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.tw-pill[aria-checked="true"].tw-pill-own { background: var(--ally-soft); border-color: var(--ally); color: var(--ally); }
+.tw-pill[aria-checked="true"].tw-pill-enemy { background: var(--enemy-soft); border-color: var(--enemy); color: var(--enemy); }
+.tw-pill[aria-checked="true"].tw-pill-neutral { background: var(--surface-hover); border-color: var(--text-muted); color: var(--text); }
+.tw-pop-count { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); color: var(--text-muted); }
+.tw-pop-count-label { flex-basis: 100%; }
+.tw-pop-count label { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.tw-cn { width: 56px; }
+.tw-pop-count .btn { border-radius: var(--r-pill); }
+.tw-pop-note { color: var(--text-faint); font-size: var(--fs-xs); }
+.tw-pop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.tw-pop-list li { display: flex; align-items: center; gap: var(--sp-3); }
+.tw-pop-list .btn { margin-left: auto; border-radius: var(--r-pill); }

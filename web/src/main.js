@@ -787,6 +787,7 @@ PAGES.match = async () => {
   $('#review-toggle', page).onchange = e => {
     reviewMode = e.target.checked;
     $('#detail-body', page).classList.toggle('review-on', reviewMode);
+    if (!reviewMode && tlEl) tlEl.closePopover();
   };
 
   const video = $('#rv', page);
@@ -810,9 +811,15 @@ PAGES.match = async () => {
     }
   };
 
-  const drawTL = () => {
-    tlEl = renderTimeline(m, { onSeek: seek });
+  const drawTL = (opts = {}) => {
+    tlEl = renderTimeline(m, {
+      onSeek: seek,
+      // ヤグラ保持ラベル / カウント点の変更: 保存して帯を描き直す（カウント追加・削除ではポップオーバーを開いたままにする）
+      onReviewChange: async ({ reopen, focus }) => { await save(); drawTL({ reopen, focus }); },
+    });
     $('#tl', page).replaceChildren(tlEl);
+    if (opts.reopen) tlEl.openPopover(opts.reopen);
+    else if (opts.focus) tlEl.focusSegment(opts.focus);
     if (video.src && video.currentTime > 0) {
       tlEl.setPlayhead(video.currentTime + offset);
     }
