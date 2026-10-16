@@ -76,3 +76,10 @@
 ## D18 (2026-10-17) デザインレビュー反映：キル+アシストの廃止と停止ボタンの追加
 - キル+アシスト（ka）はUIから外す。`tools/ingest_feedback.py` は `result_screen` や `fix` に `ka` がなくても止まらず、「未確認」（None）として扱う。自分のキルは、タイムラインのキルイベントで確認する（Leadの決定）。
 - `.btn-stop` を `tokens.css` に追加した（背景は透明、文字色は `--danger`、1pxの `--danger` 枠線、ホバーで12%の薄い赤）。`.btn-danger-ghost` は残し、試合一覧の「…」メニュー内の「削除」に使う。
+
+## D21 (2026-10-17) ヤグラ保持ラベルの入力 UI（D20 への追記）
+- 本ブランチは D20（review.tower_holder / review.count_series、PR #28）への追記・補足を定める。
+- review.tower_holder には、ユーザーがポップオーバーで明示的に確認・設定した区間のみを `[start, end, own|enemy|neutral]`（昇順ソート、隣接する同値区間は結合）として書き出す。未確認区間は含めず除外（隙間）とし、eval_labels.py 等の評価ツール側でも区間に覆われない秒は採点対象外（スキップ）とする。確認済み区間が1つも存在しない場合は tower_holder は未設定（undefined/null、未ラベル扱い）とする。
+- カウント系列（review.count_series）の記録点は、動画の同期ずれに依存せず再現できるよう、該当区間の開始時刻（秒、0.1秒丸め）に記録する。
+- ポップオーバーには確認済み区間を未確認状態に戻す「未確認に戻す」ボタンを設け、押下時は内部の確認状態（review.tower_seg）から該当区間を削除し、タイムラインの確認マーカーを除去して tower_holder を再生成する。
+- review.tower_seg は検出された区間の開始時刻（秒、0.1秒丸め）をキーとして own|enemy|neutral を保持する内部管理用とし、ここから 0.1 秒丸めの tower_holder を再構築する。評価ツール側は tower_seg ではなく tower_holder / count_series を参照する。

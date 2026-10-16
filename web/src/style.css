@@ -1296,13 +1296,17 @@ tr.added td {
 .tw-seg .tw-focus { opacity: 0; }
 .detail-body:not(.review-on) .tw-seg { pointer-events: none; }
 .detail-body.review-on .tw-seg { cursor: pointer; }
-.detail-body.review-on .tw-seg:hover .tw-fill { filter: brightness(1.25); }
+.detail-body.review-on .tw-seg:hover .tw-fill { outline: 1px solid var(--text-muted); }
 .tw-seg:focus-visible .tw-focus { opacity: 1; }
+.tw-seg.is-editing .tw-fill {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 1px;
+}
 
 .tw-pop {
   position: absolute;
   z-index: 30;
-  width: 300px;
+  width: 280px;
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
@@ -1312,6 +1316,14 @@ tr.added td {
   border-radius: var(--r-md);
   box-shadow: var(--shadow-2);
   font-size: var(--fs-sm);
+}
+.tw-pop-arrow {
+  position: absolute;
+  bottom: -8px;
+  width: 16px;
+  height: 8px;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 .tw-pop-head { display: flex; align-items: baseline; gap: var(--sp-2); }
 .tw-pop-title { font-weight: var(--fw-bold); color: var(--text); }
@@ -1343,3 +1355,16 @@ tr.added td {
 .tw-pop-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
 .tw-pop-list li { display: flex; align-items: center; gap: var(--sp-3); }
 .tw-pop-list .btn { margin-left: auto; border-radius: var(--r-pill); }
+.tw-pop-foot { display: flex; margin-top: calc(-1 * var(--sp-1)); }
+.tw-unconfirm {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tw-unconfirm:hover { color: var(--text); }
+.tw-cp { cursor: pointer; }

@@ -40,10 +40,12 @@ export const pct = v => v === null || v === undefined || isNaN(v) ? '—' : `${M
 // ヤグラ保持の人手ラベル（D20: review.tower_holder / review.count_series）
 // 検出の保持区間（同じ保持者が続く区間）を単位に、確認済みの値を review.tower_seg
 // （キー＝区間開始秒 toFixed(1)）に保存し、そこから D20 形式の review.tower_holder を再生成する。
-// 方針: 1区間でも確認/変更したら tower_holder を書き出す。未確認の区間は「検出値のまま」で埋める
-// （試合全体を覆う）。1区間も確認していなければ tower_holder は書かない（評価側は未ラベル扱い）。
+// 方針: tower_holder には「確認済みの区間だけ」を書き出す（ポップオーバーで値を設定した区間）。
+// 未確認の区間は書かない（隙間になり、eval_labels.py は区間に覆われない秒を採点しない）。
+// 隣り合う確認済み区間が同じ値なら結合する。1区間も確認していなければ tower_holder は書かない
+// （評価側は未ラベル扱い）。
 // ---------------------------------------------------------------------------
-export const HOLDER_JA = { own: '自分', enemy: '敵', neutral: '中立' };
+export const HOLDER_JA = { own: '味方', enemy: '敵', neutral: '中立' };
 const holderOf = o => (o === 'own' || o === 'enemy') ? o : 'neutral';
 const r1 = x => Math.round(x * 10) / 10;
 /** detected holder runs over the battle, with review overlay: {key,ta,tb,det,val,confirmed,changed} */
@@ -62,12 +64,27 @@ export function syncTowerHolder(m) {
   const r = m.review; const segs = holderSegments(m);
   if (!r || !segs.some(s => s.confirmed)) { if (r) delete r.tower_holder; return; }
   const out = [];
-  for (const s of segs) { const a = r1(s.ta), b = r1(s.tb), l = out[out.length - 1];
-    if (l && l[2] === s.val) l[1] = b; else out.push([a, b, s.val]); }
+  for (const s of segs) {
+    if (!s.confirmed) continue;
+    const a = r1(s.ta), b = r1(s.tb), l = out[out.length - 1];
+    if (l && l[2] === s.val && Math.abs(l[1] - a) < 0.05) l[1] = b;
+    else out.push([a, b, s.val]);
+  }
   r.tower_holder = out;
 }
 export function setHolderLabel(m, key, val) {
-  m.review.tower_seg = m.review.tower_seg || {}; m.review.tower_seg[key] = val; syncTowerHolder(m);
+  m.review = m.review || {};
+  m.review.tower_seg = m.review.tower_seg || {};
+  m.review.tower_seg[key] = val;
+  syncTowerHolder(m);
+}
+/** remove the confirmation of one segment (back to unconfirmed) and rebuild tower_holder */
+export function clearHolderLabel(m, key) {
+  if (m.review && m.review.tower_seg) {
+    delete m.review.tower_seg[key];
+    if (!Object.keys(m.review.tower_seg).length) delete m.review.tower_seg;
+  }
+  syncTowerHolder(m);
 }
 export function addCountPoint(m, sec, own, enemy) {
   const cs = (m.review.count_series = m.review.count_series || []); sec = r1(sec);

@@ -788,6 +788,7 @@ PAGES.match = async () => {
     reviewMode = e.target.checked;
     $('#detail-body', page).classList.toggle('review-on', reviewMode);
     if (!reviewMode && tlEl) tlEl.closePopover();
+    drawTL();
   };
 
   const video = $('#rv', page);
@@ -813,6 +814,7 @@ PAGES.match = async () => {
 
   const drawTL = (opts = {}) => {
     tlEl = renderTimeline(m, {
+      reviewMode,
       onSeek: seek,
       // ヤグラ保持ラベル / カウント点の変更: 保存して帯を描き直す（カウント追加・削除ではポップオーバーを開いたままにする）
       onReviewChange: async ({ reopen, focus }) => { await save(); drawTL({ reopen, focus }); },
