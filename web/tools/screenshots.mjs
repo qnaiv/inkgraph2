@@ -3,6 +3,7 @@ import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { runUiChecks } from './ui_check.mjs';
 
 const WEB_DIR = path.resolve(import.meta.dirname, '..');
 const ROOT = path.resolve(WEB_DIR, '..');
@@ -38,7 +39,9 @@ await page.screenshot({ path: path.join(SH, '01_live.png') });
     await page.click('#start');
     await page.waitForFunction(() => document.querySelector('#state')?.textContent.includes('解析中') && getComputedStyle(document.querySelector('#stop')).display !== 'none', null, { timeout: 30000 });
     await page.waitForSelector('#stop', { state: 'visible', timeout: 30000 });
-    await page.waitForTimeout(4000);
+    // the badge shows 「解析中 · m:ss / m:ss」 once a match has started; wait for it (pre-match shows 「試合の開始を待っています」)
+    await page.waitForFunction(() => /^解析中 · \d+:\d\d \/ \d+:\d\d$/.test(document.querySelector('#state')?.textContent || ''), null, { timeout: 120000 });
+    await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(SH, '05_live_analyzing.png') });
     await page.click('#stop');
     await page.waitForTimeout(800);
@@ -137,6 +140,9 @@ await page.screenshot({ path: path.join(SH, '04_trends.png'), fullPage: true });
   await ctx2.close();
 }
 
+const uiFailed = await runUiChecks(browser, U, ms);
+
 await browser.close();
 srv.kill();
 console.log('screenshots in', SH);
+process.exit(uiFailed ? 1 : 0);

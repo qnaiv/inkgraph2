@@ -173,7 +173,6 @@ PAGES.live = async () => {
           <button class="btn" id="video-pick-file" type="button">録画ファイルを選ぶ</button>
         </div>
         <video id="v" playsinline muted></video>
-        <div id="prog" class="video-progress-overlay num"></div>
       </div>
 
       <div class="card live-match-card">
@@ -310,7 +309,7 @@ PAGES.live = async () => {
       alert('録画ファイルを選んでください');
       return;
     }
-    let k = 0, d = 0, sp = 0, t0 = 0, estWp = 0.5;
+    let k = 0, d = 0, sp = 0, t0 = 0, estWp = 0.5, justSaved = false;
     $('#k', page).textContent = '0';
     $('#d', page).textContent = '0';
     $('#sp', page).textContent = '0';
@@ -346,14 +345,27 @@ PAGES.live = async () => {
         $('#sp', page).textContent = sp;
       },
       status: m => {
-        const label = { idle: '解析中（待機中）', battle: '解析中（バトル中）', result: '解析中（リザルト読み取り）' }[m.state] || '解析中';
-        $('#state', page).textContent = `${label} · ${m.ms.toFixed(0)}ms`;
+        if (m.state === 'battle' || m.state === 'result') justSaved = false;
+        if (justSaved) return;
+        const dot = $('#live-dot', page), st = $('#state', page);
+        if (m.state === 'idle') {
+          dot.className = 'status-dot-idle'; dot.style.background = 'var(--text-muted)';
+          st.textContent = '試合の開始を待っています';
+          return;
+        }
+        dot.className = 'pulse-dot'; dot.style.background = '';
+        const dur = $('#v', page).duration;
+        st.textContent = session?.mode === 'file'
+          ? `解析中 · ${mss($('#v', page).currentTime)}${isFinite(dur) ? ' / ' + mss(dur) : ''}`
+          : `解析中 · 経過 ${mss(session ? session.now() : 0)}`;
       },
-      progress: (p, t) => {
-        $('#prog', page).textContent = `${Math.round(p * 100)}% (${mss(t)})`;
-      },
+      
       match: rec => {
         savedCount++;
+        justSaved = true;
+        $('#live-dot', page).className = 'status-dot-idle';
+        $('#live-dot', page).style.background = 'var(--kill)';
+        $('#state', page).textContent = '保存しました';
         const ev = effective(rec);
         $('#k', page).textContent = ev.filter(x => x.kind === 'kill').length;
         $('#d', page).textContent = ev.filter(x => x.kind === 'death').length;
@@ -376,7 +388,9 @@ PAGES.live = async () => {
         $('#start', page).style.display = 'inline-flex';
         $('#stop', page).disabled = true;
         $('#stop', page).style.display = 'none';
+        if (justSaved) return;
         $('#live-dot', page).className = 'status-dot-idle';
+        $('#live-dot', page).style.background = '';
         $('#state', page).textContent = '停止しました';
       }
     });
@@ -386,6 +400,7 @@ PAGES.live = async () => {
     $('#stop', page).disabled = false;
     $('#stop', page).style.display = 'inline-flex';
     $('#live-dot', page).className = 'pulse-dot';
+    $('#live-dot', page).style.background = '';
     $('#state', page).textContent = '解析中';
     try {
       await session.start({
@@ -1262,7 +1277,7 @@ PAGES.trend = async () => {
                 </div>
               </div>
               <div class="div-meta">
-                <span class="num">キル÷デス ${x.kd}</span>
+                <span class="num">${x.kd}</span>
                 <span class="num ${lossFmt.cls}">${lossFmt.text}</span>
               </div>
             </div>`;
@@ -1294,7 +1309,7 @@ PAGES.trend = async () => {
                 </div>
               </div>
               <div class="div-meta" style="min-width:132px">
-                <span class="num">キル÷デス ${x.kd}</span>
+                <span class="num">${x.kd}</span>
               </div>
             </div>`;
         }).join('')}

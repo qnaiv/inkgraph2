@@ -799,7 +799,7 @@ button, input, select {
   flex: 1;
   min-width: 72px;
   max-width: 120px;
-  height: 6px;
+  height: 8px;
   background: var(--surface-2);
   border-radius: var(--r-pill);
   overflow: hidden;
