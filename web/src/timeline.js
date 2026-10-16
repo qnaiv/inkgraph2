@@ -232,7 +232,13 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
     for (const c of (m.review && m.review.count_series) || []) {
       if (c[0] < t0 || c[0] > t1) continue;
       const cTip = `味方 ${c[1]} ／ 敵 ${c[2]}`;
-      body += `<g class="tw-cp" data-c0="${c[0]}" data-own="${c[1]}" data-enemy="${c[2]}" data-tip="${cTip}" tabindex="0"><title>${cTip}</title><circle cx="${X(c[0]).toFixed(1)}" cy="${Ytc(c[1]).toFixed(1)}" r="3.5" fill="var(--ally)" stroke="var(--surface)" stroke-width="1.5"/><circle cx="${X(c[0]).toFixed(1)}" cy="${Ytc(c[2]).toFixed(1)}" r="3.5" fill="var(--enemy)" stroke="var(--surface)" stroke-width="1.5"/></g>`;
+      const cx = X(c[0]).toFixed(1), cyOwn = Ytc(c[1]).toFixed(1), cyEnemy = Ytc(c[2]).toFixed(1);
+      body += `<g class="tw-cp" data-c0="${c[0]}" data-own="${c[1]}" data-enemy="${c[2]}" data-tip="${cTip}" tabindex="0" role="button" aria-label="${cTip}">`
+        + `<title>${cTip}</title>`
+        + `<line x1="${cx}" x2="${cx}" y1="${cyOwn}" y2="${cyEnemy}" stroke="var(--border-strong)" stroke-width="1.5" stroke-dasharray="2,2"/>`
+        + `<circle cx="${cx}" cy="${cyOwn}" r="3.5" fill="var(--ally)" stroke="var(--surface)" stroke-width="1.5"/>`
+        + `<circle cx="${cx}" cy="${cyEnemy}" r="3.5" fill="var(--enemy)" stroke="var(--surface)" stroke-width="1.5"/>`
+        + `</g>`;
     }
     body += unknownBand(tcY, tcH);
     body += `<text x="${L + Wd + 4}" y="${tcY + 12}" class="num" font-size="10" fill="var(--text-muted)">100</text>`;
@@ -308,6 +314,11 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
   };
 
   svg.addEventListener('mousemove', e => {
+    if (pop) {
+      hoverLine.style.opacity = '0';
+      tooltip.style.display = 'none';
+      return;
+    }
     const seg = e.target.closest('.tw-seg');
     if (seg && seg.dataset.tip) {
       hoverLine.style.opacity = '0';
@@ -370,6 +381,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
 
   wrap.querySelectorAll('.tw-seg').forEach(g => {
     g.addEventListener('mouseenter', e => {
+      if (pop) return;
       const tip = g.dataset.tip;
       if (!tip) return;
       hoverLine.style.opacity = '0';
@@ -386,6 +398,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
 
   wrap.querySelectorAll('.tw-cp').forEach(g => {
     g.addEventListener('mouseenter', e => {
+      if (pop) return;
       const tip = g.dataset.tip;
       if (!tip) return;
       hoverLine.style.opacity = '0';
@@ -425,6 +438,13 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
     const sg = holderSegs.find(x => x.key === key), g = segEl(key);
     if (!sg || !g || !reviewOn()) return;
     closePop();
+    if (tooltip) {
+      tooltip.style.display = 'none';
+      tooltip.innerHTML = '';
+    }
+    if (hoverLine) {
+      hoverLine.style.opacity = '0';
+    }
     popKey = key;
     g.classList.add('is-editing');
     pop = document.createElement('div');

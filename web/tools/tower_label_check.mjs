@@ -47,6 +47,8 @@ try {
   const key = await segs.nth(idx).getAttribute('data-key');
   await segs.nth(idx).locator('.tw-fill').click({ force: true });
   await page.waitForSelector('.tw-pop');
+  const tipVis = await page.locator('.tl-tooltip').isVisible();
+  check(!tipVis, 'no visible tooltip while popover is open');
   const det = await page.evaluate(() => document.querySelector('.tw-pop .tw-pill[aria-checked="true"]').dataset.v);
   check(['own', 'enemy', 'neutral'].includes(det), 'popover opens with detected value selected', det);
   const popW = await page.evaluate(() => document.querySelector('.tw-pop').offsetWidth);
@@ -74,6 +76,17 @@ try {
   await page.click(`.tw-pop .tw-pill[data-v="${newVal}"]`);
   await page.waitForTimeout(300);
   check(await page.locator('.tw-pop').count() === 0, 'popover closes after choice');
+
+  const cpDot = page.locator('.tw-cp circle').first();
+  await cpDot.hover();
+  await page.waitForSelector('.tl-tooltip', { state: 'visible' });
+  const cpTip = (await page.locator('.tl-tooltip').innerText()).trim();
+  check(cpTip === '味方 37 ／ 敵 52', 'count point hover tooltip matches 味方 37 ／ 敵 52', cpTip);
+  const dotBox = await cpDot.boundingBox();
+  const dotSizeOk = dotBox && dotBox.width >= 6 && dotBox.height >= 6;
+  check(dotSizeOk, 'count point dot rendered size is >=6px', `w=${dotBox?.width?.toFixed(1)}, h=${dotBox?.height?.toFixed(1)}`);
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(200);
 
   // Confirm a 2nd segment with its detected value
   const idx2 = 3;
@@ -122,6 +135,7 @@ try {
   // (d) open 2nd segment popover, assert 「未確認に戻す」 visible, screenshot 04, click it, export again
   await segs.nth(idx2).locator('.tw-fill').click({ force: true });
   await page.waitForSelector('.tw-pop');
+  check(!await page.locator('.tl-tooltip').isVisible(), 'no visible tooltip while confirmed popover is open');
   const ucBtn = page.locator('.tw-unconfirm');
   check(await ucBtn.isVisible(), '未確認に戻す button visible on confirmed segment');
   check((await ucBtn.textContent()).trim() === '未確認に戻す', '未確認に戻す label text correct');

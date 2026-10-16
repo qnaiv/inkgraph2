@@ -1368,3 +1368,4 @@ tr.added td {
 }
 .tw-unconfirm:hover { color: var(--text); }
 .tw-cp { cursor: pointer; }
+.tw-cp:hover circle { filter: brightness(1.25); }
