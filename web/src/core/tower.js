@@ -163,10 +163,20 @@ function smoothRemaining(rows, key, win = 7, need = 3) { const v = rows.map(r =>
   for (let i = 0; i < v.length; i++) { const w = v.slice(Math.max(0, i - (win >> 1)), i + (win >> 1) + 1).filter(x => x !== null && x >= 0 && x <= 100);
     if (w.length) { const c = new Map(); w.forEach(x => c.set(x, (c.get(x) || 0) + 1)); let bv = null, bc = 0; for (const [x, n] of c) if (n > bc) { bc = n; bv = x; } if (bc >= need && bv < cur) cur = bv; }
     out.push(cur); } return out; }
-export function series(rows) {
-  const ro = smoothRemaining(rows, 'own'), re = smoothRemaining(rows, 'enemy'); const owners = rows.map(r => r.marker ? r.marker.owner : null);
-  return rows.map((r, i) => { const w = owners.slice(Math.max(0, i - 2), i + 3).filter(Boolean); let o = 'neutral';
-    if (w.length) { const c = {}; w.forEach(x => c[x] = (c[x] || 0) + 1); o = Object.entries(c).sort((a, b) => b[1] - a[1])[0][0]; }
+export function series(rows, opts = {}) {
+  const { dense = true, win = 3, hold = 3.0 } = opts;
+  const grid = rows.filter(r => r.grid === undefined || r.grid);
+  const ro = smoothRemaining(grid, 'own'), re = smoothRemaining(grid, 'enemy');
+  if (!dense) { const owners = grid.map(r => r.marker ? r.marker.owner : null);
+    return grid.map((r, i) => { const w = owners.slice(Math.max(0, i - win), i + win + 1).filter(Boolean); let o = 'neutral';
+      if (w.length) { const c = {}; w.forEach(x => c[x] = (c[x] || 0) + 1); o = Object.entries(c).sort((a, b) => b[1] - a[1])[0][0]; }
+      return { t: r.t, count_own: 100 - ro[i], count_enemy: 100 - re[i], diff: re[i] - ro[i], owner: o }; }); }
+  const mk = rows.filter(r => r.marker && r.marker.owner); let prev = 'neutral';
+  return grid.map((r, i) => { const w = mk.filter(x => Math.abs(x.t - r.t) <= win + 1e-9); let o = null;
+    if (w.length) { const c = {}; w.forEach(x => c[x.marker.owner] = (c[x.marker.owner] || 0) + 1); const mx = Math.max(...Object.values(c));
+      let best = null, bd = Infinity; for (const x of w) if (c[x.marker.owner] === mx) { const d = Math.abs(x.t - r.t); if (d < bd) { bd = d; best = x; } } o = best.marker.owner; }
+    else if (hold > 0) { let last = null; for (const x of mk) if (x.t <= r.t) last = x; else break; if (last && r.t - last.t <= hold) o = prev; }
+    if (!o) o = 'neutral'; prev = o;
     return { t: r.t, count_own: 100 - ro[i], count_enemy: 100 - re[i], diff: re[i] - ro[i], owner: o }; });
 }
 export function at(S, t) { if (!S.length) return null; let b = S[0]; for (const s of S) if (Math.abs(s.t - t) < Math.abs(b.t - t)) b = s; return b; }
