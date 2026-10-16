@@ -54,3 +54,21 @@
 - 画像の読み書きは `imread_unicode` / `imwrite_unicode`（np.fromfile+imdecode / imencode+tofile）に統一。理由：Windowsで cv2.imread が日本語ファイル名のテンプレートを読めず、モード・ステージ判定が壊れていた。
 - matplotlib の font.family は候補リストのうち実在するフォントだけを設定（findfont警告の大量出力を防ぐ）。CJKフォントが無ければ警告1回。
 - ボックスで joined_match01 を再解析し、既存出力と同値（モード ガチヤグラ／ステージ クサヤ温泉）を確認。
+
+## D15 (2026-10-17) ブラウザ版のアーキテクチャ
+- 構成：`web/` にVite＋素のES Modules。バックエンドなし。
+- 分析はWeb Workerで実行。Pythonと同じ5フレーム／秒（0.2秒刻み）。1080pで1フレーム約10ミリ秒、ヤグラのカウント読み取りは1秒に1回。
+- 試合データと録画（MediaRecorder、webm 約2.5Mbps）はブラウザのIndexedDBに保存。
+- 1080pからの切り抜きは、OpenCVのINTER_AREAと同じ計算をJSで再現して縮小する。理由：Pythonで作ったテンプレートと数字分類器をそのまま使うため。テンプレート・モデルは `tools/export_web_assets.py` が `web/public/assets/inkgraph_assets.json` に書き出す。
+- `cv2.HoughCircles` はJSの放射状勾配による円探索に置き換えた。Pythonのヤグラ保持チーム判定との一致率は1フレーム約79%で、既知の弱点。
+- 検証：ヘッドレスChromeで `web/tools/validate.mjs` と `compare.py` により1080pの試合1〜3をPythonと比較（自分のデス19/20一致、キル10/10、スペシャル14/14、リザルト各項目3/3、最終カウント2/2）。
+
+## D16 (2026-10-17) 確認モードと、修正にもとづく精度評価・フィードバックパッケージ
+- 確認モードで検出イベントごとに「正しい／誤検出／削除」、見逃しの追加、リザルト項目の ✓／✗（と修正値）を付ける。その結果から試合ごと・全体の適合率と再現率を求める。
+- 動画全体ではなく、修正内容と静止画を入れたzip（feedback.json＋画像）を書き出し、Googleドライブ「grok用」にアップロードする。理由：動画は大きすぎる（D6の100MB制限）が、静止画とJSONなら十分小さい。
+- 静止画の自動保存：✗にしたイベントと見逃し追加の前後、確信度が低いリザルト画面、試合中の3枚（未知のルール／ステージ用）。
+- ボックス側は `python tools/ingest_feedback.py FEEDBACK.zip [--apply]` で取り込む。テンプレート追加、`labels/feedback/*.json` への正解データ書き出し、ラベル付け用フレーム収集、Webアセット再書き出しを行う。
+
+## D17 (2026-10-17) コードの実装はAntigravity CLI（agy）に任せる
+- Grokは仕様書の作成、検証、レビューを担当し、コードの記述はAntigravity CLI（`agy`）が行う。
+- 作業の記録は `docs/AGY_LOG.md` に残す。

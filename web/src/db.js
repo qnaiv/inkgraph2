@@ -3,7 +3,7 @@ const DB = 'inkgraph', VER = 1; let dbp = null;
 function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r = indexedDB.open(DB, VER);
   r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('matches', { keyPath: 'id' }); d.createObjectStore('videos', { keyPath: 'id' }); const s = d.createObjectStore('snaps', { keyPath: 'id', autoIncrement: true }); s.createIndex('match', 'matchId'); };
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); return dbp; }
-const tx = async (store, mode, fn) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const r = fn(s); t.oncomplete = () => res(r && r.result !== undefined ? r.result : r); t.onerror = () => rej(t.error); }); };
+const tx = async (store, mode, fn) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const r = fn(s); t.oncomplete = () => res(r instanceof IDBRequest ? r.result : r); t.onerror = () => rej(t.error); }); };
 export const putMatch = m => tx('matches', 'readwrite', s => s.put(m));
 export const getMatch = id => tx('matches', 'readonly', s => s.get(id));
 export const allMatches = async () => (await tx('matches', 'readonly', s => s.getAll())).sort((a, b) => (a.created || '').localeCompare(b.created || '') || a.match - b.match);
