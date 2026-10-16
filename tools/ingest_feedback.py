@@ -23,6 +23,12 @@ def get_next_fb_n(folder, name, lib):
         n += 1
 
 
+def _own_str(own):
+    """表示用。None（未確認）は「未確認」と表示する。"""
+    labels = {'ka': 'キル+アシスト', 'deaths': 'デス', 'specials': 'スペシャル'}
+    return ', '.join(f"{labels.get(k, k)}={'未確認' if v is None else v}" for k, v in own.items())
+
+
 def main():
     p = argparse.ArgumentParser(description='Ingest web app feedback zip')
     p.add_argument('feedback_zip', help='Path to feedback zip file')
@@ -68,7 +74,10 @@ def main():
         c_res = fix.get('result') or rs.get('result')
         c_mode = fix.get('mode') or rs.get('mode')
         c_stage = fix.get('stage') or rs.get('stage')
+        # 'ka'（キル+アシスト）はUIから廃止。欠けていても壊れず、None＝未確認として扱う。
+        # 自分のキルはタイムラインのキルイベントで検証する。
         c_own = {k: fix[k] if fix.get(k) is not None else own.get(k) for k in ('ka', 'deaths', 'specials')}
+        c_own = {k: (v if isinstance(v, (int, float)) else None) for k, v in c_own.items()}
         s_last = m.get('tower_series') or []
         c_cnt = fix.get('count') or (f"{s_last[-1]['own']}-{s_last[-1]['enemy']}" if s_last else rs.get('count'))
 
@@ -95,7 +104,7 @@ def main():
             'own': c_own, 'count': c_cnt, 'events': corr_events,
         })
 
-        print(f"\n[試合 {mid}] 判定結果: {c_res} | ルール: {c_mode} | ステージ: {c_stage} | カウント: {c_cnt} | 自身: {c_own}")
+        print(f"\n[試合 {mid}] 判定結果: {c_res} | ルール: {c_mode} | ステージ: {c_stage} | カウント: {c_cnt} | 自身: {_own_str(c_own)}")
         for k in ('death', 'kill', 'special'):
             c = m_counts[k]
             print(f"  {k:7s}: ✓ {c['ok']}  ✗ {c['wrong']}  追加 {c['added']}")

@@ -98,6 +98,8 @@ body { background: var(--bg); color: var(--text); font: var(--fw-normal) var(--f
 
 .btn { height: 36px; padding: 0 var(--sp-4); border-radius: var(--r-md); font-weight: var(--fw-bold); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
 .btn-primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.btn-stop { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+.btn-stop:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .btn-danger-ghost { background: transparent; color: var(--danger); border-color: transparent; }
 .btn:disabled { opacity: .4; }
 

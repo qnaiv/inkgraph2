@@ -86,15 +86,15 @@ export function renderTimeline(m, { onSeek } = {}) {
   // ---------------- 3. 自分レーン (84px) ----------------
   const ownY = y, ownH = 84;
   const rowY = { kill: ownY + 18, death: ownY + 44, special: ownY + 68 };
-  body += `<text x="${L - 8}" y="${ownY + 46}" text-anchor="end" font-size="12" font-weight="700" fill="var(--text)">自分</text>`;
+  body += `<text x="${L - 8}" y="${ownY + 46}" text-anchor="end" font-size="12" font-weight="700" fill="var(--text-muted)">自分</text>`;
   body += `<rect x="${L}" y="${ownY}" width="${Wd}" height="${ownH}" fill="var(--surface-2)" fill-opacity="0.25"/>`;
   for (const r of [rowY.kill, rowY.death, rowY.special]) {
     body += `<line x1="${L}" x2="${L + Wd}" y1="${r}" y2="${r}" stroke="var(--border)" stroke-opacity="0.5"/>`;
   }
   body += unknownBand(ownY, ownH);
 
-  // ---------------- 4. 勝率グラフ (120px) ----------------
-  const wpY = ownY + ownH + 8, wpH = 120, wpMid = wpY + wpH / 2;
+  // ---------------- 4. 勝率グラフ (132px >= 120px) ----------------
+  const wpY = ownY + ownH + 8, wpH = 132, wpMid = wpY + wpH / 2;
   const Ywp = v => wpY + wpH - 8 - Math.max(0, Math.min(1, v)) * (wpH - 16);
   defs += `<clipPath id="wp-up-${uid}"><rect x="${L}" y="${wpY}" width="${Wd}" height="${wpH / 2}"/></clipPath>`;
   defs += `<clipPath id="wp-dn-${uid}"><rect x="${L}" y="${wpMid}" width="${Wd}" height="${wpH / 2}"/></clipPath>`;
@@ -131,7 +131,9 @@ export function renderTimeline(m, { onSeek } = {}) {
         body += `<g ${attr}><title>${mss(e.t - t0)} キル</title><text x="${x.toFixed(1)}" y="${rowY.kill + 6}" text-anchor="middle" font-size="17" fill="var(--kill)">★</text></g>`;
       } else {
         const rw = Math.max(4, X(e.end) - x);
-        body += `<g ${attr}><title>${mss(e.t - t0)} デス</title><rect x="${x.toFixed(1)}" y="${rowY.death - 8}" width="${rw.toFixed(1)}" height="16" rx="3" fill="var(--respawn)"/><text x="${x.toFixed(1)}" y="${rowY.death + 5}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--death)">×</text></g>`;
+        const x1 = (x - 6).toFixed(1), x2 = (x + 6).toFixed(1);
+        const y1 = (rowY.death - 6).toFixed(1), y2 = (rowY.death + 6).toFixed(1);
+        body += `<g ${attr}><title>${mss(e.t - t0)} デス</title><rect x="${x.toFixed(1)}" y="${rowY.death - 8}" width="${rw.toFixed(1)}" height="16" rx="3" fill="var(--respawn)"/><g class="death-mark" data-size="14" stroke="var(--death)" stroke-width="2" stroke-linecap="round"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><line x1="${x2}" y1="${y1}" x2="${x1}" y2="${y2}"/></g></g>`;
       }
       if (e.wp_delta !== undefined && Math.abs(e.wp_delta) >= 0.05) {
         const dp = Math.round(e.wp_delta * 100);
@@ -219,7 +221,7 @@ export function renderTimeline(m, { onSeek } = {}) {
     ${gridLines}
     ${body}
     <line id="hover-line" x1="-10" x2="-10" y1="${phaseY}" y2="${axisY}" stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="3,3" style="pointer-events:none;opacity:0"/>
-    <line id="playhead" x1="-10" x2="-10" y1="${phaseY}" y2="${axisY}" stroke="var(--accent)" stroke-width="2" style="pointer-events:none"/>
+    <line id="playhead" x1="-10" x2="-10" y1="${phaseY}" y2="${axisY}" stroke="var(--accent)" stroke-width="1.5" style="pointer-events:none"/>
   </svg>`;
 
   // ---------------- 7. 味方・敵のやられ (collapsed) ----------------
@@ -240,7 +242,7 @@ export function renderTimeline(m, { onSeek } = {}) {
   }
   rows.forEach(([k, lab, col], i) => {
     const ry = 6 + i * 20;
-    subBody += `<text x="${L - 8}" y="${ry + 12}" text-anchor="end" font-size="11" fill="var(--text-muted)">${lab}</text>`;
+    subBody += `<text x="${L - 8}" y="${ry + 12}" text-anchor="end" font-size="12" fill="var(--text-muted)">${lab}</text>`;
     subBody += `<line x1="${L}" x2="${L + Wd}" y1="${ry + 8}" y2="${ry + 8}" stroke="var(--border)" stroke-opacity="0.4"/>`;
     for (const e of (m.squid_down?.[k] || [])) {
       const ex = X(e.start), ew = Math.max(3, X(e.end) - ex);
@@ -335,12 +337,21 @@ export function renderTimeline(m, { onSeek } = {}) {
 
 export const LEGEND = `
 <div class="tl-legend">
-  <span><b style="color:var(--kill)">★</b> キル</span>
-  <span><b style="color:var(--death)">×</b> デス</span>
-  <span><i class="tl-swatch" style="background:var(--respawn)"></i>復活待ち</span>
-  <span><i class="tl-swatch" style="background:var(--special)"></i>スペシャル発動</span>
-  <span><i class="tl-swatch" style="background:var(--special-wasted)"></i>SP未使用・払い落とし</span>
-  <span><i class="tl-swatch" style="background:var(--ally)"></i>味方有利・抑え</span>
-  <span><i class="tl-swatch" style="background:var(--enemy)"></i>敵有利・打開</span>
-  <span><i class="tl-swatch" style="background:var(--unknown);border:1px solid var(--border)"></i>判定不可区間</span>
+  <div class="tl-legend-group">
+    <span class="tl-legend-heading">帯の色：</span>
+    <span><i class="tl-swatch" style="background:var(--ally-soft);border:1px solid var(--ally)"></i>抑え</span>
+    <span><i class="tl-swatch" style="background:var(--enemy-soft);border:1px solid var(--enemy)"></i>打開</span>
+    <span><i class="tl-swatch" style="background:var(--surface-2);border:1px solid var(--border-strong)"></i>互角</span>
+    <span><i class="tl-swatch" style="background:var(--respawn)"></i>復活待ち</span>
+    <span><i class="tl-swatch" style="background:var(--unknown);border:1px solid var(--border)"></i>判定不可区間</span>
+  </div>
+  <div class="tl-legend-group">
+    <span class="tl-legend-heading">線の色・記号：</span>
+    <span><i class="tl-line-swatch" style="background:var(--ally)"></i>味方</span>
+    <span><i class="tl-line-swatch" style="background:var(--enemy)"></i>敵</span>
+    <span><b style="color:var(--kill)">★</b> キル</span>
+    <span><svg width="14" height="14" viewBox="0 0 14 14" style="vertical-align:middle"><line x1="2" y1="2" x2="12" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="2" x2="2" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/></svg> デス</span>
+    <span><i class="tl-swatch" style="background:var(--special)"></i>スペシャル発動</span>
+    <span><i class="tl-swatch" style="background:var(--special-wasted)"></i>スペシャル未使用・払い落とし</span>
+  </div>
 </div>`;

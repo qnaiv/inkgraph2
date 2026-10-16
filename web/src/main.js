@@ -168,6 +168,10 @@ PAGES.live = async () => {
           <span id="live-dot" class="status-dot-idle"></span>
           <span id="state">待機中（映像を選択して開始）</span>
         </div>
+        <div class="video-empty-state" id="video-empty">
+          <p>キャプチャーボードを接続するか、録画ファイルを選んで解析を開始してください</p>
+          <button class="btn" id="video-pick-file" type="button">録画ファイルを選ぶ</button>
+        </div>
         <video id="v" playsinline muted></video>
         <div id="prog" class="video-progress-overlay num"></div>
       </div>
@@ -178,15 +182,15 @@ PAGES.live = async () => {
         <div class="live-stats-row">
           <div class="stat">
             <div class="stat-label">キル</div>
-            <div class="stat-value-2xl num" id="k">0</div>
+            <div class="stat-value-2xl num" id="k">—</div>
           </div>
           <div class="stat">
             <div class="stat-label">デス</div>
-            <div class="stat-value-2xl num" id="d">0</div>
+            <div class="stat-value-2xl num" id="d">—</div>
           </div>
           <div class="stat">
-            <div class="stat-label">SP</div>
-            <div class="stat-value-2xl num" id="sp">0</div>
+            <div class="stat-label">スペシャル</div>
+            <div class="stat-value-2xl num" id="sp">—</div>
           </div>
         </div>
 
@@ -200,14 +204,14 @@ PAGES.live = async () => {
             <span class="live-context-val num count-zero" id="live-diff">±0</span>
           </div>
           <div class="live-context-box">
-            <div style="display:flex;justify-content:space-between;align-items:baseline">
-              <span class="stat-label">勝率の目安</span>
+            <span class="stat-label" style="white-space:nowrap">勝率の目安</span>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px">
               <span class="live-context-val num" id="live-wp">50%</span>
+              <svg id="live-spark" viewBox="0 0 100 24" width="64" height="20" style="flex:1;max-width:72px">
+                <line x1="0" x2="100" y1="12" y2="12" stroke="var(--border-strong)" stroke-dasharray="2,2"/>
+                <polyline id="live-spark-line" fill="none" stroke="var(--ally)" stroke-width="2" points="0,12 100,12"/>
+              </svg>
             </div>
-            <svg id="live-spark" viewBox="0 0 100 24" width="100%" height="24" style="margin-top:4px">
-              <line x1="0" x2="100" y1="12" y2="12" stroke="var(--border-strong)" stroke-dasharray="2,2"/>
-              <polyline id="live-spark-line" fill="none" stroke="var(--ally)" stroke-width="2" points="0,12 100,12"/>
-            </svg>
           </div>
         </div>
 
@@ -238,6 +242,16 @@ PAGES.live = async () => {
     $('#file-controls', page).style.display = mode === 'file' ? 'flex' : 'none';
   };
   page.querySelectorAll('input[name="src"]').forEach(r => r.addEventListener('change', syncSourceTabs));
+
+  $('#video-pick-file', page).onclick = () => {
+    const fileRadio = page.querySelector('input[name="src"][value="file"]');
+    if (fileRadio && !fileRadio.checked) {
+      fileRadio.checked = true;
+      syncSourceTabs();
+    }
+    $('#file', page).click();
+  };
+
   $('#file', page).addEventListener('change', e => {
     const f = e.target.files?.[0];
     if (f) {
@@ -297,6 +311,11 @@ PAGES.live = async () => {
       return;
     }
     let k = 0, d = 0, sp = 0, t0 = 0, estWp = 0.5;
+    $('#k', page).textContent = '0';
+    $('#d', page).textContent = '0';
+    $('#sp', page).textContent = '0';
+    const vEmpty = $('#video-empty', page);
+    if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
       event: e => {
         const tt = mss(e.t - t0);
@@ -384,6 +403,7 @@ PAGES.live = async () => {
       $('#stop', page).style.display = 'none';
       $('#live-dot', page).className = 'status-dot-idle';
       $('#state', page).textContent = '待機中';
+      if (vEmpty && !$('#v', page).src) vEmpty.style.display = 'flex';
     }
   };
   $('#stop', page).onclick = () => session && session.stop();
@@ -468,6 +488,17 @@ PAGES.list = async () => {
           const dMismatch = r.deaths !== undefined && r.deaths !== null && r.deaths !== dCnt;
           const spMismatch = r.specials !== undefined && r.specials !== null && r.specials !== spCnt;
           const showResultDiff = dMismatch || spMismatch;
+          const diffParts = [];
+          const diffTipParts = [];
+          if (dMismatch) {
+            diffParts.push(`デス<span class="num mismatch-val">${esc(r.deaths)}</span>`);
+            diffTipParts.push(`デス：検出${dCnt} / リザルト画面${r.deaths}`);
+          }
+          if (spMismatch) {
+            diffParts.push(`スペシャル<span class="num mismatch-val">${esc(r.specials)}</span>`);
+            diffTipParts.push(`スペシャル：検出${spCnt} / リザルト画面${r.specials}`);
+          }
+          const diffTip = diffTipParts.join('、');
           const pctRv = det.length ? Math.round((rv / det.length) * 100) : 0;
           const dtStr = m.created ? new Date(m.created).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -485,22 +516,22 @@ PAGES.list = async () => {
 
               <div class="match-row-col-kda">
                 <div class="kda-metrics">
-                  <span class="kda-item"><span class="kda-label">K</span><span class="kda-val num">${kCnt}</span></span>
-                  <span class="kda-item"><span class="kda-label">D</span><span class="kda-val num">${dCnt}</span></span>
-                  <span class="kda-item"><span class="kda-label">SP</span><span class="kda-val num">${spCnt}</span></span>
+                  <span class="kda-item"><span class="kda-label">キル</span><span class="kda-val num">${kCnt}</span></span>
+                  <span class="kda-item"><span class="kda-label">デス</span><span class="kda-val num ${dMismatch ? 'mismatch-val' : ''}" ${dMismatch ? `title="リザルト画面ではデス${esc(r.deaths)}"` : ''}>${dCnt}</span></span>
+                  <span class="kda-item"><span class="kda-label">スペシャル</span><span class="kda-val num ${spMismatch ? 'mismatch-val' : ''}" ${spMismatch ? `title="リザルト画面ではスペシャル${esc(r.specials)}"` : ''}>${spCnt}</span></span>
                 </div>
-                ${showResultDiff ? `<span class="kda-mismatch num" title="リザルト画面のデス/SP">リザルト ${r.deaths ?? '?'}/${r.specials ?? '?'}</span>` : ''}
+                ${showResultDiff ? `<span class="kda-mismatch" title="${esc(diffTip)}">リザルト画面では${diffParts.join('・')}</span>` : ''}
               </div>
 
               <div class="match-row-col-prog">
                 <div class="progress-bar-120"><div class="progress-bar-fill" style="width:${pctRv}%"></div></div>
-                <span class="progress-label num">${rv}/${det.length}</span>
+                <span class="progress-label">確認 <span class="num">${rv}/${det.length}</span></span>
               </div>
 
               <details class="dropdown row-menu">
                 <summary class="btn-dots" title="メニュー">⋯</summary>
                 <div class="dropdown-menu">
-                  <button class="dropdown-item danger del" data-id="${esc(m.id)}" type="button">削除</button>
+                  <button class="dropdown-item btn-danger-ghost del" data-id="${esc(m.id)}" type="button">削除</button>
                 </div>
               </details>
             </div>
@@ -591,13 +622,12 @@ async function grabFrames(video, times, reason, matchId, event) {
   let n = 0;
   for (const t of times) {
     if (t < 0 || t > video.duration) continue;
-    await new Promise(r => { video.onseeked = r; video.currentTime = t; });
+    await new Promise(r => { video.addEventListener('seeked', r, { once: true }); video.currentTime = t; });
     ctx.drawImage(video, 0, 0, 1280, 720);
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
     await db.putSnap({ matchId, t, reason, kind: 'event', event, blob });
     n++;
   }
-  video.onseeked = null;
   video.currentTime = back;
   return n;
 }
@@ -677,29 +707,28 @@ PAGES.match = async () => {
           <div class="stat-value num" id="hdr-d">${dCount}</div>
         </div>
         <div class="stat">
-          <div class="stat-label">SP</div>
+          <div class="stat-label">スペシャル</div>
           <div class="stat-value num" id="hdr-sp">${spCount}</div>
         </div>
       </div>
 
-      <label class="review-toggle-label">
-        <input type="checkbox" id="review-toggle" ${reviewMode ? 'checked' : ''}>
-        レビューモード
+      <label class="review-toggle-label" for="review-toggle">
+        <input type="checkbox" id="review-toggle" class="toggle-input" ${reviewMode ? 'checked' : ''}>
+        <span class="toggle-switch" aria-hidden="true"></span>
+        <span>レビューモード</span>
       </label>
     </div>
 
     <div class="detail-body ${reviewMode ? 'review-on' : ''}" id="detail-body">
-      <div class="detail-main-col">
-        <div class="card">
-          <div class="card-title">タイムライン</div>
-          <div id="tl"></div>
-          ${LEGEND}
-        </div>
+      <div class="card detail-timeline-card">
+        <div class="card-title">タイムライン</div>
+        <div id="tl"></div>
+        ${LEGEND}
+      </div>
 
-        <div class="card">
-          <div class="card-title">出来事</div>
-          <table class="table" id="etab"></table>
-        </div>
+      <div class="card detail-events-card">
+        <div class="card-title">出来事</div>
+        <table class="table" id="etab"></table>
       </div>
 
       <aside class="review-panel" id="review-panel">
@@ -717,7 +746,7 @@ PAGES.match = async () => {
             <div style="display:flex;gap:8px">
               <button class="btn btn-sm add" data-k="kill" type="button">＋ キル</button>
               <button class="btn btn-sm add" data-k="death" type="button">＋ デス</button>
-              <button class="btn btn-sm add" data-k="special" type="button">＋ SP発動</button>
+              <button class="btn btn-sm add" data-k="special" type="button">＋ スペシャル発動</button>
             </div>
           </div>
         </div>
@@ -748,6 +777,13 @@ PAGES.match = async () => {
   const video = $('#rv', page);
   let offset = 0;
   let lastSeekTime = m.battle[0] + 45;
+  let tlEl = null;
+
+  const updatePlayhead = () => {
+    if (tlEl && video.src) tlEl.setPlayhead(video.currentTime + offset);
+  };
+  video.addEventListener('timeupdate', updatePlayhead);
+  video.addEventListener('seeked', updatePlayhead);
 
   const seek = t => {
     lastSeekTime = t;
@@ -760,9 +796,11 @@ PAGES.match = async () => {
   };
 
   const drawTL = () => {
-    const tl = renderTimeline(m, { onSeek: seek });
-    $('#tl', page).replaceChildren(tl);
-    video.ontimeupdate = () => tl.setPlayhead(video.currentTime + offset);
+    tlEl = renderTimeline(m, { onSeek: seek });
+    $('#tl', page).replaceChildren(tlEl);
+    if (video.src && video.currentTime > 0) {
+      tlEl.setPlayhead(video.currentTime + offset);
+    }
   };
 
   const vrec = await db.getVideo(m.id);
@@ -1055,6 +1093,7 @@ PAGES.trend = async () => {
   });
 
   const cumLine = ptsData.map(p => `${Xm(p.i).toFixed(1)},${Yw(p.cumWp).toFixed(1)}`).join(' ');
+  const showRoll = R.length >= 10;
   const rollLine = ptsData.map(p => `${Xm(p.i).toFixed(1)},${Yw(p.rollWp).toFixed(1)}`).join(' ');
 
   const winrateSvg = `
@@ -1067,7 +1106,7 @@ PAGES.trend = async () => {
       <text x="${padL - 8}" y="${Yw(0) + 4}" text-anchor="end" class="num" font-size="11" fill="var(--text-muted)">0%</text>
 
       <polyline fill="none" stroke="var(--ally)" stroke-width="2.5" points="${cumLine}"/>
-      <polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6,4" points="${rollLine}"/>
+      ${showRoll ? `<polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6,4" points="${rollLine}"/>` : ''}
 
       ${ptsData.map(p => {
         const cx = Xm(p.i).toFixed(1), cy = Yw(p.cumWp).toFixed(1);
@@ -1084,11 +1123,12 @@ PAGES.trend = async () => {
   `;
 
   // 3. Diverging bars: by phase & by count-diff (7 buckets)
+  const kdText = (k, d) => (d === 0 ? '—' : (k / d).toFixed(2));
   const byPhase = ['抑え', '打開', '互角'].map(p => {
     const dList = deaths.filter(e => (e.phase || '互角') === p);
     const kList = kills.filter(e => (e.phase || '互角') === p);
     const loss = dList.reduce((s, e) => s + Math.min(0, e.wp_delta || 0), 0);
-    return { p, d: dList.length, k: kList.length, kd: (kList.length / Math.max(1, dList.length)).toFixed(2), loss };
+    return { p, d: dList.length, k: kList.length, kd: kdText(kList.length, dList.length), empty: !kList.length && !dList.length, loss };
   });
   const maxPhaseCnt = Math.max(1, ...byPhase.map(x => Math.max(x.d, x.k)));
 
@@ -1096,13 +1136,13 @@ PAGES.trend = async () => {
   const byB = sevenBuckets.map(b => {
     const d = deaths.filter(e => countBucket(e.count_diff) === b).length;
     const k = kills.filter(e => countBucket(e.count_diff) === b).length;
-    return { b, d, k, kd: (k / Math.max(1, d)).toFixed(2) };
+    return { b, d, k, kd: kdText(k, d), empty: !k && !d };
   });
   const maxBucketCnt = Math.max(1, ...byB.map(x => Math.max(x.d, x.k)));
 
   // 4. Top 8 winrate-lowering deaths & winrate-raising kills
   const topDeaths = deaths.filter(e => e.wp_delta !== undefined).sort((a, b) => a.wp_delta - b.wp_delta).slice(0, 8);
-  const topKills = kills.filter(e => e.wp_delta !== undefined).sort((a, b) => b.wp_delta - a.wp_delta).slice(0, 8);
+  const topKills = kills.filter(e => e.wp_delta !== undefined && e.wp_delta >= 0.005).sort((a, b) => b.wp_delta - a.wp_delta).slice(0, 8);
 
   const swingRow = e => {
     const dInfo = fmtDelta(e.wp_delta);
@@ -1119,7 +1159,7 @@ PAGES.trend = async () => {
       </tr>`;
   };
 
-  // 5. Per-match K / D / SP small horizontal charts
+  // 5. Per-match kill/death/special small horizontal charts
   const smallChart = (kind, label, color) => {
     const vals = R.map(x => cnt(x, kind));
     const maxV = Math.max(1, ...vals);
@@ -1165,15 +1205,15 @@ PAGES.trend = async () => {
         </div>
       </div>
       <div class="stat">
-        <div class="stat-label">1試合あたりキル</div>
+        <div class="stat-label">1試合あたりのキル</div>
         <div class="stat-value num">${(sum('kill') / ms.length).toFixed(1)}</div>
       </div>
       <div class="stat">
-        <div class="stat-label">1試合あたりデス</div>
+        <div class="stat-label">1試合あたりのデス</div>
         <div class="stat-value num">${(sum('death') / ms.length).toFixed(1)}</div>
       </div>
       <div class="stat">
-        <div class="stat-label">1試合あたりSP</div>
+        <div class="stat-label">1試合あたりのスペシャル</div>
         <div class="stat-value num">${(sum('special') / ms.length).toFixed(1)}</div>
       </div>
       <div class="stat">
@@ -1187,7 +1227,7 @@ PAGES.trend = async () => {
         <div class="card-title" style="margin-bottom:0">勝率の推移</div>
         <div class="tl-legend" style="margin:0;padding:0;border:0">
           <span><i class="tl-swatch" style="background:var(--ally)"></i>累計勝率</span>
-          <span><i class="tl-swatch" style="background:var(--accent)"></i>直近10試合（破線）</span>
+          ${showRoll ? '<span><i class="tl-swatch" style="background:var(--accent)"></i>直近10試合（破線）</span>' : ''}
           <span><i class="tl-swatch" style="background:var(--win);border-radius:50%"></i>勝ち</span>
           <span><i class="tl-swatch" style="background:var(--lose);border-radius:50%"></i>負け</span>
         </div>
@@ -1201,14 +1241,14 @@ PAGES.trend = async () => {
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);padding-bottom:6px;border-bottom:1px solid var(--border)">
           <span>局面</span>
           <span>← デス（グレー） ｜ キル（緑） →</span>
-          <span>K/D · 失った勝率</span>
+          <span>キル÷デス · 失った勝率</span>
         </div>
         ${byPhase.map(x => {
           const dw = Math.round((x.d / maxPhaseCnt) * 100);
           const kw = Math.round((x.k / maxPhaseCnt) * 100);
           const lossFmt = fmtDelta(x.loss);
           return `
-            <div class="div-row">
+            <div class="div-row ${x.empty ? 'div-row-empty' : ''}">
               <div>${phaseBadge(x.p)}</div>
               <div class="div-DualBar">
                 <div class="div-side-left">
@@ -1222,7 +1262,7 @@ PAGES.trend = async () => {
                 </div>
               </div>
               <div class="div-meta">
-                <span class="num">K/D ${x.kd}</span>
+                <span class="num">キル÷デス ${x.kd}</span>
                 <span class="num ${lossFmt.cls}">${lossFmt.text}</span>
               </div>
             </div>`;
@@ -1234,13 +1274,13 @@ PAGES.trend = async () => {
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);padding-bottom:6px;border-bottom:1px solid var(--border)">
           <span>カウント差</span>
           <span>← デス ｜ キル →</span>
-          <span>K/D</span>
+          <span>キル÷デス</span>
         </div>
         ${byB.map(x => {
           const dw = Math.round((x.d / maxBucketCnt) * 100);
           const kw = Math.round((x.k / maxBucketCnt) * 100);
           return `
-            <div class="div-row">
+            <div class="div-row ${x.empty ? 'div-row-empty' : ''}">
               <div style="font-size:12px;color:var(--text-muted)">${esc(x.b)}</div>
               <div class="div-DualBar">
                 <div class="div-side-left">
@@ -1253,8 +1293,8 @@ PAGES.trend = async () => {
                   <span class="num" style="color:var(--kill);font-weight:700">${x.k}</span>
                 </div>
               </div>
-              <div class="div-meta" style="min-width:64px">
-                <span class="num">K/D ${x.kd}</span>
+              <div class="div-meta" style="min-width:132px">
+                <span class="num">キル÷デス ${x.kd}</span>
               </div>
             </div>`;
         }).join('')}
@@ -1276,11 +1316,12 @@ PAGES.trend = async () => {
           <thead><tr><th>試合</th><th>時刻</th><th>局面</th><th>カウント差</th><th>変化</th></tr></thead>
           <tbody>${topKills.map(swingRow).join('')}</tbody>
         </table>
+        ${topKills.length ? '' : '<div class="empty-state"><p>大きく勝率を上げたキルはまだありません</p></div>'}
       </div>
     </div>
 
     <div class="card" style="margin-bottom:var(--sp-6)">
-      <div class="card-title">試合ごとの K / D / SP</div>
+      <div class="card-title">試合ごとのキル・デス・スペシャル</div>
       <div class="small-charts-grid">
         ${smallChart('kill', 'キル', 'var(--kill)')}
         ${smallChart('death', 'デス', 'var(--special-wasted)')}
