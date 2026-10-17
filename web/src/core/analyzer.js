@@ -32,7 +32,7 @@ export class Analyzer {
     if (!m.th) { if (tp && m.hueN < 60) { C.hueHist(crops, 0, m.hist[0]); C.hueHist(crops, 1, m.hist[1]); m.hueN++; }
       m.pend.push([f, crops, mp ? fr : null]);
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
-    if (tp && m.th && t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; m.tower.push(T.towerRow(A, fr, m.th, t)); }
+    if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); }
     if (sg.dead && !(m.F.length && m.F[m.F.length - 1].sig)) this.onEvent({ type: 'own_death', t });
     if (kill && !(m.F.length && m.F[m.F.length - 1].kill)) this.onEvent({ type: 'own_kill', t });
     m.F.push(f);
@@ -58,6 +58,7 @@ export class Analyzer {
     rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null };
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
     if (rs.mode === 'ガチヤグラ' && m.tower.length) tagEvents(rec, T.series(m.tower));
+    rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
     rec.tower_raw = m.tower.length; this.cur = null; this.state = 'idle'; this.onMatch(rec);
   }
 }
