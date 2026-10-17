@@ -4,7 +4,7 @@ import { renderTimeline, LEGEND } from './timeline.js';
 import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct } from './analysis.js';
 import { zipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
-import { EXPORT_STATE_LABEL, exportStateOf, syncExportState } from './feedback.js';
+import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
 
 const app = document.getElementById('app');
 const $ = (s, r = document) => r.querySelector(s);
@@ -464,6 +464,7 @@ PAGES.list = async () => {
   const hasMatches = ms.length > 0;
   const pending = FB.pendingMatches(ms);
   const pendingConfirmed = pending.reduce((a, m) => a + FB.confirmedCount(m), 0);
+  const recentHist = [...FB.getFeedbackHistory()].slice(-5).reverse();
 
   page.innerHTML = `
     <div class="page-header">
@@ -474,19 +475,56 @@ PAGES.list = async () => {
           <input type="file" id="imp" accept=".json" hidden>
         </label>
         <details class="dropdown">
-          <summary class="btn">書き出す ▾</summary>
+          <summary class="btn">試合ログ ▾</summary>
           <div class="dropdown-menu">
             <button class="dropdown-item" id="exp" type="button">試合ログ（JSON）</button>
-            <button class="dropdown-item" id="fb" type="button">正解データを書き出す</button>
           </div>
         </details>
       </div>
     </div>
 
-    ${hasMatches ? `<div class="fb-bar">
-      <span id="fb-pending">未書き出しの正解データ: <span class="num">${pending.length}</span>試合（確認済み <span class="num">${pendingConfirmed}</span>件）</span>
-      <button class="btn" id="fbbar" type="button">正解データを書き出す</button>
-    </div>` : ''}
+    ${hasMatches ? (pending.length > 0 ? `
+      <div class="fb-bar">
+        <span class="fb-bar-dot"></span>
+        <span id="fb-pending">未書き出しの正解データ <span class="fb-bar-count">${pending.length}</span>試合（確認済み <span class="num">${pendingConfirmed}</span>件）</span>
+        <button class="btn btn-primary" id="fbbar" type="button">正解データを書き出す</button>
+      </div>
+    ` : `
+      <div class="fb-bar">
+        <span id="fb-pending" class="fb-bar-empty-text">未書き出しの正解データはありません</span>
+      </div>
+    `) : ''}
+
+    ${hasMatches ? `
+      <details class="fb-history">
+        <summary>書き出し履歴（最近5件）▸</summary>
+        <div class="fb-history-content">
+          ${recentHist.length === 0 ? `<div class="fb-history-empty">まだ書き出し履歴がありません</div>` : `
+            <table class="table fb-history-table">
+              <thead>
+                <tr>
+                  <th>日時</th>
+                  <th>区分</th>
+                  <th>試合数</th>
+                  <th>ファイル名</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${recentHist.map(h => {
+                  const f = FB.formatHistoryItem(h);
+                  return `<tr>
+                    <td class="num">${esc(f.dtStr)}</td>
+                    <td>${esc(f.modeStr)}</td>
+                    <td class="num">${esc(f.countStr)}</td>
+                    <td class="fb-history-fname">${esc(h.filename)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </details>
+    ` : ''}
 
     ${!hasMatches ? `
       <div class="card">
@@ -647,7 +685,6 @@ PAGES.list = async () => {
     alert(`${n}試合を読み込みました`);
     PAGES.list();
   };
-  $('#fb', page).onclick = () => { $('.dropdown', page)?.removeAttribute('open'); showFeedbackExportDialog('diff'); };
   const fbbar = $('#fbbar', page);
   if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
   if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
@@ -688,7 +725,7 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
   for (const m of all.filter(FB.hasReview)) snapsById.set(m.id, await db.snapsOf(m.id));
   let mode = initialMode === 'full' ? 'full' : 'diff';
   const unchecked = new Set();
-  let skipMark = false;
+  let markExported = true;
 
   const overlay = document.createElement('div');
   overlay.className = 'fb-dialog-overlay';
@@ -702,9 +739,22 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
     const perAll = FB.estimateExport(targets, snapsById).perMatch;
     const hist = FB.getFeedbackHistory();
     const last = hist[hist.length - 1];
-    const lastTxt = last ? `前回書き出し: ${new Date(last.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}・${last.batchId}` : '前回書き出し: なし';
+    const lastTxt = last ? `前回：${FB.formatHistoryItem(last).label}` : '前回：なし';
     const none = targets.length === 0;
     const noSel = !none && selected.length === 0;
+
+    let removeCount = 0;
+    if (est.over50MB) {
+      const sorted = [...selected].sort((a, b) => (est.perMatch.get(b.id)?.bytes || 0) - (est.perMatch.get(a.id)?.bytes || 0));
+      let rem = est.totalBytes;
+      for (const sm of sorted) {
+        rem -= (est.perMatch.get(sm.id)?.bytes || 0);
+        removeCount++;
+        if (rem <= FB.LIMIT_BYTES) break;
+      }
+    }
+    const mbStr = (est.totalBytes / (1024 * 1024)).toFixed(1);
+
     overlay.innerHTML = `
       <div class="fb-dialog" role="dialog" aria-label="正解データを書き出す">
         <h2 class="fb-dialog-title">正解データを書き出す</h2>
@@ -731,10 +781,11 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
           }).join('')}
         </div>`}
         <div class="fb-dialog-total" id="fbd-total">対象 <span class="num">${selected.length}</span>試合・合計 約<span class="num">${fmtBytes(est.totalBytes)}</span></div>
-        ${est.over50MB ? `<div class="fb-dialog-warn" id="fbd-warn">合計が50MBを超える見込みです。試合のチェックを外して分割してください。</div>` : ''}
+        ${est.over50MB ? `<div class="fb-dialog-warn" id="fbd-warn">合計 約${mbStr}MBで目安の50MBを超えています。チェックを外して分けてください。あと${removeCount}試合外すと50MB以内です</div>` : ''}
         ${noSel ? `<div class="fb-dialog-empty" id="fbd-reason">書き出す試合が選ばれていません。</div>` : ''}
-        <label class="fb-dialog-skip"><input type="checkbox" id="fbd-skip" ${skipMark ? 'checked' : ''}> 書き出し済みにしない</label>
         <div class="fb-dialog-note">静止画にはプレイヤー名が映る場合があります。ZIPは自動送信されません。手動で渡してください。</div>
+        <label class="fb-dialog-mark"><input type="checkbox" id="fbd-mark" ${markExported ? 'checked' : ''}> 書き出し済みにする（次回は差分に出ません）</label>
+        ${!markExported ? `<div class="fb-dialog-skip-note" id="fbd-skip-note">今回は記録を残さないため、次回も差分に出ます</div>` : ''}
         <div class="fb-dialog-actions">
           <button class="btn" id="fbd-cancel" type="button">キャンセル</button>
           <button class="btn btn-primary" id="fbd-go" type="button" ${selected.length ? '' : 'disabled'}>ZIPを書き出す</button>
@@ -742,7 +793,7 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
       </div>`;
     overlay.querySelectorAll('input[name="fbmode"]').forEach(r => { r.onchange = () => { mode = r.value; unchecked.clear(); render(); }; });
     overlay.querySelectorAll('.fbd-chk').forEach(c => { c.onchange = () => { if (c.checked) unchecked.delete(c.dataset.id); else unchecked.add(c.dataset.id); render(); }; });
-    $('#fbd-skip', overlay).onchange = e => { skipMark = e.target.checked; };
+    $('#fbd-mark', overlay).onchange = e => { markExported = e.target.checked; render(); };
     $('#fbd-cancel', overlay).onclick = close;
     $('#fbd-go', overlay).onclick = async () => {
       const btn = $('#fbd-go', overlay);
@@ -751,7 +802,7 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
       const { blob, filename, meta } = await buildBatchZip(selected, { mode, batchId });
       download(filename, blob);
       const at = new Date().toISOString();
-      if (!skipMark) {
+      if (markExported) {
         for (const em of meta.matches) {
           const cur = await db.getMatch(em.id);
           if (!cur || !cur.review) continue;
@@ -817,7 +868,7 @@ PAGES.match = async () => {
     syncExportState(m);
     await db.putMatch(m);
     const st = document.getElementById('fbone-state');
-    if (st) st.textContent = `書き出し状態: ${EXPORT_STATE_LABEL[exportStateOf(m)]}`;
+    if (st) st.textContent = `この試合：${EXPORT_STATE_LABEL[exportStateOf(m)]}（確認済み ${confirmedCount(m)}件）`;
   };
 
   const r = resultOf(m);
@@ -925,8 +976,8 @@ PAGES.match = async () => {
           <div id="acc"></div>
         </details>
 
-        <button class="btn btn-primary" id="fbone" type="button" style="width:100%">正解データの書き出し（試合一覧でまとめて）</button>
-        <div class="export-state" id="fbone-state">書き出し状態: ${esc(EXPORT_STATE_LABEL[exportStateOf(m)])}</div>
+        <button class="btn btn-primary" id="fbone" type="button" style="width:100%">試合一覧でまとめて書き出す →</button>
+        <div class="export-state" id="fbone-state">この試合：${esc(EXPORT_STATE_LABEL[exportStateOf(m)])}（確認済み ${confirmedCount(m)}件）</div>
       </aside>
     </div>
   `;

@@ -140,3 +140,10 @@
 - 書き出し履歴: localStorage 'inkgraph.feedbackHistory' に {at,batchId,count,filename,mode} を最大20件。設定画面での表示は未実装。
 - 試合詳細の「正解データの書き出し」は一覧へ遷移するだけ（未書き出しなら差分ダイアログを自動表示）。旧 `inkgraph_feedback_*.zip`（format 1）は出さなくなった。互換確認: 生成した format 2 の追加分zipを `tools/ingest_feedback.py`（--applyなし）で実際に取り込み、2試合の判定集計と正解ラベル出力が従来どおり動くことを確認した（ingest は format 値を参照せず feedback.json の中身で処理するため互換）。
 - Designer 確認事項: ダイアログ・一覧の「未書き出しの正解データ」バー・状態ラベルの配置と文言、確認モードのヘッダーへのボタン追加、設定画面の履歴表示。いずれも仮置きのUI。
+- Designer必須修正（PR #121）:
+  - 試合一覧バー: 左ライム点（span.fb-bar-dot）・試合数強調（.fb-bar-count）・右端に主ボタン「正解データを書き出す」(#fbbar)。0件時はボタンなし淡色文言（.fb-bar-empty-text）で高さ維持。右上ドロップダウンは「試合ログ ▾」（中身は「試合ログ（JSON）」のみ）とし #fb を廃止してバーに一本化。
+  - 行・ダイアログの状態ラベル: 固定幅90pxピル型（accumulated=accent-soft, changed=enemy-soft, exported=surface-2, unreviewed=transparent）。
+  - ダイアログ: 否定形チェックを廃止し既定オンの肯定形「書き出し済みにする（次回は差分に出ません）」(#fbd-mark, オフ時直下に #fbd-skip-note「今回は記録を残さないため、次回も差分に出ます」を表示)。50MB超時は警告枠 #fbd-warn に「合計 約<MB>MBで目安の50MBを超えています。チェックを外して分けてください。あと<N>試合外すと50MB以内です」を動的表示（ZIPボタンは無効化しない）。バッチID非表示、前回表示は「前回：MM/DD HH:MM・追加分・N試合」形式。注意文はチェック欄上に配置。
+  - 詳細画面: #fbone 文言「試合一覧でまとめて書き出す →」、#fbone-state「この試合：<状態>（確認済み N件）」。
+  - 履歴表示: 蓄積バー直下に折りたたみ details.fb-history で最近5件の表（日時・区分・試合数・ファイル名、ボタンなし）を表示。ダイアログの前回表示とフォーマットを統一。
+

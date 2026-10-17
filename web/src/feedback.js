@@ -164,3 +164,17 @@ export function addFeedbackHistory({ at, batchId, count, filename, mode }) {
     return a;
   } catch { return []; }
 }
+
+export function formatHistoryItem(h) {
+  if (!h) return { dtStr: '', modeStr: '', countStr: '', label: 'なし' };
+  const d = new Date(h.at);
+  const mo = d.getMonth() + 1;
+  const da = d.getDate();
+  const ho = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const dtStr = `${mo}/${da} ${ho}:${mi}`;
+  const modeStr = h.mode === 'full' ? '全件' : '追加分';
+  const countStr = `${h.count}試合`;
+  return { dtStr, modeStr, countStr, label: `${dtStr}・${modeStr}・${countStr}` };
+}
+

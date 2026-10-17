@@ -13,7 +13,8 @@ const results = [];
 const check = (name, ok, info = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`); };
 
 const ids = { A: 'fbbatch-A', B: 'fbbatch-B', C: 'fbbatch-C' };
-const idList = Object.values(ids);
+const BIG_ID = 'fbbatch-big';
+const idList = [...Object.values(ids), BIG_ID];
 
 const PORT = Number(process.env.PORT) || 4197, U = `http://127.0.0.1:${PORT}/`;
 const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
@@ -84,11 +85,19 @@ try {
   check('2) reviewContent drops tower_seg/export/updated, keeps others', !h.keys.includes('tower_seg') && !h.keys.includes('export') && !h.keys.includes('updated') && h.holder && h.added === 1, h.keys.join(','));
 
   // 3. list
-  const bodyText = await page.locator('#app').innerText();
-  check('3) list shows 未書き出しの正解データ: 2試合', bodyText.replace(/\s+/g, '').includes('未書き出しの正解データ:2試合'), (await page.locator('#fb-pending').textContent()).trim());
+  const pendingText = (await page.locator('#fb-pending').textContent()).trim();
+  check('3) list shows 未書き出しの正解データ: 2試合', pendingText.includes('未書き出しの正解データ') && pendingText.includes('2試合（確認済み 5件）'), pendingText);
+  check('3) bar has primary button', (await page.locator('.fb-bar #fbbar.btn-primary').count()) === 1);
+  const ddSummary = (await page.locator('.page-header-actions .dropdown summary').innerText()).trim();
+  check('3) dropdown is 試合ログ and no #fb', ddSummary.includes('試合ログ') && (await page.locator('#fb').count()) === 0, ddSummary);
   const labels = await page.locator('.match-row .export-state').allTextContents();
   check('3) rows show state labels', labels.filter(t => t === '未書き出し').length === 2 && labels.filter(t => t === '未確認').length === 1, j(labels));
-  await page.screenshot({ path: path.join(SH, '01_list.png') });
+  const pills = await page.locator('.match-row .export-state').evaluateAll(els => els.map(el => ({
+    w: el.getBoundingClientRect().width,
+    state: el.dataset.state,
+    text: el.innerText.trim()
+  })));
+  check('3) pills width 90px and data-state/text', pills.length === 3 && pills.every(p => Math.abs(p.w - 90) <= 2) && pills.some(p => p.state === 'accumulated' && p.text === '未書き出し') && pills.some(p => p.state === 'unreviewed' && p.text === '未確認'), j(pills));
 
   // 4. dialog diff
   await page.click('#fbbar');
@@ -103,7 +112,16 @@ try {
   const total = await page.locator('#fbd-total').innerText();
   check('4) total estimate shown', /合計 約\s*\d+(\.\d+)?(KB|MB)/.test(total), total.replace(/\s+/g, ' '));
   check('4) no 50MB warning', (await page.locator('#fbd-warn').count()) === 0);
-  await page.screenshot({ path: path.join(SH, '02_confirm_diff.png') });
+
+  // fbd-mark チェック
+  const markChecked = await page.isChecked('#fbd-mark');
+  const markLabel = await page.locator('label.fb-dialog-mark').innerText();
+  const markOk1 = markChecked && markLabel.includes('書き出し済みにする（次回は差分に出ません）') && (await page.locator('#fbd-skip-note').count()) === 0;
+  await page.uncheck('#fbd-mark');
+  const noteShown = (await page.locator('#fbd-skip-note').count()) === 1 && (await page.locator('#fbd-skip-note').innerText()).includes('今回は記録を残さないため、次回も差分に出ます');
+  await page.check('#fbd-mark');
+  const noteHidden = (await page.locator('#fbd-skip-note').count()) === 0;
+  check('4) fbd-mark initial checked, toggle note', markOk1 && noteShown && noteHidden);
 
   // 5. export (diff)
   const dl1 = await clickDownload('#fbd-go');
@@ -128,7 +146,24 @@ try {
   check('6) diff re-export targets = 0', diffTargets === 0);
   const hist = await page.evaluate(() => window.inkgraph.feedback.getFeedbackHistory());
   check('6) history appended', hist.length === 1 && hist[0].batchId === fj.batchId && hist[0].count === 2 && hist[0].mode === 'diff', j(hist));
-  check('6) list shows 0試合 pending and 書き出し済み labels', (await page.locator('#fb-pending').innerText()).replace(/\s+/g, '').includes('未書き出しの正解データ:0試合') && (await page.locator('.match-row .export-state').allTextContents()).filter(t => t === '書き出し済み').length === 2);
+  const zeroPendingText = (await page.locator('#fb-pending').innerText()).trim();
+  const zeroNoBarBtn = (await page.locator('#fbbar').count()) === 0;
+  check('6) list shows 0試合 pending and 書き出し済み labels', zeroPendingText === '未書き出しの正解データはありません' && zeroNoBarBtn && (await page.locator('.match-row .export-state').allTextContents()).filter(t => t === '書き出し済み').length === 2);
+
+  // 履歴テーブル確認
+  await page.locator('details.fb-history summary').click();
+  const histRow = await page.locator('.fb-history-table tbody tr').first();
+  const histText = (await histRow.innerText()).replace(/\s+/g, ' ');
+  const histHasNoBtn = (await page.locator('details.fb-history button').count()) === 0;
+  check('6) history table has entry with no buttons', histText.includes('追加分') && histText.includes('2試合') && histText.includes('.zip') && histHasNoBtn, histText);
+
+  // ダイアログ再オープンして前回表示 & "fb-" 非表示確認
+  await page.evaluate(() => window.inkgraph.showFeedbackExportDialog('diff'));
+  await page.waitForSelector('.fb-dialog');
+  const dialogText = await page.locator('.fb-dialog').innerText();
+  const lastTxt = (await page.locator('.fb-dialog-last').innerText()).trim();
+  check('6) dialog shows 前回 format without fb- batchId', /^前回：\d{1,2}\/\d{1,2}\s+\d{2}:\d{2}・追加分・2試合$/.test(lastTxt) && !dialogText.includes('fb-'), `${lastTxt} | has-fb: ${dialogText.includes('fb-')}`);
+  await page.click('#fbd-cancel');
 
   // 7. re-edit B
   const st7 = await page.evaluate(async id => {
@@ -146,8 +181,7 @@ try {
   await page.waitForTimeout(200);
   const rowsF = await page.locator('.fb-dialog-row').evaluateAll(es => es.map(e => e.dataset.id).sort());
   check('8) full targets = A,B (C excluded)', j(rowsF) === j([ids.A, ids.B].sort()), j(rowsF));
-  await page.screenshot({ path: path.join(SH, '03_confirm_full.png') });
-  await page.check('#fbd-skip');
+  await page.uncheck('#fbd-mark');
   const dl2 = await clickDownload('#fbd-go');
   const fname2 = dl2.suggestedFilename();
   const p2 = '/tmp/feedback_batch_check_full.zip';
@@ -169,7 +203,46 @@ try {
     return { lo: lo.over50MB, hi: hi.over50MB, ex: ex.over50MB, p: lo.perMatch.get('x') };
   });
   check('9) estimateExport over50MB threshold', est.lo === false && est.hi === true && est.ex === true && est.p.snaps === 1 && est.p.stillsAvailable, j(est));
-  // 容量警告のUI (全選択→偽の大容量を注入して再描画はしない: 関数判定のみ)
+
+  // 50MB警告UI & 詳細画面
+  await page.evaluate(async (bigId) => {
+    const db = window.inkgraph.db;
+    const bigBlob = new Blob([new Uint8Array(51 * 1024 * 1024)], { type: 'image/jpeg' });
+    const m = {
+      id: bigId, match: 99, created: new Date().toISOString(), battle: [0, 300], squid_down: {},
+      own_deaths: [], own_kills: [], special: [],
+      tower_series: [],
+      result_screen: { result: 'WIN', mode: 'ガチヤグラ', stage: '巨大' },
+      review: { marks: { 'kill@1.0': 'ok', 'death@2.0': 'ok' }, added: [], fix: {}, rmarks: {} },
+      stills: { count: 1, bytes: bigBlob.size }, stillsState: 'kept', video: { kind: 'none' }
+    };
+    await db.putMatch(m);
+    await db.putSnap({ matchId: bigId, t: 10, reason: '巨大テスト', kind: 'death', header: null, blob: bigBlob });
+  }, BIG_ID);
+
+  await page.goto(U + '#match/' + encodeURIComponent(BIG_ID));
+  await page.waitForTimeout(500);
+  await page.locator('label.review-toggle-label').click();
+  await page.waitForSelector('.detail-body.review-on');
+  const fboneText = (await page.locator('#fbone').innerText()).trim();
+  const fboneStateText = (await page.locator('#fbone-state').innerText()).trim();
+  check('detail: fbone text and state', fboneText === '試合一覧でまとめて書き出す →' && fboneStateText === 'この試合：未書き出し（確認済み 2件）', `${fboneText} | ${fboneStateText}`);
+
+  await page.click('#fbone');
+  await page.waitForSelector('.fb-dialog', { timeout: 10000 });
+  const warnLocator = page.locator('#fbd-warn');
+  const warnCount = await warnLocator.count();
+  const warnText = warnCount ? (await warnLocator.innerText()).trim() : '';
+  check('dialog: 50MB warning shown', warnText.includes('を超えています') && warnText.includes('あと1試合外すと50MB以内です'), warnText);
+
+  await page.uncheck(`.fbd-chk[data-id="${BIG_ID}"]`);
+  await page.waitForTimeout(300);
+  check('dialog: 50MB warning disappeared after uncheck', (await page.locator('#fbd-warn').count()) === 0);
+
+  await page.click('#fbd-cancel');
+  await page.evaluate(async (bigId) => {
+    await window.inkgraph.db.delMatch(bigId);
+  }, BIG_ID);
 
   check('11) no pageerror', errors.length === 0, errors.join(';'));
 } catch (e) {
