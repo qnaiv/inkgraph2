@@ -1369,3 +1369,5 @@ tr.added td {
 .tw-unconfirm:hover { color: var(--text); }
 .tw-cp { cursor: pointer; }
 .tw-cp:hover circle { filter: brightness(1.25); }
+.fav-btn { background: none; border: 0; cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px; color: var(--text); }
+.stills-state { display: block; font-size: 11px; color: var(--muted, #888); }

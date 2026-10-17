@@ -428,6 +428,18 @@ PAGES.live = async () => {
 // ============================================================================
 let listFilters = { mode: 'ALL', stage: 'ALL', result: 'ALL' };
 
+// 表示用: 静止画の状態キー (旧レコードは stills.count から推定)
+function stillsStateKey(m) {
+  if (m.stillsState === 'kept' || m.stillsState === 'deleted' || m.stillsState === 'none') return m.stillsState;
+  return m.stills?.count > 0 ? 'kept' : 'none';
+}
+function stillsStateLabel(m) {
+  const k = stillsStateKey(m);
+  if (k === 'kept') return m.stills?.count ? `静止画 保持中・${m.stills.count}枚` : '静止画 保持中';
+  if (k === 'deleted') return '静止画 削除済み';
+  return '静止画 未保存';
+}
+
 PAGES.list = async () => {
   const ms = await db.allMatches();
   const page = document.createElement('div');
@@ -519,12 +531,14 @@ PAGES.list = async () => {
           return `
             <div class="match-row click" data-id="${esc(m.id)}">
               <div class="match-row-col-res">
+                <button class="fav-btn" data-id="${esc(m.id)}" type="button" aria-label="お気に入り" title="お気に入り">${m.favorite === true ? '★' : '☆'}</button>
                 <span class="${badgeCls(r.result)}">${resJa(r.result)}</span>
                 <span class="match-row-date num">${esc(dtStr)}</span>
               </div>
 
               <div class="match-row-col-stage">
                 <span class="match-row-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')}</span>
+                <span class="stills-state">${esc(stillsStateLabel(m))}</span>
                 ${r.count ? `<span class="match-row-count num">${fmtCount(r.count)}</span>` : ''}
               </div>
 
@@ -545,6 +559,7 @@ PAGES.list = async () => {
               <details class="dropdown row-menu">
                 <summary class="btn-dots" title="メニュー">⋯</summary>
                 <div class="dropdown-menu">
+                  <button class="dropdown-item del-stills" data-id="${esc(m.id)}" type="button">静止画だけ消す</button>
                   <button class="dropdown-item btn-danger-ghost del" data-id="${esc(m.id)}" type="button">削除</button>
                 </div>
               </details>
@@ -573,8 +588,27 @@ PAGES.list = async () => {
 
   page.querySelectorAll('.match-row.click').forEach(row => {
     row.onclick = e => {
-      if (e.target.closest('.row-menu') || e.target.classList.contains('del')) return;
+      if (e.target.closest('.row-menu') || e.target.closest('.fav-btn') || e.target.classList.contains('del')) return;
       nav('match', row.dataset.id);
+    };
+  });
+
+  page.querySelectorAll('.fav-btn').forEach(b => {
+    b.onclick = async e => {
+      e.stopPropagation();
+      const cur = await db.getMatch(b.dataset.id);
+      await db.setFavorite(b.dataset.id, !(cur && cur.favorite === true));
+      PAGES.list();
+    };
+  });
+
+  page.querySelectorAll('.del-stills').forEach(b => {
+    b.onclick = async e => {
+      e.stopPropagation();
+      if (confirm('静止画だけを削除しますか？（試合の記録と確認データは残ります）')) {
+        await db.deleteStills(b.dataset.id);
+        PAGES.list();
+      }
     };
   });
 
@@ -708,7 +742,7 @@ PAGES.match = async () => {
             <span>最終カウント <b class="num">${fmtCount(r.count)}</b></span>
             ${finalDiff !== null ? `<span class="num ${diffCls(finalDiff)}">（カウント差 ${fmtDiff(finalDiff)}）</span>` : ''}
           </div>
-          ${m.stills ? `<div class="muted" id="stills-info">静止画 ${m.stills.count}枚・合計 ${Math.round((m.stills.bytes || 0) / 1024)} KB（映像は保存されていません）</div>` : ''}
+          ${m.stills ? (stillsStateKey(m) === 'deleted' ? `<div class="muted" id="stills-info">静止画 削除済み（記録は残っています。もとの静止画 ${m.stills.count}枚・合計 ${Math.round((m.stills.bytes || 0) / 1024)} KB）</div>` : `<div class="muted" id="stills-info">静止画 ${m.stills.count}枚・合計 ${Math.round((m.stills.bytes || 0) / 1024)} KB（映像は保存されていません）</div>`) : ''}
         </div>
       </div>
 
