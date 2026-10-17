@@ -13,8 +13,8 @@ await page.goto('http://127.0.0.1:4173/#live');
 for (const id of ids) {
   const f = path.join(ROOT, `raw/1080p/joined_match0${id}.mp4`); const t0 = Date.now();
   await page.goto('http://127.0.0.1:4173/#list'); await page.goto('http://127.0.0.1:4173/#live'); await page.waitForSelector('#start');
-  await page.check('input[name=src][value=file]'); await page.setInputFiles('#file', f); await page.click('#start');
-  let last = ''; for (;;) { await page.waitForTimeout(5000); const st = await page.textContent('#state'); const pr = await page.textContent('#prog'); if (pr !== last) { console.log(`match${id}`, pr, st); last = pr; } if (st.includes('停止しました')) break; }
+  await page.locator('input[name=src][value=file]').check({ force: true }); await page.setInputFiles('#file', f); await page.click('#start');
+  let last = ''; for (;;) { await page.waitForTimeout(5000); const st = await page.textContent('#state'); if (st !== last) { console.log(`match${id}`, st); last = st; } if (st.includes('停止しました') || st.includes('保存しました')) break; } // joined file = 1 match, save implies file analysis finished
   console.log(`match${id} done in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   await page.waitForTimeout(1500);
 }

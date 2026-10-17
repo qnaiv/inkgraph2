@@ -13,10 +13,23 @@ const EVAL = '/workspace/ig-eval/tools/eval_labels.py';
 fs.mkdirSync(SH, { recursive: true });
 fs.mkdirSync(path.dirname(ZIP), { recursive: true });
 
+// #33: 書き出しは試合一覧のダイアログ経由。詳細の #fbone → 一覧 → 全件モードで書き出し → 詳細へ戻る。
+async function exportViaDialog(page) {
+  await page.click('#fbone');
+  try { await page.waitForSelector('.fb-dialog', { timeout: 1500 }); } catch { await page.click('#fbbar'); await page.waitForSelector('.fb-dialog'); }
+  await page.check('input[name="fbmode"][value="full"]');
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 10000 }), page.click('#fbd-go')]);
+  await page.waitForTimeout(300);
+  await page.click('[data-page="match"]');
+  await page.waitForSelector('#fbone');
+  return dl;
+}
+
 let fails = 0;
 const check = (ok, name, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' - ' + extra : ''}`); if (!ok) fails++; };
 
-const srv = spawn('npx', ['vite', 'preview', '--port', '4182', '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const PORT = Number(process.env.PORT) || 4215;
+const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
 await new Promise(r => setTimeout(r, 2500));
 let browser;
 try {
@@ -26,7 +39,7 @@ try {
   await page.route('https://fonts.**/**', r => r.abort());
   page.on('pageerror', e => { console.log('pageerror', e.message); });
   page.on('dialog', d => d.accept());
-  const U = 'http://127.0.0.1:4182/';
+  const U = `http://127.0.0.1:${PORT}/`;
   const ms = JSON.parse(fs.readFileSync(path.join(WEB_DIR, 'test-results/web_matches.json')));
   await page.goto(U + '#live');
   await page.evaluate(async ms => { await window.inkgraph.db.importAll(ms); }, ms);
@@ -109,14 +122,11 @@ try {
   await page.waitForTimeout(200);
 
   // (c) export feedback zip and assert tower_holder contains only confirmed segments
-  const [dl] = await Promise.all([
-    page.waitForEvent('download', { timeout: 10000 }),
-    page.click('#fbone'),
-  ]);
+  const dl = await exportViaDialog(page);
   await dl.saveAs(ZIP);
   const files = unzipSync(new Uint8Array(fs.readFileSync(ZIP)));
   const fb = JSON.parse(strFromU8(files['feedback.json']));
-  check(fb.format === 1, 'feedback.json format 1');
+  check(fb.format === 2, 'feedback.json format 2');
   const rm = fb.matches.find(x => x.id === m2.id);
   const th = rm?.review?.tower_holder;
   check(Array.isArray(th) && th.length === 2, 'review.tower_holder contains exactly 2 confirmed segments', JSON.stringify(th));
@@ -144,13 +154,11 @@ try {
   await page.waitForTimeout(300);
   check(await page.locator('.tw-pop').count() === 0, 'popover closes after 未確認に戻す');
 
-  const [dl2] = await Promise.all([
-    page.waitForEvent('download', { timeout: 10000 }),
-    page.click('#fbone'),
-  ]);
+  const dl2 = await exportViaDialog(page);
   await dl2.saveAs(ZIP);
   const files2 = unzipSync(new Uint8Array(fs.readFileSync(ZIP)));
   const fb2 = JSON.parse(strFromU8(files2['feedback.json']));
+  check(fb2.format === 2, 'feedback.json 2 format 2');
   const rm2 = fb2.matches.find(x => x.id === m2.id);
   const th2 = rm2?.review?.tower_holder;
   check(Array.isArray(th2) && th2.length === 1, 'tower_holder contains exactly 1 segment after unconfirm', JSON.stringify(th2));
