@@ -91,6 +91,8 @@ export class Analyzer {
     const m = this.cur; if (!m) return; if (!m.th) this.fixHue();
     const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH);
     rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
+    rec.match_type = rs.match_type ?? null;
+    rec.power = R.powerForMatchType(rec.match_type);
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
     if (rs.mode === 'ガチヤグラ' && m.tower.length) tagEvents(rec, T.series(m.tower));
     rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));

@@ -702,12 +702,18 @@ button, input, select {
 
 .match-row-col-res {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+}
+
+.match-row-col-res .fav-btn {
+  margin-right: 100%;
 }
 
 .match-row-date {
+  flex-basis: 100%;
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
@@ -867,7 +873,8 @@ button, input, select {
   font-weight: var(--fw-bold);
 }
 
-.detail-count-line {
+.detail-count-line,
+.match-type-line {
   font-size: var(--fs-sm);
   color: var(--text-muted);
   display: flex;
@@ -1438,7 +1445,24 @@ tr.added td {
   color: var(--text-faint);
 }
 
-.trend-winrate-note {
+.verify-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.trend-winrate-note,
+.trend-verify-note {
   color: var(--text-muted);
   font-size: 12px;
   margin-top: var(--sp-1);
@@ -1850,3 +1874,33 @@ tr.added td {
 
 
 .special-stat-band { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+#stream-controls {
+  padding: var(--sp-1) 0;
+}
+.stream-control-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.stream-control-label {
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.stream-owner-options,
+.stream-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+.stream-radio-label,
+.stream-check-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  cursor: pointer;
+  user-select: none;
+}
