@@ -6,7 +6,9 @@ import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
+import * as CP from './capacity.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
+import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
 
 const app = document.getElementById('app');
 const $ = (s, r = document) => r.querySelector(s);
@@ -21,11 +23,13 @@ let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自
 window.inkgraph = {
   db,
   learn,
+  capacity: CP,
   feedback: FB,
   backup: BK,
   buildBatchZip: (...a) => buildBatchZip(...a),
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
+  showCapacityCleanupDialog: (...a) => showCapacityCleanupDialog(...a),
   setReviewMode: v => { reviewMode = !!v; if (currentPage === 'match') PAGES.match(); }
 };
 
@@ -120,6 +124,144 @@ const download = (name, blob) => {
 
 const fmtBytes = b => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB');
 
+function renderCapacityBanner(summary) {
+  if (!summary) return '';
+  const isFavOnly = (summary.favBytes > summary.capBytes);
+  if (!isFavOnly && summary.level === 'ok') return '';
+
+  if (isFavOnly) {
+    return `
+      <div class="capacity-banner capacity-banner--favonly">
+        <div class="capacity-banner-text">
+          <span class="capacity-banner-icon">⚠</span>
+          <span>お気に入りの試合だけで容量がいっぱいです。試合一覧でお気に入りを外すか、手動で静止画を消してください</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const label = formatCapacityLabel(summary);
+  return `
+    <div class="capacity-banner">
+      <div class="capacity-banner-text">
+        <span class="capacity-banner-icon">⚠</span>
+        <span>静止画の容量：${esc(label)}</span>
+      </div>
+      <button class="btn capacity-cleanup-btn" type="button">古い試合の静止画を整理する</button>
+    </div>
+  `;
+}
+
+async function showCapacityCleanupDialog() {
+  document.querySelector('.capacity-dialog-overlay')?.remove();
+  const cap = getCapBytes();
+  const usage = await db.stillsUsage(cap);
+  const plan = planCapacityCleanup(usage.matches, cap, MANUAL_TARGET_RATIO, { force: true });
+  const targetCount = plan.removedIds.length;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'capacity-dialog-overlay';
+  document.body.appendChild(overlay);
+
+  let isResult = false;
+  const close = () => {
+    window.removeEventListener('keydown', onKey);
+    overlay.remove();
+    if (isResult) {
+      nav(currentPage);
+    }
+  };
+  const onKey = e => {
+    if (e.key === 'Escape') close();
+  };
+  window.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) close();
+  });
+
+  overlay.innerHTML = `
+    <div class="capacity-dialog" role="dialog" aria-modal="true" aria-label="古い試合の静止画を整理">
+      <h2 class="capacity-dialog-title">古い試合の静止画を整理</h2>
+      <div class="capacity-dialog-target">対象：古い順の${targetCount}試合（お気に入りを除く）</div>
+      <div class="capacity-dialog-notes">
+        <p>消えるのは静止画だけで、試合の記録と正解データは残ります。</p>
+        <p class="capacity-dialog-warn-text">消した静止画は戻せないため、手元に残したい場合は、先にバックアップまたは正解データを書き出してください。</p>
+      </div>
+      <div class="capacity-dialog-shortcuts">
+        <button type="button" class="btn capacity-dialog-backup">バックアップを書き出す</button>
+        <button type="button" class="btn capacity-dialog-feedback">正解データを書き出す</button>
+      </div>
+      <div class="capacity-dialog-actions">
+        <button type="button" class="btn capacity-dialog-cancel">キャンセル</button>
+        <button type="button" class="btn capacity-dialog-execute">静止画だけを消す（記録は残ります）</button>
+      </div>
+    </div>
+  `;
+
+  const cancelBtn = overlay.querySelector('.capacity-dialog-cancel');
+  if (cancelBtn) cancelBtn.onclick = close;
+
+  const backupBtn = overlay.querySelector('.capacity-dialog-backup');
+  if (backupBtn) {
+    backupBtn.onclick = async () => {
+      try {
+        backupBtn.disabled = true;
+        const { blob, filename } = await buildBackupZip();
+        download(filename, blob);
+      } catch (err) {
+        alert('バックアップの書き出しに失敗しました: ' + (err?.message || err));
+      } finally {
+        backupBtn.disabled = false;
+      }
+    };
+  }
+
+  const feedbackBtn = overlay.querySelector('.capacity-dialog-feedback');
+  if (feedbackBtn) {
+    feedbackBtn.onclick = () => {
+      close();
+      showFeedbackExportDialog('diff');
+    };
+  }
+
+  const executeBtn = overlay.querySelector('.capacity-dialog-execute');
+  if (executeBtn) {
+    executeBtn.onclick = async () => {
+      executeBtn.disabled = true;
+      try {
+        const res = await db.enforceCapacity(getCapBytes(), MANUAL_TARGET_RATIO, { force: true });
+        isResult = true;
+        const pct = res.summaryAfter?.pct ?? 0;
+        const n = res.removed.length;
+        const dialog = overlay.querySelector('.capacity-dialog');
+        dialog.innerHTML = `
+          <h2 class="capacity-dialog-title">整理完了</h2>
+          <div class="capacity-cleanup-result">
+            ${n}試合分の静止画を消しました。使用量は${pct}%です
+          </div>
+          <div class="capacity-dialog-actions">
+            <button type="button" class="btn capacity-dialog-close-result">閉じる</button>
+          </div>
+        `;
+        const closeResultBtn = dialog.querySelector('.capacity-dialog-close-result');
+        if (closeResultBtn) {
+          closeResultBtn.onclick = close;
+        }
+      } catch (e) {
+        console.warn('enforceCapacity failed', e);
+        executeBtn.disabled = false;
+      }
+    };
+  }
+}
+
+function wireCapacityBanner(page, summary) {
+  const btn = $('.capacity-cleanup-btn', page);
+  if (btn) {
+    btn.onclick = () => showCapacityCleanupDialog();
+  }
+}
+
 const PAGES = {};
 
 // ============================================================================
@@ -131,10 +273,18 @@ PAGES.live = async () => {
     return;
   }
   const savedMatches = await db.allMatches();
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
+  const isBlocked = capUsage.level === 'block';
+  const showBanner = capUsage.level !== 'ok' || (capUsage.favBytes > capUsage.capBytes);
   const page = document.createElement('div');
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">ライブ分析</h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">ライブ分析</h1>
+        ${!showBanner ? `<span class="capacity-status muted">${esc(capLabel)}</span>` : ''}
+      </div>
     </div>
 
     <div class="card live-source-card">
@@ -170,9 +320,10 @@ PAGES.live = async () => {
       </details>
 
       <div class="live-source-actions">
-        <button class="btn btn-primary" id="start" type="button">解析を開始</button>
+        <button class="btn btn-primary" id="start" type="button" ${isBlocked ? 'disabled' : ''}>解析を開始</button>
         <button class="btn btn-stop" id="stop" type="button" disabled style="display:none">停止</button>
       </div>
+      ${isBlocked ? `<div class="capacity-block-reason">⚠ 使用量${capUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます</div>` : ''}
     </div>
 
     <div class="live-grid">
@@ -242,6 +393,7 @@ PAGES.live = async () => {
     </div>
   `;
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   $('#to-list', page).onclick = e => { e.preventDefault(); nav('list'); };
 
@@ -316,6 +468,11 @@ PAGES.live = async () => {
   let savedCount = savedMatches.length;
 
   $('#start', page).onclick = async () => {
+    const curUsage = await db.stillsUsage(getCapBytes()).catch(() => null);
+    if (curUsage && curUsage.level === 'block') {
+      alert(`使用量${curUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます`);
+      return;
+    }
     const mode = page.querySelector('input[name="src"]:checked').value;
     const file = $('#file', page).files[0];
     if (mode === 'file' && !file) {
@@ -485,6 +642,8 @@ PAGES.list = async () => {
 
   const summary = BK.summarize(ms, snapsById);
   const expLabel = `バックアップを書き出す（ZIP）・${summary.matches}試合／静止画${summary.stills}枚／約${fmtBytes(summary.bytes)}`;
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
 
   const page = document.createElement('div');
 
@@ -504,9 +663,15 @@ PAGES.list = async () => {
   const pendingConfirmed = pending.reduce((a, m) => a + FB.confirmedCount(m), 0);
   const recentHist = [...FB.getFeedbackHistory()].slice(-5).reverse();
 
+  const showBanner = capUsage.level !== 'ok' || (capUsage.favBytes > capUsage.capBytes);
+
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+        ${!showBanner ? `<span class="capacity-status muted">${esc(capLabel)}</span>` : ''}
+      </div>
       <div class="page-header-actions">
         <label class="btn ${hasMatches ? 'btn-primary' : ''}">
           バックアップを読み込む
@@ -663,6 +828,7 @@ PAGES.list = async () => {
   `;
 
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   const goLiveBtn = $('#empty-go-live', page);
   if (goLiveBtn) goLiveBtn.onclick = () => nav('live');
@@ -776,9 +942,10 @@ PAGES.list = async () => {
   if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
   if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
 
-  // 自己学習パネル（S0-S1）
+  // 自己学習パネル（S0-S2）
   let learnCandidate = null;
   let learnConfirming = false;
+  let versionSwitchingPack = null;
 
   function renderCandidateResult(cand, confirming) {
     const renderRow = (section, fieldLabel, cmp, isInsuf) => {
@@ -875,6 +1042,149 @@ PAGES.list = async () => {
     `;
   }
 
+  function renderSwitchConfirmCard(targetPack, currentThr, samples) {
+    const switchCmp = learn.compareSamples(samples, currentThr, targetPack.thresholds);
+    const totalBroken = switchCmp.total.broken;
+    const currentThrStr = `ルール <strong>${currentThr.mode.toFixed(2)}</strong> / ステージ <strong>${currentThr.stage.toFixed(2)}</strong>`;
+    const targetThrStr = `ルール <strong>${targetPack.thresholds.mode.toFixed(2)}</strong> / ステージ <strong>${targetPack.thresholds.stage.toFixed(2)}</strong>`;
+
+    return `
+      <div id="learn-switch-confirm" class="learn-confirm-card">
+        <div class="learn-candidate-header">
+          <h3 class="learn-candidate-title">版切り替えの確認: <code>${esc(targetPack.packId)}</code></h3>
+          <span class="learn-candidate-note muted">
+            現在の閾値（${currentThrStr}）から対象の版（${targetThrStr}）への全サンプル再判定比較
+          </span>
+        </div>
+
+        <table class="table learn-result-table">
+          <thead>
+            <tr>
+              <th>区分</th>
+              <th>正解数 (前 → 後)</th>
+              <th>一致率 (前 → 後)</th>
+              <th>直った</th>
+              <th>新たに壊れた</th>
+              <th>不変</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>全体</strong></td>
+              <td class="num">${switchCmp.total.beforeCorrect} → ${switchCmp.total.afterCorrect} / ${switchCmp.total.n}</td>
+              <td class="num">${(switchCmp.total.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.total.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.total.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.total.fixed > 0 ? `+${switchCmp.total.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.total.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.total.broken > 0 ? `-${switchCmp.total.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.total.unchanged}</td>
+            </tr>
+            <tr>
+              <td>ルール (mode)</td>
+              <td class="num">${switchCmp.mode.beforeCorrect} → ${switchCmp.mode.afterCorrect} / ${switchCmp.mode.n}</td>
+              <td class="num">${(switchCmp.mode.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.mode.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.mode.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.mode.fixed > 0 ? `+${switchCmp.mode.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.mode.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.mode.broken > 0 ? `-${switchCmp.mode.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.mode.unchanged}</td>
+            </tr>
+            <tr>
+              <td>ステージ (stage)</td>
+              <td class="num">${switchCmp.stage.beforeCorrect} → ${switchCmp.stage.afterCorrect} / ${switchCmp.stage.n}</td>
+              <td class="num">${(switchCmp.stage.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.stage.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.stage.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.stage.fixed > 0 ? `+${switchCmp.stage.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.stage.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.stage.broken > 0 ? `-${switchCmp.stage.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.stage.unchanged}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        ${totalBroken > 0 ? `
+          <div class="learn-broken-warning">
+            ⚠️ <strong>警告: 新たに判定が壊れた件数が ${totalBroken} 件あります。</strong><br>
+            切り替えると、現在正解判定されている試合の一部が不正解（未検出）になる可能性があります。
+          </div>
+        ` : `
+          <div class="learn-confirm-msg">
+            この版（<code>${esc(targetPack.packId)}</code>）に切り替えます。今後の試合解析および静止画再判定に反映されます。よろしいですか？
+          </div>
+        `}
+
+        <div class="learn-confirm-actions">
+          <button class="btn ${totalBroken > 0 ? 'btn-danger' : 'btn-primary'}" id="learn-switch-confirm-yes" type="button">確認して切り替える</button>
+          <button class="btn btn-secondary" id="learn-switch-confirm-no" type="button">やめる</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderVersionsSection(versions, activePackId) {
+    if (!versions || versions.length === 0) {
+      return `
+        <div class="learn-versions-section">
+          <h3 class="learn-versions-title">学習パックの版</h3>
+          <div class="learn-versions-empty muted">保存された学習パックの版はありません。</div>
+        </div>
+      `;
+    }
+
+    const rows = versions.map(p => {
+      const isActive = p.packId === activePackId;
+      let createdStr = '-';
+      if (p.created) {
+        try {
+          createdStr = new Date(p.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+        } catch {
+          createdStr = p.created.slice(0, 16).replace('T', ' ');
+        }
+      }
+      const modeThr = p.thresholds?.mode ?? 0.50;
+      const stageThr = p.thresholds?.stage ?? 0.50;
+      const matchCount = p.sourceMatchIds ? p.sourceMatchIds.length : 0;
+
+      return `
+        <tr class="${isActive ? 'row-active' : ''}">
+          <td><strong class="num">${esc(p.packId)}</strong></td>
+          <td>${esc(createdStr)}</td>
+          <td>ルール <strong>${modeThr.toFixed(2)}</strong> / ステージ <strong>${stageThr.toFixed(2)}</strong></td>
+          <td>${matchCount} 試合</td>
+          <td>
+            <span class="learn-badge ${isActive ? 'badge-active' : 'badge-neutral'}">
+              ${isActive ? '適用中' : '保存済み'}
+            </span>
+          </td>
+          <td>
+            ${isActive ? `
+              <span class="muted text-sm">適用中</span>
+            ` : `
+              <button class="btn btn-secondary btn-sm learn-switch-btn" data-pack-id="${esc(p.packId)}" type="button">この版を使う</button>
+            `}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="learn-versions-section">
+        <h3 class="learn-versions-title">学習パックの版（全 ${versions.length} 件）</h3>
+        <div class="table-wrap">
+          <table class="table learn-versions-table">
+            <thead>
+              <tr>
+                <th>版ID</th>
+                <th>作成日時 (JST)</th>
+                <th>閾値</th>
+                <th>学習元</th>
+                <th>状態</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
   const updateLearnPanel = async () => {
     const learnPanelEl = $('#learn-panel', page);
     if (!learnPanelEl) return;
@@ -884,14 +1194,22 @@ PAGES.list = async () => {
     const { train: trn, holdout: hld } = learn.splitHoldout(allSamples);
     const hasHoldout = hld.length > 0;
     const activePack = await db.activeLearnPack().catch(() => null);
+    const activePackId = activePack?.packId || null;
+    const packVersions = await db.listLearnPacks().catch(() => []);
+    const currentThr = activePack ? activePack.thresholds : learn.DEFAULT_THRESHOLDS;
 
     learnPanelEl.innerHTML = `
       <div class="learn-panel-header">
         <div class="learn-panel-title-wrap">
-          <h2 class="learn-panel-title">自己学習（候補提示）</h2>
+          <h2 class="learn-panel-title">自己学習（候補提示・版管理）</h2>
           <span class="learn-badge ${activePack ? 'badge-active' : 'badge-neutral'}">${activePack ? '学習適用中' : '未適用（既定値）'}</span>
         </div>
-        ${activePack ? `<button class="btn btn-secondary btn-sm" id="learn-rollback" type="button">学習を1つ前に戻す</button>` : ''}
+        <div class="learn-header-actions">
+          ${activePack ? `
+            <button class="btn btn-secondary btn-sm" id="learn-deactivate" type="button">未適用に戻す</button>
+            <button class="btn btn-secondary btn-sm" id="learn-rollback" type="button">学習を1つ前に戻す</button>
+          ` : ''}
+        </div>
       </div>
 
       <div class="learn-panel-body">
@@ -900,14 +1218,14 @@ PAGES.list = async () => {
           <div class="learn-meta-item">サンプル数: <strong class="num">${allSamples.length}</strong> 件</div>
           <div class="learn-meta-item">holdout: <strong>${hasHoldout ? `あり（${hld.length}件）` : 'なし'}</strong></div>
         </div>
-        <p class="learn-note muted">※ 映像は保存されていないため再判定は静止画・特徴量・系列のみで行われます。</p>
+        <p class="learn-note muted">※ 映像は保存されていないため再判定は静止画・特徴量・系列のみで行われます。学習パックおよび閾値は端末内（IndexedDB）のみに保持され、外部送信されません。</p>
 
         <div class="learn-active-info">
           ${activePack ? `
             <div class="learn-pack-desc">
-              適用中パック: <strong class="num">${esc(activePack.packId)}</strong>（作成: ${esc(activePack.created.slice(0, 16).replace('T', ' '))}) / 
+              適用中パック: <strong class="num">${esc(activePack.packId)}</strong>（作成: ${esc(activePack.created ? new Date(activePack.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : activePack.created)}) / 
               閾値: ルール <strong>${activePack.thresholds.mode.toFixed(2)}</strong>、ステージ <strong>${activePack.thresholds.stage.toFixed(2)}</strong> / 
-              元試合: <strong>${activePack.sourceMatchIds.length}</strong> 試合
+              元試合: <strong>${activePack.sourceMatchIds ? activePack.sourceMatchIds.length : 0}</strong> 試合
             </div>
           ` : `
             <div class="learn-pack-desc muted">適用中パック: なし（既定値: ルール 0.50 / ステージ 0.50）</div>
@@ -921,21 +1239,37 @@ PAGES.list = async () => {
         <div id="learn-result" class="learn-result" ${learnCandidate ? '' : 'hidden'}>
           ${learnCandidate ? renderCandidateResult(learnCandidate, learnConfirming) : ''}
         </div>
+
+        ${versionSwitchingPack ? renderSwitchConfirmCard(versionSwitchingPack, currentThr, allSamples) : ''}
+
+        ${renderVersionsSection(packVersions, activePackId)}
       </div>
     `;
 
     const btnCand = $('#learn-candidate', learnPanelEl);
     if (btnCand) {
       btnCand.onclick = () => {
+        versionSwitchingPack = null;
         learnCandidate = learn.generateCandidate(allSamples);
         learnConfirming = false;
         updateLearnPanel();
+      };
+    }
+    const btnDeactivate = $('#learn-deactivate', learnPanelEl);
+    if (btnDeactivate) {
+      btnDeactivate.onclick = async () => {
+        await db.deactivateLearnPack();
+        versionSwitchingPack = null;
+        learnCandidate = null;
+        learnConfirming = false;
+        PAGES.list();
       };
     }
     const btnRollback = $('#learn-rollback', learnPanelEl);
     if (btnRollback) {
       btnRollback.onclick = async () => {
         await db.rollbackLearnPack();
+        versionSwitchingPack = null;
         learnCandidate = null;
         learnConfirming = false;
         PAGES.list();
@@ -971,6 +1305,40 @@ PAGES.list = async () => {
         learnCandidate = null;
         learnConfirming = false;
         PAGES.list();
+      };
+    }
+
+    // 版切り替えボタン
+    learnPanelEl.querySelectorAll('.learn-switch-btn').forEach(btn => {
+      btn.onclick = () => {
+        const pid = btn.dataset.packId;
+        const target = packVersions.find(p => p.packId === pid);
+        if (target) {
+          versionSwitchingPack = target;
+          learnCandidate = null;
+          learnConfirming = false;
+          updateLearnPanel();
+        }
+      };
+    });
+
+    const btnSwitchYes = $('#learn-switch-confirm-yes', learnPanelEl);
+    if (btnSwitchYes) {
+      btnSwitchYes.onclick = async () => {
+        if (versionSwitchingPack) {
+          await db.activateLearnPack(versionSwitchingPack.packId);
+          versionSwitchingPack = null;
+          learnCandidate = null;
+          learnConfirming = false;
+          PAGES.list();
+        }
+      };
+    }
+    const btnSwitchNo = $('#learn-switch-confirm-no', learnPanelEl);
+    if (btnSwitchNo) {
+      btnSwitchNo.onclick = () => {
+        versionSwitchingPack = null;
+        updateLearnPanel();
       };
     }
   };
