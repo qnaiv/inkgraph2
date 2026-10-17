@@ -1,0 +1,10 @@
+import { chromium } from 'playwright-core'; import { spawn } from 'node:child_process'; import fs from 'node:fs';
+const W='/workspace/inkgraph/web', SH=W+'/../docs/screenshots/tower-holder';
+const srv = spawn('npx', ['vite','preview','--port','4175','--strictPort'], { cwd: W, stdio: 'ignore' }); await new Promise(r => setTimeout(r, 3000));
+const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true }); const p = await (await b.newContext({ viewport:{width:1400,height:1000}, locale:'ja-JP' })).newPage();
+const U='http://127.0.0.1:4175/'; await p.goto(U+'#list'); const ms = JSON.parse(fs.readFileSync(W+'/test-results/web_matches.json'));
+await p.evaluate(async ms => { await window.inkgraph.db.importAll(ms); }, ms);
+const s=[...ms].sort((a,b)=>a.source.name<b.source.name?-1:1);
+await p.goto(U+'#match/'+encodeURIComponent(s[0].id)); await p.reload(); await p.waitForTimeout(1200); await p.screenshot({ path: SH+'/match01_timeline.png', fullPage: true });
+const T=fs.readFileSync(''+W+'/tools/tower_table.html','utf8'); await p.setViewportSize({width:900,height:400}); await p.setContent(T); await p.screenshot({ path: SH+'/agreement_table.png', fullPage: true });
+await b.close(); srv.kill();

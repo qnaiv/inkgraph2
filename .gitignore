@@ -11,3 +11,4 @@ proto/
 upload/
 out/**/frames/
 *.npy
+out/

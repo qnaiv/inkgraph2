@@ -21,7 +21,7 @@ export function effective(m) { const S = series(m), r = m.review || { added: [] 
 export function resultOf(m) { const rs = m.result_screen || {}, f = (m.review || {}).fix || {}; const own = rs.own || {};
   return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m) }; }
 export function finalCount(m) { const s = m.tower_series; if (!s || !s.length) return null; const l = s[s.length - 1]; return `${l.own}-${l.enemy}`; }
-export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', ka: 'キル+アシスト', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
+export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
 /** accuracy from review marks. per kind: tp=✓, fp=✗, fn=added. result fields: rmarks ok/wrong */
 export function accuracy(ms) { const A = {}; for (const k of Object.keys(KINDS)) A[k] = { tp: 0, fp: 0, fn: 0, unreviewed: 0 };
   const RF = {}; for (const k of Object.keys(RESULT_FIELDS)) RF[k] = { ok: 0, wrong: 0 };
