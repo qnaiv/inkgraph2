@@ -1,19 +1,44 @@
 // Corrections-aware views of a match + accuracy + trend aggregation
 import { aliveAt } from './core/analyzer.js';
 import * as T from './core/tower.js';
-export const KINDS = { death: 'デス', kill: 'キル', special: 'スペシャル' };
-export const SP_LABEL = { activated: '発動', lost_on_death: '溜めたままやられた', unused_at_end: '未使用のまま終了' };
+export const KINDS = { death: 'デス', kill: 'キル', special: 'スペシャル発動' };
+export const SP_LABEL = { activated: '発動', lost_on_death: '未使用のままデス', unused_at_end: '未使用のまま終了' };
 export const key = (kind, t) => `${kind}@${(+t).toFixed(1)}`;
 export function series(m) { return (m.tower_series || []).map(s => ({ t: s.t, count_own: s.own, count_enemy: s.enemy, diff: s.own - s.enemy, owner: s.owner })); }
 export function wpAt(m, S, t) { return T.wp(S.length ? T.at(S, t) : null, t, m.battle[1], aliveAt(m, t)); }
 function ctx(m, S, kind, t) { const s = S.length ? T.at(S, t - 0.5) : null; const o = { phase: T.phase(s), count: s ? `${s.count_own}-${s.count_enemy}` : null, count_diff: s ? s.diff : null };
   if (kind !== 'special') { const b = wpAt(m, S, t - 1), a = wpAt(m, S, t + 1.5); o.wp_before = b; o.wp_after = a; o.wp_delta = a - b; } return o; }
+/** pure interval view of m.special: [{ready, end, outcome, activated_at}] */
+export function specialIntervals(m) {
+  return (m.special || []).map(e => ({
+    ready: e.ready,
+    end: e.end,
+    outcome: e.outcome,
+    activated_at: e.activated_at ?? (e.outcome === 'activated' ? e.end : null)
+  }));
+}
+/** aggregated special statistics for a match */
+export function specialStats(m) {
+  const intervals = specialIntervals(m);
+  const readyCount = intervals.length;
+  const readySeconds = +(intervals.reduce((s, e) => s + Math.max(0, e.end - e.ready), 0)).toFixed(1);
+  const lost = intervals.filter(e => e.outcome === 'lost_on_death').length;
+  const unusedEnd = intervals.filter(e => e.outcome === 'unused_at_end').length;
+  const wastedRate = readyCount > 0 ? lost / readyCount : null;
+  const activated = effective(m).filter(e => e.kind === 'special').length;
+  return { activated, readyCount, readySeconds, lost, unusedEnd, wastedRate };
+}
 /** detected events with review status */
 export function detected(m) { const r = m.review || { marks: {} }; const out = [];
-  for (const e of m.own_deaths) out.push({ kind: 'death', t: e.start, end: e.end, src: e });
-  for (const e of m.own_kills) out.push({ kind: 'kill', t: e.start, end: e.end, src: e });
-  for (const e of m.special) out.push({ kind: 'special', t: e.ready, end: e.end, outcome: e.outcome, src: e });
-  out.forEach(e => { e.key = key(e.kind, e.t); e.mark = r.marks[e.key] || null; }); return out.sort((a, b) => a.t - b.t); }
+  for (const e of (m.own_deaths || [])) out.push({ kind: 'death', t: e.start, end: e.end, src: e, key: key('death', e.start) });
+  for (const e of (m.own_kills || [])) out.push({ kind: 'kill', t: e.start, end: e.end, src: e, key: key('kill', e.start) });
+  for (const e of (m.special || [])) {
+    if (e.outcome === 'activated') {
+      const actT = e.activated_at ?? e.end;
+      out.push({ kind: 'special', t: actT, ready: e.ready, end: e.end, activated_at: actT, outcome: e.outcome, src: e, key: key('special', e.ready) });
+    }
+  }
+  out.forEach(e => { e.key = e.key || key(e.kind, e.t); e.mark = r.marks[e.key] || null; }); return out.sort((a, b) => a.t - b.t); }
 /** effective (corrected) events: detected minus ✗/deleted plus added; with phase & win-prob context */
 export function effective(m) { const S = series(m), r = m.review || { added: [] };
   const ev = detected(m).filter(e => e.mark !== 'wrong' && e.mark !== 'deleted').concat((r.added || []).map(a => ({ kind: a.kind, t: a.t, end: a.t + (a.kind === 'death' ? 5 : 0.5), outcome: a.outcome || (a.kind === 'special' ? 'activated' : undefined), added: true, key: key('add-' + a.kind, a.t) })));
