@@ -1,0 +1,52 @@
+{
+ "video": "joined_match02.mp4",
+ "match_id": "2026-10-16T19:05:15.446Z#1",
+ "battle": [
+  21.6,
+  324.4
+ ],
+ "result": "WIN",
+ "mode": "ガチヤグラ",
+ "stage": "クサヤ温泉",
+ "own": {
+  "ka": 4,
+  "deaths": 6,
+  "specials": 3
+ },
+ "count_final": null,
+ "events": {
+  "death": {
+   "times": [
+    37.0,
+    68.2,
+    135.0,
+    200.2
+   ],
+   "status": "partial",
+   "unreviewed": [
+    228.6,
+    278.8
+   ]
+  },
+  "kill": {
+   "times": [
+    123.2
+   ],
+   "status": "complete",
+   "unreviewed": []
+  },
+  "special": {
+   "times": [
+    95.4,
+    167.2
+   ],
+   "status": "partial",
+   "unreviewed": [
+    265.8,
+    307.6
+   ]
+  }
+ },
+ "tower_holder": null,
+ "count_series": null
+}

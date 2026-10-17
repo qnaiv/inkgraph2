@@ -76,6 +76,33 @@
 ## D18 (2026-10-17) デザインレビュー反映：キル+アシストの廃止と停止ボタンの追加
 - キル+アシスト（ka）はUIから外す。`tools/ingest_feedback.py` は `result_screen` や `fix` に `ka` がなくても止まらず、「未確認」（None）として扱う。自分のキルは、タイムラインのキルイベントで確認する（Leadの決定）。
 - `.btn-stop` を `tokens.css` に追加した（背景は透明、文字色は `--danger`、1pxの `--danger` 枠線、ホバーで12%の薄い赤）。`.btn-danger-ghost` は残し、試合一覧の「…」メニュー内の「削除」に使う。
+## D19 (2026-10-17) ヤグラ保持チーム判定：HoughCircles の忠実移植＋密サンプルの多数決
+- 円検出：`web/src/core/tower.js` の `findCircle` を OpenCV 4 `HOUGH_GRADIENT`（medianBlur3→Canny 60/120→勾配方向投票→極大・minDist30→半径ヒストグラム）の JS 移植に置換。所有判定（色割合 S>140・V>120・0.15）は Python と同一。同じ cv2 画素を通す `tools/tower_frames.mjs` で保持チーム・x位置とも **100%一致**（3試合）、約50→8ms/フレーム。
+- 系列化：ブラウザ版は約5fpsで全フレームに towerRow をかけ（`grid` 行は従来どおり約1秒ごと）、各1秒点の保持チームを ±3秒内の全検出の多数決で決める（同数なら最も近い行）。窓内に検出がなければ直前の保持チームを3秒まで引き継ぐ。生データは `tower_rows` として試合記録に保存し、`tools/tower_series_sweep.mjs` でオフライン探索できる。
+- 一致率（ブラウザ版 vs Python版、`tools/tower_agree.py`）：
+
+| 試合 | 最初 | Hough移植後 | 今回 |
+|---|---|---|---|
+| 1 | 62.2% | 74.9% | 82.8% |
+| 2 | 81.1% | 83.3% | 84.5% |
+| 3 | 64.4% | 70.9% | 78.2% |
+| 合計 | 69.1% | 76.3% | 81.8% |
+
+- 目標90%は未達。保持の引き継ぎ（hold 0〜10秒）は効果なし（窓内に検出が常にある）。色しきい値を緩める（S/V 80〜120、割合 0.08〜0.10）と、ブラウザ画素での一致はむしろ下がった（72.5%→67.9〜71.8%、試合1）ため据え置き。
+- 原因：判定ロジックは一致しているので、残りはブラウザと cv2 のデコード画素とサンプル時刻の違い。Python版も1秒1枚の判定で揺れており（保持↔中立）、基準側のノイズも一致率を下げている。
+- 次の案：(1) 比較の基準を Python 版ではなく人手ラベル（フィードバック zip）にする、(2) Python 版も密サンプル＋多数決にして両者のノイズを揃える、(3) ブラウザのフレームの PTS を requestVideoFrameCallback の mediaTime で Python のフレーム番号に合わせる。
+## D20 (2026-10-17) 人手ラベル（フィードバック zip）を正解とした評価
+- 正解は Web 版の確認モードが書き出すフィードバック zip（`feedback.json`、format 1）。`tools/eval_labels.py` が試合ごとのラベルに変換する（`--write-labels labels/` で `labels/<動画名>.json`）。
+- ラベル形式（1試合）：
+  - `video`（例 joined_match02.mp4）、`match_id`、`battle`（[開始, 終了] 秒）
+  - `result` / `mode` / `stage`：`review.fix` の値、なければ `review.rmarks[項目]=='ok'` のときの検出値、どちらもなければ null（ラベルなし）
+  - `own.ka` / `own.deaths` / `own.specials`：同上
+  - `count_final`：`review.fix.count`、なければ null
+  - `events.{death,kill,special}`：`times`＝検出のうち `review.marks["種類@秒"]=='ok'` のもの＋`review.added` の追加分（wrong/deleted は除外）、`unreviewed`＝マークのない検出、`status`＝complete（全件確認）/ partial（一部確認）/ none（未確認）。検出時刻は death=own_deaths.start、kill=own_kills.start、special=special.ready
+  - `tower_holder`：`review.tower_holder`（[開始, 終了, own|enemy|neutral] の区間リスト）。**現在の確認モードには入力 UI がないため常に null**
+  - `count_series`：`review.count_series`（[秒, 味方, 相手]）。同じく入力 UI なし
+- 照合：イベントは許容幅 ±2.0 秒（`--tol`）で時刻順に1対1対応を取り、TP/FP/FN から適合率・再現率を出す。partial のときは未確認の時刻の近くの検出は数えない。勝敗などの単一値は一致/不一致。ヤグラ保持は試合中の整数秒ごとに最も近い系列サンプル（0.7秒以内）と比べ、味方/相手それぞれの適合率・再現率を出す。カウント系列は秒単位の完全一致率。null の項目と、ラベルのない試合は「ラベルなし」と表示する。
+- 現状のラベルは feedback_sample.zip（試合2のみ、デス・スペシャルは一部未確認）だけ。試合1・3はラベルなし。
 
 ## D21 (2026-10-17) ヤグラ保持ラベルの入力 UI（D20 への追記）
 - 本ブランチは D20（review.tower_holder / review.count_series、PR #28）への追記・補足を定める。
