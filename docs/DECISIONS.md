@@ -202,3 +202,11 @@
 - 一括作成の後は、作成件数を数えて報告する。件数が想定と違えば、その場で止めて原因を確認する（続行しない）。
 - 先日の `gh.py` 誤実行のようなケースも、この事前確認（既存検索・件数と番号の確認・冪等チェック）で防ぐこと。`/workspace/gh.py` は実行しない。
 
+## D31 (2026-10-17) GitHub Pages配信（U1）
+- 決定：ブラウザ版（`web/`）を現行リポジトリの GitHub Pages（https://qnaiv.github.io/inkgraph2/ ）で配信する。
+- 方式：`.github/workflows/pages.yml` による GitHub Actions ベースの `web/dist` デプロイ。Vite の base はすでに相対パス `'./'` に設定済みで、アセット取得も `document.baseURI` 基準のため `/inkgraph2/` サブパス配下でも安全に動作する。
+- デプロイ制御：`main` ブランチへの push（マージ時）のみ本番 Pages へアーティファクトをアップロード・デプロイする。PR や機能ブランチからの `workflow_dispatch` 実行時はビルド検証のみを行い、本番 Pages は上書きしない。
+- リポジトリ設定：GitHub Pages の Source を "GitHub Actions" へ切り替える設定はリポジトリ管理者の Naoki / Bobo が手動で実施する（コード・PRでは設定不可）。
+- 関連issue：なし（既存 issue を Pages / ホスティング / デプロイ で検索し該当 0 件を確認）。
+
+
