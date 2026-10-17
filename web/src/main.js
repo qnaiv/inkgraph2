@@ -12,6 +12,30 @@ import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } fr
 import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
 
 const app = document.getElementById('app');
+const liveSlot = document.createElement('div');
+liveSlot.id = 'slot-live';
+const normalSlot = document.createElement('div');
+normalSlot.id = 'slot-normal';
+app.append(normalSlot, liveSlot);
+
+function mountPage(el, isLive = false) {
+  if (isLive) {
+    if (el && liveSlot.firstElementChild !== el) {
+      if (!(session && session.running && session.page && liveSlot.contains(session.page))) {
+        liveSlot.replaceChildren(el);
+      }
+    }
+    liveSlot.style.display = '';
+    normalSlot.style.display = 'none';
+  } else {
+    liveSlot.style.display = 'none';
+    normalSlot.style.display = '';
+    if (el) {
+      normalSlot.replaceChildren(el);
+    }
+  }
+}
+
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -33,7 +57,9 @@ window.inkgraph = {
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
   showCapacityCleanupDialog: (...a) => showCapacityCleanupDialog(...a),
-  setReviewMode: v => { reviewMode = !!v; if (currentPage === 'match') PAGES.match(); }
+  setReviewMode: v => { reviewMode = !!v; if (currentPage === 'match') PAGES.match(); },
+  getSession: () => session,
+  nav: (...a) => nav(...a)
 };
 
 let currentPage = 'live';
@@ -272,7 +298,13 @@ const PAGES = {};
 // ============================================================================
 PAGES.live = async () => {
   if (session && session.running && session.page) {
-    app.replaceChildren(session.page);
+    mountPage(session.page, true);
+    if (typeof session.resume === 'function') {
+      try {
+        const p = session.resume();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch {}
+    }
     return;
   }
   const savedMatches = await db.allMatches();
@@ -417,7 +449,7 @@ PAGES.live = async () => {
       </div>
     </div>
   `;
-  app.replaceChildren(page);
+  mountPage(page, true);
   wireCapacityBanner(page, capUsage);
 
   $('#to-list', page).onclick = e => { e.preventDefault(); nav('list'); };
@@ -906,7 +938,7 @@ PAGES.list = async () => {
     `}
   `;
 
-  app.replaceChildren(page);
+  mountPage(page, false);
   wireCapacityBanner(page, capUsage);
 
   const goLiveBtn = $('#empty-go-live', page);
@@ -1763,7 +1795,7 @@ PAGES.match = async () => {
     </div>
   `;
 
-  app.replaceChildren(page);
+  mountPage(page, false);
 
   $('#pick', page).onchange = e => nav('match', e.target.value);
   $('#review-toggle', page).onchange = e => {
@@ -2104,7 +2136,7 @@ PAGES.trend = async () => {
           <button class="btn btn-primary" id="trend-empty-btn" type="button">試合一覧へ</button>
         </div>
       </div>`;
-    app.replaceChildren(page);
+    mountPage(page, false);
     $('#trend-empty-btn', page).onclick = () => nav('list');
     return;
   }
@@ -2411,7 +2443,7 @@ PAGES.trend = async () => {
     </details>
   `;
 
-  app.replaceChildren(page);
+  mountPage(page, false);
 
   page.querySelectorAll('.wp-dot, .click-match').forEach(el => {
     el.addEventListener('click', () => nav('match', el.dataset.id));

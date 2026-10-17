@@ -37,6 +37,7 @@
 | 31 | 2026-10-17 | リザルト未取得試合の扱い（状態判定・由来保存・読み取り間隔0.08s・傾向分析除外・result_missing_check・D35） | gemini-3.8-flash-medium | 仕様9項目を箇条書きで依頼 | 成功。build通過、result_missing_check 36項目 ALL PASS、既存回帰通過 | 不要な PAGES.trends エイリアスを除去し check の遷移先を #trend に修正（2箇所） | 仕様1回＋差分レビュー・検証 |
 | 32 | 2026-10-17 | #133 エピックA PR1 マッチタイプ・パワー記録基盤 | gemini-3.8-flash-medium | 要件を8項目で箇条書き（純粋関数仕様、db、UI、match_type_power_check、D36） | 成功。build通過、match_type_power_check 13項目 ALL PASS、既存3試合で従来結果と一致し match_type=bankara_challenge（信頼度0.97前後）を確認 | しきい値0.85化・MATCH_TYPE_BOX調整・テンプレート二値化・assets.js の lib.match_type 読み込み追加・チャレンジ用テンプレート追加をGrok側で手直し | 仕様1回＋差分レビュー・検証（build／新規13／回帰複数種／実動画3試合） |
 | 33 | 2026-10-17 | #135 PR1 配信映像の取り込み（検証用）（画面共有入力・自分／他人（検証用）必須選択・1080p全画面字幕オフ確認・検証用バッジ・傾向集計除外・stream_capture_check・D37） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（表示名・ガード条件・純粋関数仕様・チェック項目・D番号を指定、約45行） | 成功。build通過、stream_capture_check 29項目 ALL PASS、回帰 result_missing 36・no_video 12 PASS、スクショ3枚 | 未使用import（matchOwner）除去とD37の対戦表未検証文言の明確化（2件） | 仕様1回＋差分レビュー・検証（build／新規29／回帰2種／スクショ3枚確認） |
+| 34 | 2026-10-17 | 記録中の他ページ閲覧継続（ライブ画面を隠すだけにする・resume/世代トークン・session_keepalive_check・D39） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（表示スロット分離・session世代トークン/resume・検証ツール・D39、約50行） | 成功。build通過、session_keepalive_check 18項目 ALL PASS、回帰 stream_capture 35・no_video 12・ui_check 3 PASS | 回帰で再生成された無関係な既存スクショを差し戻し、本行の結果を実測値に更新（コードの手直しなし） | 仕様1回＋差分レビュー・検証（build／新規18／回帰3種／スクショ2枚確認） |
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
 - 単一ファイル・入出力が明確なタスクは flash でも一発で通る。ドキュメントは事実を箇条書きで渡すと正確。
