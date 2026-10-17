@@ -1,7 +1,7 @@
 import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
-import { renderTimeline, LEGEND } from './timeline.js';
+import { renderTimeline } from './timeline.js';
 import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, specialIntervals, specialStats } from './analysis.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
@@ -1640,7 +1640,6 @@ PAGES.match = async () => {
       <div class="card detail-timeline-card">
         <div class="card-title">タイムライン</div>
         <div id="tl"></div>
-        ${LEGEND}
       </div>
 
       <div class="card detail-events-card">
@@ -2040,7 +2039,7 @@ PAGES.trend = async () => {
   const spStatsList = ms.map(m => specialStats(m));
   const totActivated = spStatsList.reduce((s, x) => s + x.activated, 0);
   const totReadySec = spStatsList.reduce((s, x) => s + x.readySeconds, 0);
-  const avgReadySec = ms.length ? (totReadySec / ms.length).toFixed(1) : '0.0';
+  const avgReadySec = ms.length ? Math.round(totReadySec / ms.length) : 0;
   const totLost = spStatsList.reduce((s, x) => s + x.lost, 0);
   const unusedEndMatches = spStatsList.filter(x => x.unusedEnd > 0).length;
   const totReadyCount = spStatsList.reduce((s, x) => s + x.readyCount, 0);

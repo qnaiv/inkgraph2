@@ -15,6 +15,29 @@ const phaseClass = p => p === '抑え' ? 'phase-osae' : p === '打開' ? 'phase-
 // document-level listeners of the open popover; aborted whenever a timeline is re-rendered
 let popAbort = null;
 
+export const LEGEND = `
+<div class="tl-legend">
+  <div class="tl-legend-group">
+    <span class="tl-legend-heading">帯の色：</span>
+    <span><i class="tl-swatch" style="background:var(--ally-soft);border:1px solid var(--ally)"></i>抑え</span>
+    <span><i class="tl-swatch" style="background:var(--enemy-soft);border:1px solid var(--enemy)"></i>打開</span>
+    <span><i class="tl-swatch" style="background:var(--surface-2);border:1px solid var(--border-strong)"></i>互角</span>
+    <span><i class="tl-swatch" style="background:var(--respawn)"></i>復活待ち</span>
+    <span><i class="tl-swatch" style="background:var(--unknown);border:1px solid var(--border)"></i>判定不可区間</span>
+  </div>
+  <div class="tl-legend-group">
+    <span class="tl-legend-heading">線の色・記号：</span>
+    <span><i class="tl-line-swatch" style="background:var(--ally)"></i>味方</span>
+    <span><i class="tl-line-swatch" style="background:var(--enemy)"></i>敵</span>
+    <span><b style="color:var(--kill)">★</b> キル</span>
+    <span><i class="tl-swatch" style="background:var(--special-soft);border-top:2px solid var(--special)"></i>帯：スペシャル使用可能</span>
+    <span><b style="color:var(--special)">◆</b> スペシャル発動</span>
+    <span><svg width="18" height="14" viewBox="0 0 18 14" style="vertical-align:middle"><line x1="1" y1="2" x2="11" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/><line x1="11" y1="2" x2="1" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/><polygon points="9,2 19,2 14,10" fill="var(--special-wasted)" stroke="var(--surface)" stroke-width="1"/></svg> ×＋▼ 未使用のままデス</span>
+    <span><svg width="13" height="13" viewBox="0 0 13 13" style="vertical-align:middle"><rect x="2" y="2" width="9" height="9" fill="none" stroke="var(--special-wasted)" stroke-width="2"/></svg> ▯ 未使用のまま終了</span>
+    <span><b style="color:var(--accent)">●</b> 修正済み</span>
+  </div>
+</div>`;
+
 export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
   if (popAbort) popAbort.abort();
   popAbort = new AbortController();
@@ -105,10 +128,11 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
     const x1 = X(intv.ready), x2 = X(intv.end);
     const y1 = rowY.special - 5, y2 = rowY.special + 5;
     const isLost = intv.outcome === 'lost_on_death';
+    // lost_on_death: 帯高10px(y2-y1)に合わせて終端上辺をx2-10からx2の底辺へ落とす45度相当の斜め切り
+    const topX2 = isLost ? Math.max(x1, x2 - 10) : x2;
     const shape = isLost
-      ? `<polygon points="${x1.toFixed(1)},${y1} ${Math.max(x1, x2 - 6).toFixed(1)},${y1} ${x2.toFixed(1)},${y2} ${x1.toFixed(1)},${y2}" fill="var(--special-soft)"/>`
+      ? `<polygon points="${x1.toFixed(1)},${y1} ${topX2.toFixed(1)},${y1} ${x2.toFixed(1)},${y2} ${x1.toFixed(1)},${y2}" fill="var(--special-soft)"/>`
       : `<rect x="${x1.toFixed(1)}" y="${y1}" width="${Math.max(1, x2 - x1).toFixed(1)}" height="10" fill="var(--special-soft)"/>`;
-    const topX2 = isLost ? Math.max(x1, x2 - 6) : x2;
     body += `<g class="sp-band" data-outcome="${intv.outcome}" data-ready="${intv.ready}" data-end="${intv.end}" data-activated="${intv.activated_at ?? ''}" style="cursor:pointer">`
       + `<title>${mss(intv.ready - t0)} スペシャル使用可能</title>`
       + shape
@@ -116,7 +140,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
       + `<circle cx="${x1.toFixed(1)}" cy="${rowY.special}" r="3" fill="var(--special)"/>`
       + `</g>`;
     if (intv.outcome === 'unused_at_end') {
-      body += `<rect class="sp-unused-end" x="${(x2 - 4).toFixed(1)}" y="${(rowY.special - 4).toFixed(1)}" width="8" height="8" fill="none" stroke="var(--special-wasted)" stroke-width="1.5"><title>未使用のまま終了</title></rect>`;
+      body += `<rect class="sp-unused-end" x="${(x2 - 4.5).toFixed(1)}" y="${(rowY.special - 4.5).toFixed(1)}" width="9" height="9" fill="none" stroke="var(--special-wasted)" stroke-width="2"><title>未使用のまま終了</title></rect>`;
     }
   }
 
@@ -172,7 +196,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
         const y1 = (rowY.death - 6).toFixed(1), y2 = (rowY.death + 6).toFixed(1);
         const isLostEnd = spInts.some(si => si.outcome === 'lost_on_death' && Math.abs(e.t - si.end) <= 1.0);
         const wastedTri = isLostEnd
-          ? `<polygon class="sp-wasted-tri" points="${(x + 5).toFixed(1)},${(rowY.death - 13).toFixed(1)} ${(x + 13).toFixed(1)},${(rowY.death - 13).toFixed(1)} ${(x + 9).toFixed(1)},${(rowY.death - 6).toFixed(1)}" fill="var(--special-wasted)"><title>未使用のままデス（スペシャルを失いました）</title></polygon>`
+          ? `<polygon class="sp-wasted-tri" points="${(x + 4).toFixed(1)},${(rowY.death - 15).toFixed(1)} ${(x + 14).toFixed(1)},${(rowY.death - 15).toFixed(1)} ${(x + 9).toFixed(1)},${(rowY.death - 5).toFixed(1)}" fill="var(--special-wasted)" stroke="var(--surface)" stroke-width="1"><title>未使用のままデス（スペシャルを失いました）</title></polygon>`
           : '';
         body += `<g ${attr}><title>${mss(e.t - t0)} デス</title><rect x="${x.toFixed(1)}" y="${rowY.death - 8}" width="${rw.toFixed(1)}" height="16" rx="3" fill="var(--respawn)"/><g class="death-mark" data-size="14" stroke="var(--death)" stroke-width="2" stroke-linecap="round"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><line x1="${x2}" y1="${y1}" x2="${x1}" y2="${y2}"/></g>${wastedTri}</g>`;
       }
@@ -331,6 +355,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
   wrap.innerHTML = `
     ${mainSvg}
     <div class="tl-tooltip"></div>
+    ${LEGEND}
     <details class="tl-collapse">
       <summary>味方・敵のやられ（7レーン）</summary>
       ${subSvg}
@@ -566,26 +591,3 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
 
   return wrap;
 }
-
-export const LEGEND = `
-<div class="tl-legend">
-  <div class="tl-legend-group">
-    <span class="tl-legend-heading">帯の色：</span>
-    <span><i class="tl-swatch" style="background:var(--ally-soft);border:1px solid var(--ally)"></i>抑え</span>
-    <span><i class="tl-swatch" style="background:var(--enemy-soft);border:1px solid var(--enemy)"></i>打開</span>
-    <span><i class="tl-swatch" style="background:var(--surface-2);border:1px solid var(--border-strong)"></i>互角</span>
-    <span><i class="tl-swatch" style="background:var(--respawn)"></i>復活待ち</span>
-    <span><i class="tl-swatch" style="background:var(--unknown);border:1px solid var(--border)"></i>判定不可区間</span>
-  </div>
-  <div class="tl-legend-group">
-    <span class="tl-legend-heading">線の色・記号：</span>
-    <span><i class="tl-line-swatch" style="background:var(--ally)"></i>味方</span>
-    <span><i class="tl-line-swatch" style="background:var(--enemy)"></i>敵</span>
-    <span><b style="color:var(--kill)">★</b> キル</span>
-    <span><i class="tl-swatch" style="background:var(--special-soft);border-top:2px solid var(--special)"></i>帯：スペシャル使用可能</span>
-    <span><b style="color:var(--special)">◆</b> スペシャル発動</span>
-    <span><svg width="18" height="14" viewBox="0 0 18 14" style="vertical-align:middle"><line x1="1" y1="2" x2="11" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/><line x1="11" y1="2" x2="1" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/><polygon points="10,2 18,2 14,9" fill="var(--special-wasted)"/></svg> ×＋▼ 未使用のままデス</span>
-    <span><svg width="12" height="12" viewBox="0 0 12 12" style="vertical-align:middle"><rect x="2" y="2" width="8" height="8" fill="none" stroke="var(--special-wasted)" stroke-width="1.5"/></svg> ▯ 未使用のまま終了</span>
-    <span><b style="color:var(--accent)">●</b> 修正済み</span>
-  </div>
-</div>`;

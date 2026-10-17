@@ -142,6 +142,21 @@ try {
     '(d) LEGEND: 4 special items exist in exact order',
     `i1=${i1}, i2=${i2}, i3=${i3}, i4=${i4}`);
 
+  const legendPositionOk = await page.evaluate(() => {
+    const wrap = document.querySelector('.timeline-wrap');
+    if (!wrap) return false;
+    const svg = wrap.querySelector('.timeline-svg');
+    const legend = wrap.querySelector('.tl-legend');
+    const collapse = wrap.querySelector('.tl-collapse');
+    if (!svg || !legend || !collapse) return false;
+    const children = Array.from(wrap.children);
+    const iSvg = children.indexOf(svg);
+    const iLegend = children.indexOf(legend);
+    const iCollapse = children.indexOf(collapse);
+    return iSvg !== -1 && iLegend !== -1 && iCollapse !== -1 && iSvg < iLegend && iLegend < iCollapse;
+  });
+  check(legendPositionOk, '(d) LEGEND: placed directly below timeline and before tl-collapse');
+
   // (e) Trends page inspection
   await page.goto(U + '#trend');
   await page.reload();
@@ -158,6 +173,15 @@ try {
   for (const lab of requiredLabels) {
     check(trendLabels.includes(lab), `(e) trends: label exists "${lab}"`);
   }
+
+  const avgReadyText = await page.evaluate(() => {
+    const stats = Array.from(document.querySelectorAll('.trends-stat-band .stat'));
+    const target = stats.find(s => s.querySelector('.stat-label')?.textContent.trim() === '使用可能だった時間（秒／試合）');
+    return target?.querySelector('.stat-value')?.textContent.trim() ?? '';
+  });
+  check(avgReadyText !== '' && !avgReadyText.includes('.'),
+    '(e) trends: avgReadySec displayed as integer without decimal',
+    `value="${avgReadyText}"`);
 
   // Screenshot 02: trends
   await page.screenshot({ path: path.join(SH, '02_trends.png') });
