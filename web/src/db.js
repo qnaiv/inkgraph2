@@ -1,4 +1,5 @@
 // IndexedDB: matches (records), videos (recorded clips), snaps (still frames), learn (learning packs)
+import { CAP_BYTES, TARGET_RATIO, getCapBytes, matchStillsBytes, summarizeCapacity, planCapacityCleanup } from './capacity.js';
 const DB = 'inkgraph', VER = 2; let dbp = null;
 function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r = indexedDB.open(DB, VER);
   r.onupgradeneeded = () => {
@@ -36,6 +37,58 @@ export async function enforceRetention(keep = 30) {
     await deleteStills(m.id); removed.push(m.id);
   }
   return removed;
+}
+export async function stillsUsage(capBytes = getCapBytes()) {
+  const cap = getCapBytes(capBytes);
+  const ms = await allMatches();
+  const list = [];
+  for (const m of ms) {
+    const snaps = await snapsOf(m.id);
+    const snapCount = snaps.length;
+    let actualBytes = 0;
+    for (const sn of snaps) {
+      actualBytes += sn.blob?.size || 0;
+    }
+    const bytes = matchStillsBytes(m, actualBytes);
+    const hasStills = snapCount > 0 || (m.stillsState === 'kept' && bytes > 0);
+    list.push({
+      id: m.id,
+      created: m.created,
+      favorite: !!m.favorite,
+      stillsBytes: bytes,
+      hasStills,
+      stillsState: stillsStateOf(m, snapCount),
+      snapCount,
+      match: m
+    });
+  }
+  const summary = summarizeCapacity(list, cap);
+  return { ...summary, matches: list };
+}
+export async function enforceCapacity(capBytes = getCapBytes(), targetRatio = TARGET_RATIO, opts = {}) {
+  const cap = getCapBytes(capBytes);
+  const usageBefore = await stillsUsage(cap);
+  const plan = planCapacityCleanup(usageBefore.matches, cap, targetRatio, opts);
+  if (plan.favOnlyOver && plan.removedIds.length === 0) {
+    return {
+      removed: [],
+      summaryBefore: usageBefore,
+      summaryAfter: usageBefore,
+      favOnlyOver: true
+    };
+  }
+  const removed = [];
+  for (const id of plan.removedIds) {
+    await deleteStills(id);
+    removed.push(id);
+  }
+  const usageAfter = await stillsUsage(cap);
+  return {
+    removed,
+    summaryBefore: usageBefore,
+    summaryAfter: usageAfter,
+    favOnlyOver: plan.favOnlyOver
+  };
 }
 export const putVideo = v => tx('videos', 'readwrite', s => s.put(v));
 export const getVideo = id => tx('videos', 'readonly', s => s.get(id));
@@ -77,23 +130,84 @@ export async function importBackup({ matches = [], stills = [] } = {}) {
   return { matches: matchCount, stills: snapCount };
 }
 
+function normalizeLearnState(row) {
+  if (!row) {
+    return { stack: [], versions: [], activePackId: null };
+  }
+  const stack = Array.isArray(row.stack) ? row.stack : [];
+  let versions = null;
+  if (Array.isArray(row.versions)) {
+    const seen = new Set();
+    versions = [];
+    for (const p of row.versions) {
+      if (p && p.packId && !seen.has(p.packId)) {
+        seen.add(p.packId);
+        versions.push(p);
+      }
+    }
+  } else {
+    const seen = new Set();
+    versions = [];
+    for (const p of stack) {
+      if (p && p.packId && !seen.has(p.packId)) {
+        seen.add(p.packId);
+        versions.push(p);
+      }
+    }
+  }
+  const activePackId = (stack.length > 0 && stack[stack.length - 1]?.packId) ? stack[stack.length - 1].packId : null;
+  return { stack, versions, activePackId };
+}
+
 export async function getLearnState() {
   const row = await tx('learn', 'readonly', s => s.get('state')).catch(() => null);
-  if (!row || !Array.isArray(row.stack)) return { stack: [] };
-  return { stack: row.stack };
+  return normalizeLearnState(row);
 }
 
 export async function putLearnState(state) {
-  const rec = { key: 'state', stack: Array.isArray(state?.stack) ? state.stack : [] };
+  const norm = normalizeLearnState(state);
+  const rec = { key: 'state', stack: norm.stack, versions: norm.versions, activePackId: norm.activePackId };
   await tx('learn', 'readwrite', s => s.put(rec));
-  return rec;
+  return norm;
 }
 
 export async function applyLearnPack(pack) {
   const state = await getLearnState();
+  let candidateId = pack?.packId || ('lp-' + new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').split('.')[0]);
+  const existingIds = new Set(state.versions.map(p => p.packId));
+  if (existingIds.has(candidateId)) {
+    let counter = 2;
+    while (existingIds.has(`${candidateId}-${counter}`)) {
+      counter++;
+    }
+    candidateId = `${candidateId}-${counter}`;
+  }
+  const savedPack = { ...pack, packId: candidateId };
+  state.versions.push(savedPack);
+  state.stack.push(savedPack);
+  await putLearnState(state);
+  return savedPack;
+}
+
+export async function listLearnPacks() {
+  const state = await getLearnState();
+  return [...state.versions].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+}
+
+export async function activateLearnPack(packId) {
+  const state = await getLearnState();
+  const pack = state.versions.find(p => p.packId === packId);
+  if (!pack) return null;
   state.stack.push(pack);
   await putLearnState(state);
   return pack;
+}
+
+export async function deactivateLearnPack() {
+  const state = await getLearnState();
+  state.stack = [];
+  await putLearnState(state);
+  return null;
 }
 
 export async function activeLearnPack(state = null) {

@@ -357,3 +357,19 @@ export async function computeStillFeature(blob, snap = {}) {
     source: 'still'
   };
 }
+
+/**
+ * Returns thresholds for a learning pack or defaults if null/undefined.
+ */
+export function thresholdsOfPack(pack) {
+  return pack?.thresholds || DEFAULT_THRESHOLDS;
+}
+
+/**
+ * Returns a human-friendly display name for a pack.
+ */
+export function packDisplayName(pack) {
+  if (!pack) return '既定（0.50）';
+  return pack.packId || '学習パック';
+}
+
