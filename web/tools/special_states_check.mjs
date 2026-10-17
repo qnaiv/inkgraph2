@@ -1,4 +1,4 @@
-// Special states check (D33): special intervals vs activation, stats, timeline rendering, trend cards.
+// Special states check (D34): special intervals vs activation, stats, timeline rendering, trend cards.
 import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';

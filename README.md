@@ -8,6 +8,25 @@
 
 背景・精度・今後の方針は [docs/CONTEXT.md](docs/CONTEXT.md)、意思決定の記録は [docs/DECISIONS.md](docs/DECISIONS.md)、作業ログは [PROGRESS.md](PROGRESS.md)。
 
+## 現在の状況と残りの作業
+
+ブラウザ版の実装が進み、現在は録画なし・自己学習の仕上げと正解データの収集フェーズにあります。詳細や今後の計画は各 issue および [docs/CONTEXT.md](docs/CONTEXT.md) を参照してください。
+
+- **進行中**: 録画なし設計＋自己学習（[Epic #30](https://github.com/qnaiv/inkgraph2/issues/30)。子課題の大半はマージ済みだが Epic と [#31](https://github.com/qnaiv/inkgraph2/issues/31)・[#35](https://github.com/qnaiv/inkgraph2/issues/35) は open。目的: 録画を残さず静止画と正解データで確認・学習できるようにする → 残りの段階が終わり Epic が閉じること）
+- **進行中（レビュー待ち）**: 数字サンプル追加（[#7](https://github.com/qnaiv/inkgraph2/issues/7)、[PR #129](https://github.com/qnaiv/inkgraph2/pull/129) が open。カウント読み取り [#6](https://github.com/qnaiv/inkgraph2/issues/6) の前提 → マージされ、不足数字の補強方針が残課題として記録されること）
+- **ブロック中**: XP基盤（Xマッチの録画待ち。対応する issue は現時点で無い → Xマッチ1試合の録画が用意できたら issue 化して着手）
+- **未着手**: 後段分析（動きと勝敗の関係 [#14](https://github.com/qnaiv/inkgraph2/issues/14)〜[#16](https://github.com/qnaiv/inkgraph2/issues/16)、ステージの得意・苦手。目的: 状況別のデス/キルと勝敗への効き方を見る → 複数試合で集計とランキングが出ること。ステージ専用の issue は現時点で無い）
+- **未着手（ラベル蓄積待ち）**: 精度系（[#1](https://github.com/qnaiv/inkgraph2/issues/1) の正解ラベル蓄積が前提で、[#3](https://github.com/qnaiv/inkgraph2/issues/3) キル・[#4](https://github.com/qnaiv/inkgraph2/issues/4) スペシャル・[#6](https://github.com/qnaiv/inkgraph2/issues/6) カウント等が open → ラベル付き試合が揃い、各検出で目標精度を評価できること）
+
+## ユーザー側でやること
+
+- [ ] Xマッチ1試合の録画を用意する（XP基盤の前提）
+- [ ] 開いている PR（現在は [#129](https://github.com/qnaiv/inkgraph2/pull/129)）の内容を確認してマージ判断をする
+- [ ] 確認モードで試合に正解ラベルを付け、正解データの zip を渡す（手順は下の「[精度の確認とフィードバックの流れ](#精度の確認とフィードバックの流れ)」、前提は [#1](https://github.com/qnaiv/inkgraph2/issues/1)）
+- [ ] GitHub Pages の設定を GitHub Actions にする（手順は下の「[GitHub Pages配信](#github-pages配信)」節）
+- [ ] @grok 通知用の secrets を登録する（手順は下の「[GitHub から Grok へ指示する（@grok）](#github-から-grok-へ指示するgrok)」節）
+- [ ] 実際のキャプチャーボードでライブ分析を通し、体感の精度を確認する（公開URL https://qnaiv.github.io/inkgraph2/ でも確認）
+
 ## セットアップ（Windows）
 
 ```powershell
