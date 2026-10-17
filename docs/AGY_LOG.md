@@ -35,6 +35,7 @@
 | 29 | 2026-10-17 | スペシャル状態分離（使用可能区間/発動瞬間/未使用デス/未使用終了、D34、special_states_check） | gemini-3.8-flash-medium | 要件を10節で箇条書き（データモデル・tokens・timeline描画・出来事表・傾向5指標・ライブ・テスト・スクショ） | 成功。build通過、special_states_check 27項目 ALL PASS、回帰 tower_label/no_video ALL PASS | 傾向指標カードの窮屈さを Grok が別帯に分離（main.js/style.css小修正）、回帰で再生成された無関係スクショ7枚を差し戻し | 仕様1回＋差分レビュー・検証（build／special 27／回帰2種／スクショ2枚確認、前後比較算出） |
 | 30 | 2026-10-17 | Designer修正3点 PR #131（三角10px+縁・帯45度斜め・終了印9px/枠2px、凡例をタイムライン直下へ移設し12px常時表示、傾向の使用可能時間を整数表示） | gemini-3.8-flash-medium | 修正3点を箇条書き（約20行） | 成功。build通過、special_states_check 29項目 ALL PASS（凡例位置・整数表示のチェック追加） | なし（スクショは指示通り差し戻し） | 仕様1回＋検証（build／special 29） |
 | 31 | 2026-10-17 | リザルト未取得試合の扱い（状態判定・由来保存・読み取り間隔0.08s・傾向分析除外・result_missing_check・D35） | gemini-3.8-flash-medium | 仕様9項目を箇条書きで依頼 | 成功。build通過、result_missing_check 36項目 ALL PASS、既存回帰通過 | 不要な PAGES.trends エイリアスを除去し check の遷移先を #trend に修正（2箇所） | 仕様1回＋差分レビュー・検証 |
+| 32 | 2026-10-17 | #133 エピックA PR1 マッチタイプ・パワー記録基盤 | gemini-3.8-flash-medium | 要件を8項目で箇条書き（純粋関数仕様、db、UI、match_type_power_check、D36） | 成功。build通過、match_type_power_check 13項目 ALL PASS、既存3試合で従来結果と一致し match_type=bankara_challenge（信頼度0.97前後）を確認 | しきい値0.85化・MATCH_TYPE_BOX調整・テンプレート二値化・assets.js の lib.match_type 読み込み追加・チャレンジ用テンプレート追加をGrok側で手直し | 仕様1回＋差分レビュー・検証（build／新規13／回帰複数種／実動画3試合） |
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
 - 単一ファイル・入出力が明確なタスクは flash でも一発で通る。ドキュメントは事実を箇条書きで渡すと正確。
