@@ -82,7 +82,8 @@ export function buildMatch(m, no, srcH) {
   const owndead = t.map(x => ev.L0.some(e => x >= e.start && x <= e.end));
   const ready = medfilt(F.map((f, i) => f.gw > 0.2 && !owndead[i] && ok[i] && !mp[i]), 3); const sp = []; const okT = t.filter((_, i) => ok[i]); const lastOk = okT.length ? okT[okT.length - 1] : 0;
   for (const [a, b] of runs(t, ready, P.sp_min, 3.0)) { const lost = ev.L0.some(e => a <= e.start && e.start <= b + 1.0); const unused = !lost && okT.length && b >= lastOk - 1.0;
-    sp.push({ ready: r1(a), end: r1(b), outcome: lost ? 'lost_on_death' : (unused ? 'unused_at_end' : 'activated') }); }
+    const outcome = lost ? 'lost_on_death' : (unused ? 'unused_at_end' : 'activated');
+    sp.push({ ready: r1(a), end: r1(b), outcome, activated_at: outcome === 'activated' ? r1(b) : null }); }
   const kills = runs(t, F.map(f => f.kill), 0.2, 1.0).map(([a, b]) => ({ start: r1(a), end: r1(b) }));
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),

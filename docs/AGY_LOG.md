@@ -32,7 +32,8 @@
 | 26 | 2026-10-17 | GitHub Pages配信（U1: .github/workflows/pages.yml・サブパス安全性確認・README・D32） | gemini-3.8-flash-medium | 要件を5項目で箇条書き（Actions仕様、サブパス検証、README、D32、AGY_LOG） | 成功。actionlint通過、build成功、サブパス(/inkgraph2/)配信で画面・アセットJSON 200を確認 | DECISIONSの誤字とAGY番号（実物は次が22）をGrokが修正 | 仕様1回＋検証・修正2件 |
 | 27 | 2026-10-17 | grok-notify 認証を `GROK_WEBHOOK_AUTH` の Authorization ヘッダ方式へ変更（workflow・テスト・README） | claude-sonnet-5-5-medium | 複数ファイル・要件を箇条書き | 成功（検証は Grok 側で実施） | なし（予定） | 仕様1回＋検証 |
 | 28 | 2026-10-17 | README に現状・残り作業とユーザー側タスクを追加、DECISIONS（D33）・AGY_LOG 更新 | gemini-3.8-flash-medium | 要件・2節の構成と追記内容を箇条書き | 成功。READMEプレビューをブラウザ表示で確認、web build通過 | AGY_LOGの結果欄をGrokが成功に更新 | 仕様1回＋差分レビュー・検証 |
-
+| 29 | 2026-10-17 | スペシャル状態分離（使用可能区間/発動瞬間/未使用デス/未使用終了、D34、special_states_check） | gemini-3.8-flash-medium | 要件を10節で箇条書き（データモデル・tokens・timeline描画・出来事表・傾向5指標・ライブ・テスト・スクショ） | 成功。build通過、special_states_check 27項目 ALL PASS、回帰 tower_label/no_video ALL PASS | 傾向指標カードの窮屈さを Grok が別帯に分離（main.js/style.css小修正）、回帰で再生成された無関係スクショ7枚を差し戻し | 仕様1回＋差分レビュー・検証（build／special 27／回帰2種／スクショ2枚確認、前後比較算出） |
+| 30 | 2026-10-17 | Designer修正3点 PR #131（三角10px+縁・帯45度斜め・終了印9px/枠2px、凡例をタイムライン直下へ移設し12px常時表示、傾向の使用可能時間を整数表示） | gemini-3.8-flash-medium | 修正3点を箇条書き（約20行） | 成功。build通過、special_states_check 29項目 ALL PASS（凡例位置・整数表示のチェック追加） | なし（スクショは指示通り差し戻し） | 仕様1回＋検証（build／special 29） |
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
 - 単一ファイル・入出力が明確なタスクは flash でも一発で通る。ドキュメントは事実を箇条書きで渡すと正確。

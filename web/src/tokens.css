@@ -29,6 +29,7 @@
   --death: #F4F5FA;             /* 自分のデス（×、ダークでは白） */
   --respawn: rgba(244, 245, 250, 0.18); /* 復活待ち */
   --special: #FACC15;           /* スペシャル */
+  --special-soft: rgba(250, 204, 21, .18);
   --special-wasted: #8A8FA8;    /* 未使用のまま終了・払い落とし */
   --win: #22C55E;
   --lose: #F43F5E;
@@ -68,7 +69,7 @@
   --ally: #2563EB; --ally-soft: rgba(37,99,235,.10);
   --enemy: #E8630A; --enemy-soft: rgba(232,99,10,.10);
   --kill: #16A34A; --death: #121528; --respawn: rgba(18,21,40,.10);
-  --special: #CA8A04; --win: #16A34A; --lose: #E11D48;
+  --special: #CA8A04; --special-soft: rgba(202, 138, 4, .14); --special-wasted: #6B7280; --win: #16A34A; --lose: #E11D48;
   --warn: #854D0E;
   --warn-soft: #FEF9C3;
   --warn-border: rgba(133, 77, 14, 0.45);
