@@ -157,8 +157,8 @@ try {
   const cleanupBtnPresent = await page.locator('.capacity-cleanup-btn').count();
   check('c) list page: .capacity-cleanup-btn present in banner', cleanupBtnPresent >= 1);
 
-  const statusTextList = await page.locator('.capacity-status').first().textContent();
-  check('c) list page: .capacity-status matches format', warnRegex.test(statusTextList), statusTextList.trim());
+  const statusCountList = await page.locator('.capacity-status').count();
+  check('c) list page: .capacity-status hidden when banner shown', statusCountList === 0);
 
   await page.screenshot({ path: path.join(SH, '01_list_warn.png') });
 
@@ -170,8 +170,8 @@ try {
   const bannerVisibleLive = await page.isVisible('.capacity-banner');
   check('c) live page: .capacity-banner visible at 85%', bannerVisibleLive);
 
-  const statusTextLive = await page.locator('.capacity-status').first().textContent();
-  check('c) live page: .capacity-status matches format', warnRegex.test(statusTextLive), statusTextLive.trim());
+  const statusCountLive = await page.locator('.capacity-status').count();
+  check('c) live page: .capacity-status hidden when banner shown', statusCountLive === 0);
 
   const startDisabledWarn = await page.isDisabled('#start');
   check('c) live page: #start is NOT disabled at 85% warn', startDisabledWarn === false);
@@ -195,9 +195,12 @@ try {
 
   const reasonText = await page.locator('.capacity-block-reason').textContent();
   check('d) live page: reason text explains block and remedies',
-    reasonText.includes('開始できません') && (reasonText.includes('上限') || reasonText.includes('消す')),
+    reasonText.includes('解析を始められる上限（95%）を超えています') && reasonText.includes('古い試合の静止画を消すと始められます'),
     reasonText.trim()
   );
+
+  const notInsideActions = await page.evaluate(() => document.querySelector('.capacity-block-reason')?.closest('.live-source-actions') === null);
+  check('d) live page: .capacity-block-reason is NOT inside .live-source-actions', notInsideActions === true);
 
   // Test guard on #start onclick (even if button somehow enabled)
   const dialogPromise = page.waitForEvent('dialog');
@@ -209,12 +212,12 @@ try {
   const dialog = await dialogPromise;
   const alertMsg = dialog.message();
   await dialog.dismiss();
-  check('d) live page: #start onclick blocked with alert', alertMsg.includes('開始できません') || alertMsg.includes('上限'), alertMsg);
+  check('d) live page: #start onclick blocked with alert', alertMsg.includes('上限（95%）'), alertMsg);
 
   await page.screenshot({ path: path.join(SH, '02_live_block.png') });
 
   // --------------------------------------------------------------------------
-  // e) Cleanup via UI banner button [古い試合を書き出して消す]
+  // e) Cleanup via UI banner button [古い試合の静止画を整理する]
   // Setup: 12 matches of 100 bytes = 1200 bytes, cap 1000 (ratio 120% > 100%)
   // --------------------------------------------------------------------------
   await cleanup();
@@ -226,18 +229,40 @@ try {
   await page.reload();
   await page.waitForSelector('.capacity-cleanup-btn');
 
-  let dialogConfirmed = false;
-  page.once('dialog', async d => {
-    dialogConfirmed = true;
-    await d.accept();
-  });
+  const btnText = await page.locator('.capacity-cleanup-btn').textContent();
+  check('e) banner button text is 古い試合の静止画を整理する', btnText.includes('古い試合の静止画を整理する'), btnText);
 
   await page.click('.capacity-cleanup-btn');
-  await page.waitForTimeout(1000);
+  await page.waitForSelector('.capacity-dialog');
+
+  const dialogVisible = await page.isVisible('.capacity-dialog');
+  check('e) cleanup dialog visible', dialogVisible);
+
+  const targetText = await page.locator('.capacity-dialog-target').textContent();
+  check('e) target text matches /古い順の\\d+試合/', /古い順の\d+試合/.test(targetText), targetText);
+
+  const dialogText = await page.locator('.capacity-dialog').textContent();
+  check('e) dialog notes contain 戻せない and 記録と正解データ', dialogText.includes('戻せない') && (dialogText.includes('記録と正解データ') || dialogText.includes('記録は残ります')));
+
+  const backupBtnCount = await page.locator('.capacity-dialog-backup').count();
+  const feedbackBtnCount = await page.locator('.capacity-dialog-feedback').count();
+  check('e) shortcut buttons present', backupBtnCount >= 1 && feedbackBtnCount >= 1);
+
+  const execBtnText = await page.locator('.capacity-dialog-execute').textContent();
+  check('e) execute button text exact', execBtnText.trim() === '静止画だけを消す（記録は残ります）', execBtnText);
+
+  await page.click('.capacity-dialog-execute');
+  await page.waitForSelector('.capacity-cleanup-result');
+
+  const resultText = await page.locator('.capacity-cleanup-result').textContent();
+  check('e) result text matches format', /\d+試合分の静止画を消しました。使用量は\d+%です/.test(resultText), resultText);
 
   const usageAfterCleanup = await page.evaluate(() => window.inkgraph.db.stillsUsage(1000));
-  check('e) cleanup button: confirm dialog accepted', dialogConfirmed);
-  check('e) cleanup button: usage drops to <= 90%', usageAfterCleanup.usedBytes <= 900 && usageAfterCleanup.ratio <= 0.90, `after=${usageAfterCleanup.usedBytes}`);
+  check('e) cleanup button: usage drops to <= 75%', usageAfterCleanup.usedBytes <= 750 && usageAfterCleanup.ratio <= 0.75, `after=${usageAfterCleanup.usedBytes}`);
+
+  await page.click('.capacity-dialog-close-result');
+  await page.waitForSelector('.capacity-dialog', { state: 'detached' });
+  await page.waitForSelector('#start:not([disabled])', { timeout: 5000 });
 
   const startDisabledAfter = await page.isDisabled('#start');
   check('e) cleanup button: #start is re-enabled after dropping below 95%', startDisabledAfter === false);
@@ -252,6 +277,31 @@ try {
   const allCapTexts = [...allStatusTexts, ...allBannerTexts];
   const containsMb = allCapTexts.some(t => /mb/i.test(t));
   check('f) capacity UI labels contain no "MB"', !containsMb, allCapTexts.join(' | '));
+
+  // --------------------------------------------------------------------------
+  // g) fav-only UI: all favorites totalling >cap (e.g. 12x100, cap1000)
+  // --------------------------------------------------------------------------
+  await cleanup();
+  const favOnlyConfigs = ids.map(id => ({ id, bytes: 100, favorite: true }));
+  await createMatches(favOnlyConfigs);
+
+  await page.evaluate(() => localStorage.setItem('inkgraph.testCapBytes', '1000'));
+  await page.goto(U + '#list');
+  await page.reload();
+  await page.waitForSelector('.capacity-banner');
+
+  const favBannerText = await page.locator('.capacity-banner').textContent();
+  check('g) fav-only UI: banner text contains お気に入りの試合だけで容量がいっぱいです',
+    favBannerText.includes('お気に入りの試合だけで容量がいっぱいです'),
+    favBannerText.trim()
+  );
+
+  const favCleanupBtnCount = await page.locator('.capacity-cleanup-btn').count();
+  check('g) fav-only UI: no cleanup button in banner', favCleanupBtnCount === 0);
+
+  const favStatusCount = await page.locator('.capacity-status').count();
+  check('g) fav-only UI: .capacity-status hidden', favStatusCount === 0);
+
   check('f) no pageerror during test', errors.length === 0, errors.join('; '));
 
 } catch (e) {

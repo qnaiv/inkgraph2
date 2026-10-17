@@ -4,6 +4,7 @@ export const CAP_BYTES = 250 * 1024 * 1024; // 250MB
 export const WARN_RATIO = 0.80; // 80% 警告バナー
 export const BLOCK_RATIO = 0.95; // 95% 解析開始ブロック
 export const TARGET_RATIO = 0.90; // 90% 自動削除目標
+export const MANUAL_TARGET_RATIO = 0.75; // 75% 手動整理目標
 export const DEFAULT_PER_MATCH_BYTES = 5 * 1024 * 1024; // 保持0件時の推計値 (5MB)
 
 /**

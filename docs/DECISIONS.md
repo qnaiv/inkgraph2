@@ -219,5 +219,13 @@
   - テスト用オーバーライド: `window.__INKGRAPH_CAP_BYTES__` または localStorage `inkgraph.testCapBytes` により、250MBの実データを作らずに容量テスト可能。
 - Designer確認事項:
   - バナーの「古い試合を書き出して消す」ボタンは、本PRでは誤削除を防ぐため確認ダイアログ（先にバックアップ／正解データを書き出すよう案内）を経てクリーンアップを実行する仕様とした。自動書き出し＋削除の一括フローは将来検討。
+- Designer必須修正（PR #126）:
+  - バナーボタン文言: 「古い試合の静止画を整理する」（`.capacity-cleanup-btn`）。
+  - クリーンアップ確認ダイアログ: `window.confirm` を廃止し、独自ダイアログ（`.capacity-dialog-overlay` / `.capacity-dialog`）を導入。手動整理目標75%（`MANUAL_TARGET_RATIO = 0.75`）で事前計算した対象試合数（「対象：古い順の◯試合（お気に入りを除く）」`.capacity-dialog-target`）、注意書き（静止画のみ削除され記録・正解データは残ること、消した静止画は戻せないこと）、ショートカットボタン（「バックアップを書き出す」「正解データを書き出す」）、赤系の実行ボタン（「静止画だけを消す（記録は残ります）」`.capacity-dialog-execute`）を表示。実行後はダイアログ内で結果「◯試合分の静止画を消しました。使用量は◯%です」（`.capacity-cleanup-result`）を表示し、閉じるボタンで画面更新。
+  - 自動削除目標90% vs 手動削除目標75%: 保存後の自動クリーンアップ（`session.js` / `db.enforceCapacity` 既定）は90%を維持し、ユーザーによる手動整理ダイアログは75%まで戻して次回警告までの余裕を確保。
+  - お気に入り単独超過バナー: `favBytes > capBytes` 時は文言を「お気に入りの試合だけで容量がいっぱいです。試合一覧でお気に入りを外すか、手動で静止画を消してください」（`.capacity-banner--favonly`）に変更し、一括整理ボタンは非表示。
+  - 警告色トークン（`--warn`）: ダーク `--warn: #FACC15`, `--warn-soft: rgba(250,204,21,.12)`, `--warn-border: rgba(250,204,21,.45)`。ライト `--warn: #854D0E`, `--warn-soft: #FEF9C3`, `--warn-border: rgba(133,77,14,.45)`。バナー文字色・アイコン色に `--warn` を適用、ボタン枠線も `--warn`。
+  - 重複ステータス非表示: バナー表示中（warn/block、またはお気に入り超過時）はヘッダーの `.capacity-status` を非表示化。ok時のみ `.capacity-status` を表示。
+  - 95%ブロック理由・無効化スタイル: `.capacity-block-reason` を `.live-source-actions` の外（直後）に配置し全幅表示（アイコン接頭辞 `⚠ `、動的文言「使用量◯%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます」）。`#start:disabled` は背景 `var(--surface-2)`、文字色 `var(--text-faint)`、枠線 `1px solid var(--border)`、`cursor: not-allowed`（opacity廃止）。
 - 備考: PR #125 など先行PRとD番号が競合する場合はマージ時に番号を振り直す。
 

@@ -1655,7 +1655,7 @@ tr.added td {
   background: var(--warn-soft);
   border: 1px solid var(--warn-border);
   border-radius: var(--r-md);
-  color: var(--text);
+  color: var(--warn);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   margin-bottom: var(--sp-4);
@@ -1679,7 +1679,7 @@ tr.added td {
   font-weight: var(--fw-bold);
   background: var(--surface-2);
   color: var(--text);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--warn);
   border-radius: var(--r-sm);
   white-space: nowrap;
   cursor: pointer;
@@ -1688,12 +1688,19 @@ tr.added td {
 .capacity-cleanup-btn:hover {
   background: var(--surface-hover);
 }
-#start:disabled { opacity: 0.45; cursor: not-allowed; }
+#start:disabled {
+  background: var(--surface-2);
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  cursor: not-allowed;
+}
 .capacity-status {
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
 .capacity-block-reason {
+  display: block;
+  width: auto;
   margin-top: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
@@ -1703,5 +1710,88 @@ tr.added td {
   font-size: var(--fs-xs);
   line-height: 1.4;
 }
+
+/* 容量整理ダイアログ */
+.capacity-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+.capacity-dialog {
+  width: min(560px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  color: var(--text);
+}
+.capacity-dialog-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+}
+.capacity-dialog-target {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-bold);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+}
+.capacity-dialog-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.capacity-dialog-warn-text {
+  color: var(--danger);
+  font-weight: var(--fw-medium);
+  margin: 0;
+}
+.capacity-dialog-shortcuts {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.capacity-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+.capacity-dialog-execute {
+  background: var(--danger);
+  color: #fff;
+  border: 1px solid var(--danger);
+  font-weight: var(--fw-bold);
+}
+.capacity-dialog-execute:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.capacity-cleanup-result {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-medium);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
 
 
