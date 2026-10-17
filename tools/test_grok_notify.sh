@@ -31,11 +31,17 @@ check "$out" '.is_pull_request == true and (.is_pull_request | type) == "boolean
 for s in 'issue_comment:' 'issues:' 'types: [created]' 'types: [opened]' \
   "github.event.comment.user.login == 'qnaiv'" "github.event.issue.user.login == 'qnaiv'" \
   "contains(github.event.comment.body, '@grok')" "contains(github.event.issue.body, '@grok')" \
-  'secrets.GROK_WEBHOOK_URL' 'secrets.GROK_WEBHOOK_KEY' '::warning::' \
-  '::add-mask::$GROK_WEBHOOK_URL' '::add-mask::$GROK_WEBHOOK_KEY' \
+  'secrets.GROK_WEBHOOK_URL' 'secrets.GROK_WEBHOOK_AUTH' '::warning::' \
+  '::add-mask::$GROK_WEBHOOK_URL' '::add-mask::$GROK_WEBHOOK_AUTH' \
+  '-H "Authorization: ${GROK_WEBHOOK_AUTH}"' \
   'configured=true' 'steps.check.outputs.configured'; do
   grep -qF -- "$s" "$W" || { echo "FAIL: workflow missing: $s"; exit 1; }
 done
+# 旧仕様が残っていないこと（完全なリテラルを残さないため連結で記述）
+for s in 'GROK_WEBHOOK_K''EY' 'X-Webhook-K''ey'; do
+  if grep -qiF -- "$s" "$W"; then echo "FAIL: legacy remains: $s"; exit 1; fi
+done
+if grep -q 'TODO' "$W"; then echo "FAIL: TODO remains"; exit 1; fi
 # secrets を job if に直接書いていないこと
 if awk '/^    if:/{f=1;next} /^    steps:/{f=0} f' "$W" | grep -qF 'secrets.'; then
   echo "FAIL: secrets in job if"; exit 1

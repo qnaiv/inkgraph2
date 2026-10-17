@@ -29,20 +29,20 @@ jobs:
         id: check
         env:
           GROK_WEBHOOK_URL: ${{ secrets.GROK_WEBHOOK_URL }}
-          GROK_WEBHOOK_KEY: ${{ secrets.GROK_WEBHOOK_KEY }}
+          GROK_WEBHOOK_AUTH: ${{ secrets.GROK_WEBHOOK_AUTH }}
         run: |
-          if [ -n "$GROK_WEBHOOK_URL" ] && [ -n "$GROK_WEBHOOK_KEY" ]; then
+          if [ -n "$GROK_WEBHOOK_URL" ] && [ -n "$GROK_WEBHOOK_AUTH" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::GROK_WEBHOOK_URL / GROK_WEBHOOK_KEY が未設定のため Grok 通知をスキップします"
+            echo "::warning::GROK_WEBHOOK_URL / GROK_WEBHOOK_AUTH が未設定のため Grok 通知をスキップします"
           fi
 
       - name: Send to Grok webhook
         if: steps.check.outputs.configured == 'true'
         env:
           GROK_WEBHOOK_URL: ${{ secrets.GROK_WEBHOOK_URL }}
-          GROK_WEBHOOK_KEY: ${{ secrets.GROK_WEBHOOK_KEY }}
+          GROK_WEBHOOK_AUTH: ${{ secrets.GROK_WEBHOOK_AUTH }}
           EVENT_TYPE: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           REPOSITORY: ${{ github.repository }}
@@ -56,15 +56,14 @@ jobs:
         run: |
           set -euo pipefail
           echo "::add-mask::$GROK_WEBHOOK_URL"
-          echo "::add-mask::$GROK_WEBHOOK_KEY"
+          echo "::add-mask::$GROK_WEBHOOK_AUTH"
           payload="$(mktemp)"
           trap 'rm -f "$payload"' EXIT
           bash .github/scripts/grok_notify_payload.sh > "$payload"
-          # TODO: ヘッダ名・認証方式は webhook 仕様に合わせて要確認（X-Webhook-Key は仮）
           status="$(curl -sS --fail -o /dev/null -w '%{http_code}' \
             -X POST \
             -H 'Content-Type: application/json' \
-            -H "X-Webhook-Key: ${GROK_WEBHOOK_KEY}" \
+            -H "Authorization: ${GROK_WEBHOOK_AUTH}" \
             --data-binary "@${payload}" \
             "$GROK_WEBHOOK_URL")"
           echo "Webhook responded: HTTP ${status}"

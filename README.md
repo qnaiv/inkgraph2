@@ -166,8 +166,13 @@ GitHub Actions（`.github/workflows/grok-notify.yml`）が、`@grok` を含む�
 
 - **書き方**：Issue 新規作成の本文、または Issue / PR へのコメントに `@grok` と指示を書く。投稿者が `qnaiv` の場合だけ動作します。
 - **対象イベント**：`issues`（opened）、`issue_comment`（created。PR へのコメントも含む）
-- **必要な secrets**：`GROK_WEBHOOK_URL` / `GROK_WEBHOOK_KEY`（Settings > Secrets and variables > Actions に登録）
+- **必要な secrets**：`GROK_WEBHOOK_URL` / `GROK_WEBHOOK_AUTH`（Settings > Secrets and variables > Actions に登録）。ルーティンのパネルでコピーできる Authorization header の内容を、そのまま GROK_WEBHOOK_AUTH に登録する
 - **自動でしないこと**：GitHub への自動返信、自動マージ、Issue の自動クローズ。通知のみです。
 - **secrets 未設定時**：警告（`::warning::`）を出して送信をスキップし、ジョブは成功扱いで終了します。
-- 認証ヘッダ名（仮：`X-Webhook-Key`）は webhook の仕様に合わせて要確認です。
+- **認証**：`GROK_WEBHOOK_AUTH` の値を `Authorization` ヘッダとしてそのまま送信します（加工・`Bearer` の付け足しはしません）。
+- **最初のテスト送信での確認手順**：
+  - (a) `GROK_WEBHOOK_URL` と `GROK_WEBHOOK_AUTH` の2つの secrets を登録する。
+  - (b) `qnaiv` で `@grok` を含むテストコメント／Issue を投稿する。
+  - (c) Actions の Grok Notify 実行が成功することと、Grok 側で受信できることを確認する。
+  - 失敗時は secrets の値（特に Authorization header の内容をそのまま登録したか）と、Actions ログの警告を確認する。
 - 検証：`bash tools/test_grok_notify.sh`
