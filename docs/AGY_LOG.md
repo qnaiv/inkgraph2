@@ -35,6 +35,7 @@
 | 29 | 2026-10-17 | スペシャル状態分離（使用可能区間/発動瞬間/未使用デス/未使用終了、D34、special_states_check） | gemini-3.8-flash-medium | 要件を10節で箇条書き（データモデル・tokens・timeline描画・出来事表・傾向5指標・ライブ・テスト・スクショ） | 成功。build通過、special_states_check 27項目 ALL PASS、回帰 tower_label/no_video ALL PASS | 傾向指標カードの窮屈さを Grok が別帯に分離（main.js/style.css小修正）、回帰で再生成された無関係スクショ7枚を差し戻し | 仕様1回＋差分レビュー・検証（build／special 27／回帰2種／スクショ2枚確認、前後比較算出） |
 | 30 | 2026-10-17 | Designer修正3点 PR #131（三角10px+縁・帯45度斜め・終了印9px/枠2px、凡例をタイムライン直下へ移設し12px常時表示、傾向の使用可能時間を整数表示） | gemini-3.8-flash-medium | 修正3点を箇条書き（約20行） | 成功。build通過、special_states_check 29項目 ALL PASS（凡例位置・整数表示のチェック追加） | なし（スクショは指示通り差し戻し） | 仕様1回＋検証（build／special 29） |
 | 31 | 2026-10-17 | リザルト未取得試合の扱い（状態判定・由来保存・読み取り間隔0.08s・傾向分析除外・result_missing_check・D35） | gemini-3.8-flash-medium | 仕様9項目を箇条書きで依頼 | 成功。build通過、result_missing_check 36項目 ALL PASS、既存回帰通過 | 不要な PAGES.trends エイリアスを除去し check の遷移先を #trend に修正（2箇所） | 仕様1回＋差分レビュー・検証 |
+| 33 | 2026-10-17 | #135 PR1 配信映像の取り込み（検証用）（画面共有入力・自分／他人（検証用）必須選択・1080p全画面字幕オフ確認・検証用バッジ・傾向集計除外・stream_capture_check・D37） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（表示名・ガード条件・純粋関数仕様・チェック項目・D番号を指定、約45行） | 成功。build通過、stream_capture_check 29項目 ALL PASS、回帰 result_missing 36・no_video 12 PASS、スクショ3枚 | 未使用import（matchOwner）除去とD37の対戦表未検証文言の明確化（2件） | 仕様1回＋差分レビュー・検証（build／新規29／回帰2種／スクショ3枚確認） |
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
 - 単一ファイル・入出力が明確なタスクは flash でも一発で通る。ドキュメントは事実を箇条書きで渡すと正確。

@@ -2,7 +2,7 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches } from './analysis.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -300,6 +300,10 @@ PAGES.live = async () => {
           <input type="radio" name="src" value="file">
           録画ファイル
         </label>
+        <label class="pill-tab" data-src-tab="stream">
+          <input type="radio" name="src" value="stream">
+          配信映像（画面共有）
+        </label>
       </div>
 
       <div class="live-source-controls">
@@ -311,6 +315,23 @@ PAGES.live = async () => {
           <label class="btn" for="file">ファイルを選ぶ</label>
           <input type="file" id="file" accept="video/*" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
           <span id="file-name" class="muted">ファイル未選択</span>
+        </div>
+        <div id="stream-controls" style="display:none;flex-direction:column;gap:12px;width:100%">
+          <div class="stream-control-row" style="display:flex;align-items:center;gap:12px">
+            <span class="stream-control-label" style="font-weight:var(--fw-bold);font-size:var(--fs-sm)">対象プレイヤー：</span>
+            <div class="stream-owner-options" style="display:inline-flex;gap:16px;align-items:center">
+              <label class="stream-radio-label" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="stream-owner" value="self"> 自分</label>
+              <label class="stream-radio-label" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="stream-owner" value="other"> 他人（検証用）</label>
+            </div>
+          </div>
+          <div class="stream-control-row" style="display:flex;flex-direction:column;gap:6px">
+            <span class="stream-control-label" style="font-weight:var(--fw-bold);font-size:var(--fs-sm)">開始前の確認事項：</span>
+            <div class="stream-checks" style="display:flex;flex-wrap:wrap;gap:12px">
+              <label class="stream-check-item" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="stream-check" value="1080p"> 配信の画質を1080pに設定している</label>
+              <label class="stream-check-item" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="stream-check" value="fullscreen"> プレーヤーを全画面表示にしている</label>
+              <label class="stream-check-item" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="stream-check" value="nocaption"> 画面の字幕やオーバーレイをオフにしている</label>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -408,6 +429,7 @@ PAGES.live = async () => {
     });
     $('#device-controls', page).style.display = mode === 'device' ? 'flex' : 'none';
     $('#file-controls', page).style.display = mode === 'file' ? 'flex' : 'none';
+    $('#stream-controls', page).style.display = mode === 'stream' ? 'flex' : 'none';
   };
   page.querySelectorAll('input[name="src"]').forEach(r => r.addEventListener('change', syncSourceTabs));
 
@@ -482,6 +504,20 @@ PAGES.live = async () => {
     if (mode === 'file' && !file) {
       alert('録画ファイルを選んでください');
       return;
+    }
+    let owner = 'self';
+    if (mode === 'stream') {
+      const ownerEl = page.querySelector('input[name="stream-owner"]:checked');
+      if (!ownerEl) {
+        alert('「自分」または「他人（検証用）」を選択してください');
+        return;
+      }
+      owner = ownerEl.value;
+      const streamChecks = Array.from(page.querySelectorAll('.stream-check'));
+      if (streamChecks.some(c => !c.checked)) {
+        alert('配信映像の開始前確認（1080p・全画面・字幕オフ）をすべてチェックしてください');
+        return;
+      }
     }
     let k = 0, d = 0, sp = 0, t0 = 0, estWp = 0.5, justSaved = false;
     $('#k', page).textContent = '0';
@@ -588,7 +624,8 @@ PAGES.live = async () => {
         mode,
         deviceId: $('#dev', page).value,
         file,
-        fast: $('#fast', page).checked
+        fast: $('#fast', page).checked,
+        owner
       });
     } catch (e) {
       alert('開始できませんでした：' + e.message);
@@ -809,6 +846,7 @@ PAGES.list = async () => {
                 <span class="stills-state">${esc(stillsStateLabel(m))}</span>
                 <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
                 <span class="result-status" data-status="${rsStat.key}">${esc(rsStat.label)}</span>
+                ${isVerificationMatch(m) ? '<span class="verify-badge">検証用</span>' : ''}
                 ${r.count ? `<span class="match-row-count num">${fmtCount(r.count)}</span>` : ''}
               </div>
 
@@ -2017,7 +2055,9 @@ function accTable(a) {
 // 4. 傾向分析
 // ============================================================================
 PAGES.trend = async () => {
-  const ms = await db.allMatches();
+  const allMs = await db.allMatches();
+  const verifyCount = allMs.filter(isVerificationMatch).length;
+  const ms = ownMatches(allMs);
   const page = document.createElement('div');
   if (!ms.length) {
     page.innerHTML = `
@@ -2183,6 +2223,7 @@ PAGES.trend = async () => {
           <span class="stat-sub num">${wins}勝${losses}敗</span>
         </div>
         ${unknown > 0 ? `<div class="trend-winrate-note">勝敗不明${unknown}試合を除く${known.length}試合で計算</div>` : ''}
+        ${verifyCount > 0 ? `<div class="trend-verify-note">検証用${verifyCount}試合を除く${ms.length}試合で計算</div>` : ''}
       </div>
       <div class="stat">
         <div class="stat-label">1試合あたりのキル</div>

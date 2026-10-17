@@ -1,6 +1,9 @@
 // Corrections-aware views of a match + accuracy + trend aggregation
 import { aliveAt } from './core/analyzer.js';
 import * as T from './core/tower.js';
+export function matchOwner(m) { return (m && m.source && m.source.owner === 'other') ? 'other' : 'self'; }
+export function isVerificationMatch(m) { return !!(m && m.source && m.source.owner === 'other'); }
+export function ownMatches(ms) { if (!Array.isArray(ms)) return []; return ms.filter(m => !isVerificationMatch(m)); }
 export const KINDS = { death: 'デス', kill: 'キル', special: 'スペシャル発動' };
 export const SP_LABEL = { activated: '発動', lost_on_death: '未使用のままデス', unused_at_end: '未使用のまま終了' };
 export const key = (kind, t) => `${kind}@${(+t).toFixed(1)}`;

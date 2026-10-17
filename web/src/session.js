@@ -9,11 +9,20 @@ export async function listDevices() {
 export class Session {
   constructor(video, cb = {}) { this.video = video; this.cb = cb; this.canvas = document.createElement('canvas'); 
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }); this.step = 0.2; this.busy = false; this.pendingSnaps = []; this.stats = { frames: 0, ms: 0 }; this.running = false; this.bufs = []; }
-  async start({ mode, deviceId, file, fast = false }) {
-    this.mode = mode; this.fast = fast; this.sessionId = new Date().toISOString(); this.sourceName = file ? file.name : 'キャプチャー映像';
-    if (mode === 'device') { this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
-      this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0].getSettings().height || 1080; this.t0 = performance.now();
-    } else { this.video.srcObject = null; this.video.src = URL.createObjectURL(file); this.video.muted = true; await new Promise(r => this.video.onloadedmetadata = r); this.srcH = this.video.videoHeight; }
+  async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
+    this.mode = mode; this.owner = owner || 'self'; this.fast = fast; this.sessionId = new Date().toISOString();
+    if (mode === 'stream') {
+      this.sourceName = '配信映像（画面共有）';
+      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
+      this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
+    } else if (mode === 'device') {
+      this.sourceName = 'キャプチャー映像';
+      this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
+      this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
+    } else {
+      this.sourceName = file ? file.name : 'キャプチャー映像';
+      this.video.srcObject = null; this.video.src = URL.createObjectURL(file); this.video.muted = true; await new Promise(r => this.video.onloadedmetadata = r); this.srcH = this.video.videoHeight;
+    }
     this.worker = new AnalyzerWorker();
     const learnState = await db.getLearnState().catch(() => null);
     const activePack = await db.activeLearnPack(learnState).catch(() => null);
@@ -22,7 +31,7 @@ export class Session {
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
     if (mode === 'file' && fast) this.fastLoop(); else { if (mode === 'file') await this.video.play(); this.liveLoop(); }
   }
-  now() { return this.mode === 'device' ? (performance.now() - this.t0) / 1000 : this.video.currentTime; }
+  now() { return (this.mode === 'device' || this.mode === 'stream') ? (performance.now() - this.t0) / 1000 : this.video.currentTime; }
   grab(t) { const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720; if (this.canvas.width !== vw) { this.canvas.width = vw; this.canvas.height = vh; } this.ctx.drawImage(this.video, 0, 0, vw, vh); const d = this.ctx.getImageData(0, 0, vw, vh); this.busy = true; this.stats.frames++;
     this.worker.postMessage({ type: 'frame', t, w: vw, h: vh, buf: d.data.buffer }, [d.data.buffer]); }
   liveLoop() { let next = 0; const tick = () => { if (!this.running) return; const t = this.now();
@@ -42,7 +51,7 @@ export class Session {
     else if (m.type === 'flushed') this.flushed?.();
   }
   async saveMatch(rec) {
-    const id = `${this.sessionId}#${rec.match}`; rec.id = id; rec.created = new Date().toISOString(); rec.session = this.sessionId; rec.source = { kind: this.mode, name: this.sourceName, height: this.srcH };
+    const id = `${this.sessionId}#${rec.match}`; rec.id = id; rec.created = new Date().toISOString(); rec.session = this.sessionId; rec.source = { kind: this.mode, name: this.sourceName, height: this.srcH, owner: this.owner || 'self' };
     rec.review = rec.review || { marks: {}, added: [], fix: {} };
     const cand = this.pendingSnaps.filter(s => s.t >= rec.battle[0] - 30); let snaps = cand; if (snaps.length > 48) { const drop = snaps.length - 48, nulls = snaps.filter(s => !s.kind).slice(0, drop); snaps = snaps.filter(s => !nulls.includes(s)).slice(0, 48); } /* over cap: drop kind-less mid-match samples first */ this.pendingSnaps = this.pendingSnaps.filter(s => !cand.includes(s));
     let bytes = 0; for (const s of snaps) bytes += s.blob?.size || 0;
