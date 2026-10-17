@@ -41,7 +41,9 @@ export class Session {
     const cand = this.pendingSnaps.filter(s => s.t >= rec.battle[0] - 30); let snaps = cand; if (snaps.length > 48) { const drop = snaps.length - 48, nulls = snaps.filter(s => !s.kind).slice(0, drop); snaps = snaps.filter(s => !nulls.includes(s)).slice(0, 48); } /* over cap: drop kind-less mid-match samples first */ this.pendingSnaps = this.pendingSnaps.filter(s => !cand.includes(s));
     let bytes = 0; for (const s of snaps) bytes += s.blob?.size || 0;
     rec.video = { kind: 'none' }; rec.stills = { count: snaps.length, bytes };
+    rec.favorite = rec.favorite ?? false; rec.stillsState = snaps.length ? 'kept' : 'none';
     await db.putMatch(rec); for (const s of snaps) await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob });
+    try { await db.enforceRetention(30); } catch (e) { console.warn('enforceRetention failed', e); }
     this.cb.match?.(rec);
   }
   async stop() { if (!this.running) return; this.running = false; if (this.worker) { await new Promise(r => { this.flushed = r; this.worker.postMessage({ type: 'flush' }); }); await new Promise(r => setTimeout(r, 300)); await this.saving; }
