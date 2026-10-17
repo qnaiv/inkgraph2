@@ -34,3 +34,36 @@ export const putSnap = sn => tx('snaps', 'readwrite', s => s.add(sn));
 export const snapsOf = id => tx('snaps', 'readonly', s => s.index('match').getAll(id));
 export async function exportAll() { const ms = await allMatches(); return { app: 'InkGraph', format: 1, exported: new Date().toISOString(), matches: ms }; }
 export async function importAll(j) { let n = 0; for (const m of (j.matches || j)) { if (!m.id) m.id = 'imp-' + Math.random().toString(36).slice(2); await putMatch(m); n++; } return n; }
+export async function importBackup({ matches = [], stills = [] } = {}) {
+  const stillsByMatch = new Map();
+  for (const s of stills) {
+    if (!s || !s.matchId) continue;
+    if (!stillsByMatch.has(s.matchId)) stillsByMatch.set(s.matchId, []);
+    stillsByMatch.get(s.matchId).push(s);
+  }
+  let matchCount = 0;
+  let snapCount = 0;
+  for (const m of matches) {
+    if (!m.id) m.id = 'imp-' + Math.random().toString(36).slice(2);
+    await delSnaps(m.id);
+    const snaps = stillsByMatch.get(m.id) || [];
+    if (snaps.length > 0) {
+      m.stillsState = 'kept';
+    }
+    await putMatch(m);
+    matchCount++;
+    for (const s of snaps) {
+      await putSnap({
+        matchId: m.id,
+        t: s.t,
+        reason: s.reason,
+        kind: s.kind,
+        header: s.header ?? null,
+        event: s.event ?? null,
+        blob: s.blob
+      });
+      snapCount++;
+    }
+  }
+  return { matches: matchCount, stills: snapCount };
+}
