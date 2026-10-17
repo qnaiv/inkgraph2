@@ -1,8 +1,14 @@
 import * as db from './db.js';
+import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
 import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct } from './analysis.js';
-import { zipSync, strToU8 } from 'fflate';
+import { zipSync, unzipSync, strToU8 } from 'fflate';
+import * as FB from './feedback.js';
+import * as BK from './backup.js';
+import * as CP from './capacity.js';
+import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
+import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
 
 const app = document.getElementById('app');
 const $ = (s, r = document) => r.querySelector(s);
@@ -12,9 +18,18 @@ let session = null;
 let currentId = null;
 let pendingSeek = null;
 let reviewMode = false;
+let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自動で開くダイアログのモード
 
 window.inkgraph = {
   db,
+  learn,
+  capacity: CP,
+  feedback: FB,
+  backup: BK,
+  buildBatchZip: (...a) => buildBatchZip(...a),
+  buildBackupZip: (...a) => buildBackupZip(...a),
+  showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
+  showCapacityCleanupDialog: (...a) => showCapacityCleanupDialog(...a),
   setReviewMode: v => { reviewMode = !!v; if (currentPage === 'match') PAGES.match(); }
 };
 
@@ -107,6 +122,146 @@ const download = (name, blob) => {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
 
+const fmtBytes = b => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB');
+
+function renderCapacityBanner(summary) {
+  if (!summary) return '';
+  const isFavOnly = (summary.favBytes > summary.capBytes);
+  if (!isFavOnly && summary.level === 'ok') return '';
+
+  if (isFavOnly) {
+    return `
+      <div class="capacity-banner capacity-banner--favonly">
+        <div class="capacity-banner-text">
+          <span class="capacity-banner-icon">⚠</span>
+          <span>お気に入りの試合だけで容量がいっぱいです。試合一覧でお気に入りを外すか、手動で静止画を消してください</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const label = formatCapacityLabel(summary);
+  return `
+    <div class="capacity-banner">
+      <div class="capacity-banner-text">
+        <span class="capacity-banner-icon">⚠</span>
+        <span>静止画の容量：${esc(label)}</span>
+      </div>
+      <button class="btn capacity-cleanup-btn" type="button">古い試合の静止画を整理する</button>
+    </div>
+  `;
+}
+
+async function showCapacityCleanupDialog() {
+  document.querySelector('.capacity-dialog-overlay')?.remove();
+  const cap = getCapBytes();
+  const usage = await db.stillsUsage(cap);
+  const plan = planCapacityCleanup(usage.matches, cap, MANUAL_TARGET_RATIO, { force: true });
+  const targetCount = plan.removedIds.length;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'capacity-dialog-overlay';
+  document.body.appendChild(overlay);
+
+  let isResult = false;
+  const close = () => {
+    window.removeEventListener('keydown', onKey);
+    overlay.remove();
+    if (isResult) {
+      nav(currentPage);
+    }
+  };
+  const onKey = e => {
+    if (e.key === 'Escape') close();
+  };
+  window.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) close();
+  });
+
+  overlay.innerHTML = `
+    <div class="capacity-dialog" role="dialog" aria-modal="true" aria-label="古い試合の静止画を整理">
+      <h2 class="capacity-dialog-title">古い試合の静止画を整理</h2>
+      <div class="capacity-dialog-target">対象：古い順の${targetCount}試合（お気に入りを除く）</div>
+      <div class="capacity-dialog-notes">
+        <p>消えるのは静止画だけで、試合の記録と正解データは残ります。</p>
+        <p class="capacity-dialog-warn-text">消した静止画は戻せないため、手元に残したい場合は、先にバックアップまたは正解データを書き出してください。</p>
+      </div>
+      <div class="capacity-dialog-shortcuts">
+        <button type="button" class="btn capacity-dialog-backup">バックアップを書き出す</button>
+        <button type="button" class="btn capacity-dialog-feedback">正解データを書き出す</button>
+      </div>
+      <div class="capacity-dialog-actions">
+        <button type="button" class="btn capacity-dialog-cancel">キャンセル</button>
+        <button type="button" class="btn capacity-dialog-execute">静止画だけを消す（記録は残ります）</button>
+      </div>
+    </div>
+  `;
+
+  const cancelBtn = overlay.querySelector('.capacity-dialog-cancel');
+  if (cancelBtn) cancelBtn.onclick = close;
+
+  const backupBtn = overlay.querySelector('.capacity-dialog-backup');
+  if (backupBtn) {
+    backupBtn.onclick = async () => {
+      try {
+        backupBtn.disabled = true;
+        const { blob, filename } = await buildBackupZip();
+        download(filename, blob);
+      } catch (err) {
+        alert('バックアップの書き出しに失敗しました: ' + (err?.message || err));
+      } finally {
+        backupBtn.disabled = false;
+      }
+    };
+  }
+
+  const feedbackBtn = overlay.querySelector('.capacity-dialog-feedback');
+  if (feedbackBtn) {
+    feedbackBtn.onclick = () => {
+      close();
+      showFeedbackExportDialog('diff');
+    };
+  }
+
+  const executeBtn = overlay.querySelector('.capacity-dialog-execute');
+  if (executeBtn) {
+    executeBtn.onclick = async () => {
+      executeBtn.disabled = true;
+      try {
+        const res = await db.enforceCapacity(getCapBytes(), MANUAL_TARGET_RATIO, { force: true });
+        isResult = true;
+        const pct = res.summaryAfter?.pct ?? 0;
+        const n = res.removed.length;
+        const dialog = overlay.querySelector('.capacity-dialog');
+        dialog.innerHTML = `
+          <h2 class="capacity-dialog-title">整理完了</h2>
+          <div class="capacity-cleanup-result">
+            ${n}試合分の静止画を消しました。使用量は${pct}%です
+          </div>
+          <div class="capacity-dialog-actions">
+            <button type="button" class="btn capacity-dialog-close-result">閉じる</button>
+          </div>
+        `;
+        const closeResultBtn = dialog.querySelector('.capacity-dialog-close-result');
+        if (closeResultBtn) {
+          closeResultBtn.onclick = close;
+        }
+      } catch (e) {
+        console.warn('enforceCapacity failed', e);
+        executeBtn.disabled = false;
+      }
+    };
+  }
+}
+
+function wireCapacityBanner(page, summary) {
+  const btn = $('.capacity-cleanup-btn', page);
+  if (btn) {
+    btn.onclick = () => showCapacityCleanupDialog();
+  }
+}
+
 const PAGES = {};
 
 // ============================================================================
@@ -118,10 +273,18 @@ PAGES.live = async () => {
     return;
   }
   const savedMatches = await db.allMatches();
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
+  const isBlocked = capUsage.level === 'block';
+  const showBanner = capUsage.level !== 'ok' || (capUsage.favBytes > capUsage.capBytes);
   const page = document.createElement('div');
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">ライブ分析</h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">ライブ分析</h1>
+        ${!showBanner ? `<span class="capacity-status muted">${esc(capLabel)}</span>` : ''}
+      </div>
     </div>
 
     <div class="card live-source-card">
@@ -152,14 +315,15 @@ PAGES.live = async () => {
         <summary>詳細設定 ▸</summary>
         <div class="details-popover-body">
           <label><input type="checkbox" id="fast" checked> ファイルは早送りで解析（再生しない）</label>
-          <label><input type="checkbox" id="rec" checked> キャプチャー映像を試合ごとにブラウザ内へ録画する（あとで確認・訂正に使う）</label>
+          <p class="muted" id="still-note" style="margin:6px 0 0">映像は保存しません。確認用に、リザルトやキル・デス・スペシャルなどの要所の静止画だけを保存します。</p>
         </div>
       </details>
 
       <div class="live-source-actions">
-        <button class="btn btn-primary" id="start" type="button">解析を開始</button>
+        <button class="btn btn-primary" id="start" type="button" ${isBlocked ? 'disabled' : ''}>解析を開始</button>
         <button class="btn btn-stop" id="stop" type="button" disabled style="display:none">停止</button>
       </div>
+      ${isBlocked ? `<div class="capacity-block-reason">⚠ 使用量${capUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます</div>` : ''}
     </div>
 
     <div class="live-grid">
@@ -229,6 +393,7 @@ PAGES.live = async () => {
     </div>
   `;
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   $('#to-list', page).onclick = e => { e.preventDefault(); nav('list'); };
 
@@ -303,6 +468,11 @@ PAGES.live = async () => {
   let savedCount = savedMatches.length;
 
   $('#start', page).onclick = async () => {
+    const curUsage = await db.stillsUsage(getCapBytes()).catch(() => null);
+    if (curUsage && curUsage.level === 'block') {
+      alert(`使用量${curUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます`);
+      return;
+    }
     const mode = page.querySelector('input[name="src"]:checked').value;
     const file = $('#file', page).files[0];
     if (mode === 'file' && !file) {
@@ -407,7 +577,6 @@ PAGES.live = async () => {
         mode,
         deviceId: $('#dev', page).value,
         file,
-        record: $('#rec', page).checked,
         fast: $('#fast', page).checked
       });
     } catch (e) {
@@ -429,8 +598,53 @@ PAGES.live = async () => {
 // ============================================================================
 let listFilters = { mode: 'ALL', stage: 'ALL', result: 'ALL' };
 
+// 表示用: 静止画の状態キー (旧レコードは stills.count から推定)
+function stillsStateKey(m) {
+  if (m.stillsState === 'kept' || m.stillsState === 'deleted' || m.stillsState === 'none') return m.stillsState;
+  return m.stills?.count > 0 ? 'kept' : 'none';
+}
+function stillsStateLabel(m) {
+  const k = stillsStateKey(m);
+  if (k === 'kept') return m.stills?.count ? `静止画 保持中・${m.stills.count}枚` : '静止画 保持中';
+  if (k === 'deleted') return '静止画 削除済み';
+  return '静止画 未保存';
+}
+
 PAGES.list = async () => {
   const ms = await db.allMatches();
+  const snapsById = new Map();
+  for (const m of ms) snapsById.set(m.id, await db.snapsOf(m.id));
+
+  // 学習パネル表示時に, features欠けのsnapがあれば computeStillFeature で補完し db.updateSnapFeatures + setMatchLearnFeatures で永続化 (失敗は無視/表示のみ)
+  for (const m of ms) {
+    const snaps = snapsById.get(m.id) || [];
+    let updatedAny = false;
+    for (const s of snaps) {
+      if (!s.features && s.blob) {
+        try {
+          const feat = await learn.computeStillFeature(s.blob, s);
+          s.features = feat;
+          await db.updateSnapFeatures(s.id, feat);
+          updatedAny = true;
+        } catch (e) {
+          console.warn('computeStillFeature backfill failed', s.id, e);
+        }
+      }
+    }
+    if (updatedAny) {
+      const validFeats = snaps.map(s => s.features).filter(Boolean);
+      if (validFeats.length > 0) {
+        await db.setMatchLearnFeatures(m.id, validFeats).catch(() => {});
+        m.learnFeatures = validFeats;
+      }
+    }
+  }
+
+  const summary = BK.summarize(ms, snapsById);
+  const expLabel = `バックアップを書き出す（ZIP）・${summary.matches}試合／静止画${summary.stills}枚／約${fmtBytes(summary.bytes)}`;
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
+
   const page = document.createElement('div');
 
   const modes = [...new Set(ms.map(m => resultOf(m).mode || '不明'))];
@@ -445,29 +659,82 @@ PAGES.list = async () => {
   });
 
   const hasMatches = ms.length > 0;
+  const pending = FB.pendingMatches(ms);
+  const pendingConfirmed = pending.reduce((a, m) => a + FB.confirmedCount(m), 0);
+  const recentHist = [...FB.getFeedbackHistory()].slice(-5).reverse();
+
+  const showBanner = capUsage.level !== 'ok' || (capUsage.favBytes > capUsage.capBytes);
 
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+        ${!showBanner ? `<span class="capacity-status muted">${esc(capLabel)}</span>` : ''}
+      </div>
       <div class="page-header-actions">
         <label class="btn ${hasMatches ? 'btn-primary' : ''}">
-          試合ログを読み込む
-          <input type="file" id="imp" accept=".json" hidden>
+          バックアップを読み込む
+          <input type="file" id="imp" accept=".json,.zip" hidden>
         </label>
         <details class="dropdown">
-          <summary class="btn">書き出す ▾</summary>
+          <summary class="btn">バックアップ ▾</summary>
           <div class="dropdown-menu">
-            <button class="dropdown-item" id="exp" type="button">試合ログ（JSON）</button>
-            <button class="dropdown-item" id="fb" type="button">フィードバック（ZIP）</button>
+            <button class="dropdown-item" id="bkexp" type="button" title="${esc(expLabel)}">${esc(expLabel)}</button>
           </div>
         </details>
       </div>
     </div>
 
+    ${hasMatches ? (pending.length > 0 ? `
+      <div class="fb-bar">
+        <span class="fb-bar-dot"></span>
+        <span id="fb-pending">未書き出しの正解データ <span class="fb-bar-count">${pending.length}</span>試合（確認済み <span class="num">${pendingConfirmed}</span>件）</span>
+        <button class="btn btn-primary" id="fbbar" type="button">正解データを書き出す</button>
+      </div>
+    ` : `
+      <div class="fb-bar">
+        <span id="fb-pending" class="fb-bar-empty-text">未書き出しの正解データはありません</span>
+      </div>
+    `) : ''}
+
+    ${hasMatches ? `
+      <details class="fb-history">
+        <summary>書き出し履歴（最近5件）▸</summary>
+        <div class="fb-history-content">
+          ${recentHist.length === 0 ? `<div class="fb-history-empty">まだ書き出し履歴がありません</div>` : `
+            <table class="table fb-history-table">
+              <thead>
+                <tr>
+                  <th>日時</th>
+                  <th>区分</th>
+                  <th>試合数</th>
+                  <th>ファイル名</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${recentHist.map(h => {
+                  const f = FB.formatHistoryItem(h);
+                  return `<tr>
+                    <td class="num">${esc(f.dtStr)}</td>
+                    <td>${esc(f.modeStr)}</td>
+                    <td class="num">${esc(f.countStr)}</td>
+                    <td class="fb-history-fname">${esc(h.filename)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </details>
+    ` : ''}
+
+    <section id="learn-panel" class="card learn-panel"></section>
+
     ${!hasMatches ? `
       <div class="card">
         <div class="empty-state">
-          <p>保存された試合がまだありません。ライブ分析で録画を解析するか、試合ログを読み込んでください。</p>
+          <p>保存された試合がまだありません。ライブ分析で録画を解析するか、バックアップを読み込んでください。</p>
           <button class="btn btn-primary" id="empty-go-live" type="button">ライブ分析へ移動</button>
         </div>
       </div>
@@ -520,12 +787,15 @@ PAGES.list = async () => {
           return `
             <div class="match-row click" data-id="${esc(m.id)}">
               <div class="match-row-col-res">
+                <button class="fav-btn" data-id="${esc(m.id)}" type="button" aria-label="お気に入り" title="お気に入り">${m.favorite === true ? '★' : '☆'}</button>
                 <span class="${badgeCls(r.result)}">${resJa(r.result)}</span>
                 <span class="match-row-date num">${esc(dtStr)}</span>
               </div>
 
               <div class="match-row-col-stage">
                 <span class="match-row-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')}</span>
+                <span class="stills-state">${esc(stillsStateLabel(m))}</span>
+                <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
                 ${r.count ? `<span class="match-row-count num">${fmtCount(r.count)}</span>` : ''}
               </div>
 
@@ -546,6 +816,7 @@ PAGES.list = async () => {
               <details class="dropdown row-menu">
                 <summary class="btn-dots" title="メニュー">⋯</summary>
                 <div class="dropdown-menu">
+                  <button class="dropdown-item del-stills" data-id="${esc(m.id)}" type="button">静止画だけ消す</button>
                   <button class="dropdown-item btn-danger-ghost del" data-id="${esc(m.id)}" type="button">削除</button>
                 </div>
               </details>
@@ -557,6 +828,7 @@ PAGES.list = async () => {
   `;
 
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   const goLiveBtn = $('#empty-go-live', page);
   if (goLiveBtn) goLiveBtn.onclick = () => nav('live');
@@ -574,43 +846,554 @@ PAGES.list = async () => {
 
   page.querySelectorAll('.match-row.click').forEach(row => {
     row.onclick = e => {
-      if (e.target.closest('.row-menu') || e.target.classList.contains('del')) return;
+      if (e.target.closest('.row-menu') || e.target.closest('.fav-btn') || e.target.classList.contains('del')) return;
       nav('match', row.dataset.id);
+    };
+  });
+
+  page.querySelectorAll('.fav-btn').forEach(b => {
+    b.onclick = async e => {
+      e.stopPropagation();
+      const cur = await db.getMatch(b.dataset.id);
+      await db.setFavorite(b.dataset.id, !(cur && cur.favorite === true));
+      PAGES.list();
+    };
+  });
+
+  page.querySelectorAll('.del-stills').forEach(b => {
+    b.onclick = async e => {
+      e.stopPropagation();
+      if (confirm('静止画だけを削除しますか？（試合の記録と確認データは残ります）')) {
+        await db.deleteStills(b.dataset.id);
+        PAGES.list();
+      }
     };
   });
 
   page.querySelectorAll('.del').forEach(b => {
     b.onclick = async e => {
       e.stopPropagation();
-      if (confirm('この試合を削除しますか？（録画も消えます）')) {
+      if (confirm('この試合を削除しますか？（静止画も消えます）')) {
         await db.delMatch(b.dataset.id);
         PAGES.list();
       }
     };
   });
 
-  $('#exp', page).onclick = async () => download(
-    `inkgraph_matches_${new Date().toISOString().slice(0, 10)}.json`,
-    new Blob([JSON.stringify(await db.exportAll())], { type: 'application/json' })
-  );
+  const bkexp = $('#bkexp', page);
+  if (bkexp) {
+    bkexp.onclick = async () => {
+      try {
+        const { blob, filename } = await buildBackupZip();
+        download(filename, blob);
+      } catch (err) {
+        alert('バックアップの書き出しに失敗しました: ' + (err?.message || err));
+      }
+    };
+  }
   $('#imp', page).onchange = async e => {
     const f = e.target.files[0];
     if (!f) return;
-    const n = await db.importAll(JSON.parse(await f.text()));
-    alert(`${n}試合を読み込みました`);
-    PAGES.list();
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      const isZip = f.name.toLowerCase().endsWith('.zip') || (buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4B);
+      if (isZip) {
+        const unzipped = unzipSync(buf);
+        const metaU8 = unzipped['backup.json'];
+        if (!metaU8) {
+          throw new Error('ZIP内に backup.json が見つかりません');
+        }
+        const meta = JSON.parse(new TextDecoder().decode(metaU8));
+        if (meta.kind !== 'backup') {
+          throw new Error('バックアップ形式ではありません');
+        }
+        BK.applySettings(meta.settings, localStorage);
+        const stills = [];
+        for (const s of (meta.stills || [])) {
+          const u8 = unzipped[s.file];
+          if (u8) {
+            stills.push({
+              matchId: s.matchId,
+              t: s.t,
+              reason: s.reason,
+              kind: s.kind,
+              header: s.header,
+              event: s.event,
+              blob: new Blob([u8], { type: 'image/jpeg' })
+            });
+          }
+        }
+        const res = await db.importBackup({ matches: meta.matches || [], stills });
+        alert(`バックアップから ${res.matches}試合（静止画${res.stills}枚）を読み込みました`);
+      } else {
+        const text = new TextDecoder().decode(buf);
+        const j = JSON.parse(text);
+        const n = await db.importAll(j);
+        alert(`旧形式の試合ログから ${n}試合を読み込みました（静止画・設定は含まれません）`);
+      }
+      PAGES.list();
+    } catch (err) {
+      alert('読み込みに失敗しました: ' + (err?.message || err));
+    } finally {
+      e.target.value = '';
+    }
   };
-  $('#fb', page).onclick = () => exportFeedback(ms);
+  const fbbar = $('#fbbar', page);
+  if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
+  if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
+
+  // 自己学習パネル（S0-S2）
+  let learnCandidate = null;
+  let learnConfirming = false;
+  let versionSwitchingPack = null;
+
+  function renderCandidateResult(cand, confirming) {
+    const renderRow = (section, fieldLabel, cmp, isInsuf) => {
+      if (isInsuf) {
+        return `<tr>
+          <td>${esc(section)}</td>
+          <td>${esc(fieldLabel)}</td>
+          <td colspan="5" class="muted">材料不足（サンプル3件未満）</td>
+        </tr>`;
+      }
+      const p1 = (cmp.beforeAcc * 100).toFixed(1) + '%';
+      const p2 = (cmp.afterAcc * 100).toFixed(1) + '%';
+      return `<tr>
+        <td>${esc(section)}</td>
+        <td>${esc(fieldLabel)}</td>
+        <td class="num">${cmp.beforeCorrect} → ${cmp.afterCorrect} / ${cmp.n}</td>
+        <td class="num">${p1} → ${p2}</td>
+        <td class="num ${cmp.fixed > 0 ? 'text-success' : 'muted'}">${cmp.fixed > 0 ? `+${cmp.fixed}` : '0'}</td>
+        <td class="num ${cmp.broken > 0 ? 'text-danger' : 'muted'}">${cmp.broken > 0 ? `-${cmp.broken}` : '0'}</td>
+        <td class="num muted">${cmp.unchanged}</td>
+      </tr>`;
+    };
+
+    const trn = cand.trainCompare;
+    const hld = cand.holdoutCompare;
+    const isModeInsuf = cand.insufficient.includes('mode');
+    const isStageInsuf = cand.insufficient.includes('stage');
+
+    const rows = [];
+    rows.push(renderRow('train (学習)', 'ルール (mode)', trn.mode, isModeInsuf));
+    rows.push(renderRow('train (学習)', 'ステージ (stage)', trn.stage, isStageInsuf));
+    rows.push(renderRow('train (学習)', '合計', trn.total, false));
+
+    if (hld) {
+      rows.push(renderRow('holdout (評価)', 'ルール (mode)', hld.mode, isModeInsuf));
+      rows.push(renderRow('holdout (評価)', 'ステージ (stage)', hld.stage, isStageInsuf));
+      rows.push(renderRow('holdout (評価)', '合計', hld.total, false));
+    }
+
+    const totalBroken = trn.total.broken + (hld?.total?.broken || 0);
+
+    return `
+      <div class="learn-candidate-card">
+        <div class="learn-candidate-header">
+          <h3 class="learn-candidate-title">再判定結果（候補閾値: ルール <strong>${cand.thresholds.mode.toFixed(2)}</strong> / ステージ <strong>${cand.thresholds.stage.toFixed(2)}</strong>）</h3>
+          <span class="learn-candidate-note muted">${esc(cand.note)}</span>
+        </div>
+
+        <table class="table learn-result-table">
+          <thead>
+            <tr>
+              <th>区分</th>
+              <th>対象</th>
+              <th>正解数 (前 → 後)</th>
+              <th>一致率 (前 → 後)</th>
+              <th>直った</th>
+              <th>新たに壊れた</th>
+              <th>不変</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.join('')}
+          </tbody>
+        </table>
+
+        ${cand.insufficient.length > 0 ? `
+          <div class="learn-insufficient-banner muted">
+            ⚠️ 材料不足（サンプル3件未満）: ${cand.insufficient.map(f => f === 'mode' ? 'ルール' : 'ステージ').join(', ')} は既定値（0.50）を維持します。
+          </div>
+        ` : ''}
+
+        <div class="learn-decision-actions">
+          <button class="btn btn-primary" id="learn-apply" type="button">この候補を端末内に適用</button>
+          <button class="btn btn-ghost" id="learn-reject" type="button">候補を却下</button>
+        </div>
+
+        <div id="learn-confirm" class="learn-confirm-card" ${confirming ? '' : 'hidden'}>
+          ${totalBroken > 0 ? `
+            <div class="learn-broken-warning">
+              ⚠️ <strong>警告: 新たに判定が壊れた件数が ${totalBroken} 件あります。</strong><br>
+              適用すると、これまで正解判定されていた試合の一部が不正解（未検出）になる可能性があります。
+            </div>
+          ` : `
+            <div class="learn-confirm-msg">
+              この候補を端末内に適用します。今後の試合解析および静止画再判定に反映されます。よろしいですか？
+            </div>
+          `}
+          <div class="learn-confirm-actions">
+            <button class="btn ${totalBroken > 0 ? 'btn-danger' : 'btn-primary'}" id="learn-confirm-yes" type="button">確認して適用</button>
+            <button class="btn btn-secondary" id="learn-confirm-no" type="button">やめる</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSwitchConfirmCard(targetPack, currentThr, samples) {
+    const switchCmp = learn.compareSamples(samples, currentThr, targetPack.thresholds);
+    const totalBroken = switchCmp.total.broken;
+    const currentThrStr = `ルール <strong>${currentThr.mode.toFixed(2)}</strong> / ステージ <strong>${currentThr.stage.toFixed(2)}</strong>`;
+    const targetThrStr = `ルール <strong>${targetPack.thresholds.mode.toFixed(2)}</strong> / ステージ <strong>${targetPack.thresholds.stage.toFixed(2)}</strong>`;
+
+    return `
+      <div id="learn-switch-confirm" class="learn-confirm-card">
+        <div class="learn-candidate-header">
+          <h3 class="learn-candidate-title">版切り替えの確認: <code>${esc(targetPack.packId)}</code></h3>
+          <span class="learn-candidate-note muted">
+            現在の閾値（${currentThrStr}）から対象の版（${targetThrStr}）への全サンプル再判定比較
+          </span>
+        </div>
+
+        <table class="table learn-result-table">
+          <thead>
+            <tr>
+              <th>区分</th>
+              <th>正解数 (前 → 後)</th>
+              <th>一致率 (前 → 後)</th>
+              <th>直った</th>
+              <th>新たに壊れた</th>
+              <th>不変</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>全体</strong></td>
+              <td class="num">${switchCmp.total.beforeCorrect} → ${switchCmp.total.afterCorrect} / ${switchCmp.total.n}</td>
+              <td class="num">${(switchCmp.total.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.total.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.total.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.total.fixed > 0 ? `+${switchCmp.total.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.total.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.total.broken > 0 ? `-${switchCmp.total.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.total.unchanged}</td>
+            </tr>
+            <tr>
+              <td>ルール (mode)</td>
+              <td class="num">${switchCmp.mode.beforeCorrect} → ${switchCmp.mode.afterCorrect} / ${switchCmp.mode.n}</td>
+              <td class="num">${(switchCmp.mode.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.mode.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.mode.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.mode.fixed > 0 ? `+${switchCmp.mode.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.mode.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.mode.broken > 0 ? `-${switchCmp.mode.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.mode.unchanged}</td>
+            </tr>
+            <tr>
+              <td>ステージ (stage)</td>
+              <td class="num">${switchCmp.stage.beforeCorrect} → ${switchCmp.stage.afterCorrect} / ${switchCmp.stage.n}</td>
+              <td class="num">${(switchCmp.stage.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.stage.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.stage.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.stage.fixed > 0 ? `+${switchCmp.stage.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.stage.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.stage.broken > 0 ? `-${switchCmp.stage.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.stage.unchanged}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        ${totalBroken > 0 ? `
+          <div class="learn-broken-warning">
+            ⚠️ <strong>警告: 新たに判定が壊れた件数が ${totalBroken} 件あります。</strong><br>
+            切り替えると、現在正解判定されている試合の一部が不正解（未検出）になる可能性があります。
+          </div>
+        ` : `
+          <div class="learn-confirm-msg">
+            この版（<code>${esc(targetPack.packId)}</code>）に切り替えます。今後の試合解析および静止画再判定に反映されます。よろしいですか？
+          </div>
+        `}
+
+        <div class="learn-confirm-actions">
+          <button class="btn ${totalBroken > 0 ? 'btn-danger' : 'btn-primary'}" id="learn-switch-confirm-yes" type="button">確認して切り替える</button>
+          <button class="btn btn-secondary" id="learn-switch-confirm-no" type="button">やめる</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderVersionsSection(versions, activePackId) {
+    if (!versions || versions.length === 0) {
+      return `
+        <div class="learn-versions-section">
+          <h3 class="learn-versions-title">学習パックの版</h3>
+          <div class="learn-versions-empty muted">保存された学習パックの版はありません。</div>
+        </div>
+      `;
+    }
+
+    const rows = versions.map(p => {
+      const isActive = p.packId === activePackId;
+      let createdStr = '-';
+      if (p.created) {
+        try {
+          createdStr = new Date(p.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+        } catch {
+          createdStr = p.created.slice(0, 16).replace('T', ' ');
+        }
+      }
+      const modeThr = p.thresholds?.mode ?? 0.50;
+      const stageThr = p.thresholds?.stage ?? 0.50;
+      const matchCount = p.sourceMatchIds ? p.sourceMatchIds.length : 0;
+
+      return `
+        <tr class="${isActive ? 'row-active' : ''}">
+          <td><strong class="num">${esc(p.packId)}</strong></td>
+          <td>${esc(createdStr)}</td>
+          <td>ルール <strong>${modeThr.toFixed(2)}</strong> / ステージ <strong>${stageThr.toFixed(2)}</strong></td>
+          <td>${matchCount} 試合</td>
+          <td>
+            <span class="learn-badge ${isActive ? 'badge-active' : 'badge-neutral'}">
+              ${isActive ? '適用中' : '保存済み'}
+            </span>
+          </td>
+          <td>
+            ${isActive ? `
+              <span class="muted text-sm">適用中</span>
+            ` : `
+              <button class="btn btn-secondary btn-sm learn-switch-btn" data-pack-id="${esc(p.packId)}" type="button">この版を使う</button>
+            `}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="learn-versions-section">
+        <h3 class="learn-versions-title">学習パックの版（全 ${versions.length} 件）</h3>
+        <div class="table-wrap">
+          <table class="table learn-versions-table">
+            <thead>
+              <tr>
+                <th>版ID</th>
+                <th>作成日時 (JST)</th>
+                <th>閾値</th>
+                <th>学習元</th>
+                <th>状態</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  const updateLearnPanel = async () => {
+    const learnPanelEl = $('#learn-panel', page);
+    if (!learnPanelEl) return;
+
+    const allSamples = learn.collectSamples(ms, snapsById);
+    const confirmedMatchesCount = new Set(allSamples.map(s => s.matchId)).size;
+    const { train: trn, holdout: hld } = learn.splitHoldout(allSamples);
+    const hasHoldout = hld.length > 0;
+    const activePack = await db.activeLearnPack().catch(() => null);
+    const activePackId = activePack?.packId || null;
+    const packVersions = await db.listLearnPacks().catch(() => []);
+    const currentThr = activePack ? activePack.thresholds : learn.DEFAULT_THRESHOLDS;
+
+    learnPanelEl.innerHTML = `
+      <div class="learn-panel-header">
+        <div class="learn-panel-title-wrap">
+          <h2 class="learn-panel-title">自己学習（候補提示・版管理）</h2>
+          <span class="learn-badge ${activePack ? 'badge-active' : 'badge-neutral'}">${activePack ? '学習適用中' : '未適用（既定値）'}</span>
+        </div>
+        <div class="learn-header-actions">
+          ${activePack ? `
+            <button class="btn btn-secondary btn-sm" id="learn-deactivate" type="button">未適用に戻す</button>
+            <button class="btn btn-secondary btn-sm" id="learn-rollback" type="button">学習を1つ前に戻す</button>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="learn-panel-body">
+        <div class="learn-meta-row">
+          <div class="learn-meta-item">確認済み試合数: <strong class="num">${confirmedMatchesCount}</strong> 試合</div>
+          <div class="learn-meta-item">サンプル数: <strong class="num">${allSamples.length}</strong> 件</div>
+          <div class="learn-meta-item">holdout: <strong>${hasHoldout ? `あり（${hld.length}件）` : 'なし'}</strong></div>
+        </div>
+        <p class="learn-note muted">※ 映像は保存されていないため再判定は静止画・特徴量・系列のみで行われます。学習パックおよび閾値は端末内（IndexedDB）のみに保持され、外部送信されません。</p>
+
+        <div class="learn-active-info">
+          ${activePack ? `
+            <div class="learn-pack-desc">
+              適用中パック: <strong class="num">${esc(activePack.packId)}</strong>（作成: ${esc(activePack.created ? new Date(activePack.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : activePack.created)}) / 
+              閾値: ルール <strong>${activePack.thresholds.mode.toFixed(2)}</strong>、ステージ <strong>${activePack.thresholds.stage.toFixed(2)}</strong> / 
+              元試合: <strong>${activePack.sourceMatchIds ? activePack.sourceMatchIds.length : 0}</strong> 試合
+            </div>
+          ` : `
+            <div class="learn-pack-desc muted">適用中パック: なし（既定値: ルール 0.50 / ステージ 0.50）</div>
+          `}
+        </div>
+
+        <div class="learn-actions-row">
+          <button class="btn btn-primary" id="learn-candidate" type="button">候補を作って再判定</button>
+        </div>
+
+        <div id="learn-result" class="learn-result" ${learnCandidate ? '' : 'hidden'}>
+          ${learnCandidate ? renderCandidateResult(learnCandidate, learnConfirming) : ''}
+        </div>
+
+        ${versionSwitchingPack ? renderSwitchConfirmCard(versionSwitchingPack, currentThr, allSamples) : ''}
+
+        ${renderVersionsSection(packVersions, activePackId)}
+      </div>
+    `;
+
+    const btnCand = $('#learn-candidate', learnPanelEl);
+    if (btnCand) {
+      btnCand.onclick = () => {
+        versionSwitchingPack = null;
+        learnCandidate = learn.generateCandidate(allSamples);
+        learnConfirming = false;
+        updateLearnPanel();
+      };
+    }
+    const btnDeactivate = $('#learn-deactivate', learnPanelEl);
+    if (btnDeactivate) {
+      btnDeactivate.onclick = async () => {
+        await db.deactivateLearnPack();
+        versionSwitchingPack = null;
+        learnCandidate = null;
+        learnConfirming = false;
+        PAGES.list();
+      };
+    }
+    const btnRollback = $('#learn-rollback', learnPanelEl);
+    if (btnRollback) {
+      btnRollback.onclick = async () => {
+        await db.rollbackLearnPack();
+        versionSwitchingPack = null;
+        learnCandidate = null;
+        learnConfirming = false;
+        PAGES.list();
+      };
+    }
+    const btnReject = $('#learn-reject', learnPanelEl);
+    if (btnReject) {
+      btnReject.onclick = () => {
+        learnCandidate = null;
+        learnConfirming = false;
+        updateLearnPanel();
+      };
+    }
+    const btnApply = $('#learn-apply', learnPanelEl);
+    if (btnApply) {
+      btnApply.onclick = () => {
+        learnConfirming = true;
+        updateLearnPanel();
+      };
+    }
+    const btnConfirmNo = $('#learn-confirm-no', learnPanelEl);
+    if (btnConfirmNo) {
+      btnConfirmNo.onclick = () => {
+        learnConfirming = false;
+        updateLearnPanel();
+      };
+    }
+    const btnConfirmYes = $('#learn-confirm-yes', learnPanelEl);
+    if (btnConfirmYes) {
+      btnConfirmYes.onclick = async () => {
+        const pack = learn.makePack(learnCandidate, new Date().toISOString());
+        await db.applyLearnPack(pack);
+        learnCandidate = null;
+        learnConfirming = false;
+        PAGES.list();
+      };
+    }
+
+    // 版切り替えボタン
+    learnPanelEl.querySelectorAll('.learn-switch-btn').forEach(btn => {
+      btn.onclick = () => {
+        const pid = btn.dataset.packId;
+        const target = packVersions.find(p => p.packId === pid);
+        if (target) {
+          versionSwitchingPack = target;
+          learnCandidate = null;
+          learnConfirming = false;
+          updateLearnPanel();
+        }
+      };
+    });
+
+    const btnSwitchYes = $('#learn-switch-confirm-yes', learnPanelEl);
+    if (btnSwitchYes) {
+      btnSwitchYes.onclick = async () => {
+        if (versionSwitchingPack) {
+          await db.activateLearnPack(versionSwitchingPack.packId);
+          versionSwitchingPack = null;
+          learnCandidate = null;
+          learnConfirming = false;
+          PAGES.list();
+        }
+      };
+    }
+    const btnSwitchNo = $('#learn-switch-confirm-no', learnPanelEl);
+    if (btnSwitchNo) {
+      btnSwitchNo.onclick = () => {
+        versionSwitchingPack = null;
+        updateLearnPanel();
+      };
+    }
+  };
+
+  await updateLearnPanel();
 };
+
+// ============================================================================
+// Backup ZIP & Still-Frame Export
+// ============================================================================
+// バックアップの書き出し (#34)。試合データ＋設定＋保持中の静止画 (videosは含めない)。
+async function buildBackupZip() {
+  const matches = await db.allMatches();
+  const files = {};
+  const stillsById = new Map();
+
+  for (const m of matches) {
+    const snaps = await db.snapsOf(m.id);
+    if (!snaps || snaps.length === 0) continue;
+    const safe = m.id.replace(/[^0-9A-Za-z]/g, '_');
+    const snapMetaList = [];
+    for (const s of snaps) {
+      const name = `stills/${safe}/${s.kind || 'frame'}_${s.t.toFixed(1)}_${s.id}.jpg`;
+      const buf = new Uint8Array(await s.blob.arrayBuffer());
+      files[name] = buf;
+      snapMetaList.push({
+        file: name,
+        t: s.t,
+        reason: s.reason,
+        kind: s.kind,
+        header: s.header ?? null,
+        event: s.event ?? null,
+        bytes: buf.byteLength
+      });
+    }
+    stillsById.set(m.id, snapMetaList);
+  }
+
+  const settings = BK.collectSettings(typeof localStorage !== 'undefined' ? localStorage : null);
+  const now = new Date();
+  const meta = BK.buildBackupMeta(matches, stillsById, settings, now.toISOString());
+  files['backup.json'] = strToU8(JSON.stringify(meta, null, 1));
+  files['README.txt'] = strToU8(BK.backupReadme(meta));
+  const zip = zipSync(files, { level: 0 });
+  return { blob: new Blob([zip], { type: 'application/zip' }), filename: BK.BACKUP_FILENAME(now), meta };
+}
 
 // ============================================================================
 // Feedback ZIP & Still-Frame Extraction
 // ============================================================================
-async function exportFeedback(ms) {
+// 正解データのバッチ書き出し (#33)。即ダウンロードはせず、試合一覧のダイアログでまとめて出す。
+async function buildBatchZip(matches, { mode = 'diff', batchId = FB.makeBatchId() } = {}) {
   const files = {};
-  const acc = accuracy(ms);
-  const meta = { app: 'InkGraph', kind: 'feedback', format: 1, exported: new Date().toISOString(), accuracy: acc, matches: [] };
-  for (const m of ms) {
+  const snapshotsById = {};
+  for (const m of matches) {
     const snaps = await db.snapsOf(m.id);
     const safe = m.id.replace(/[^0-9A-Za-z]/g, '_');
     const sn = [];
@@ -619,13 +1402,117 @@ async function exportFeedback(ms) {
       files[name] = new Uint8Array(await s.blob.arrayBuffer());
       sn.push({ file: name, t: s.t, reason: s.reason, kind: s.kind, header: s.header, event: s.event || null });
     }
-    const { tower_series, squid_down, ...light } = m;
-    meta.matches.push({ ...light, tower_series, squid_down, snapshots: sn });
+    snapshotsById[m.id] = sn;
   }
+  const now = new Date();
+  const meta = FB.buildFeedbackMeta(matches, { mode, batchId, exportedAt: now.toISOString(), accuracy: accuracy(matches), snapshotsById });
   files['feedback.json'] = strToU8(JSON.stringify(meta, null, 1));
+  files['README.txt'] = strToU8(FB.feedbackReadme(meta));
   const zip = zipSync(files, { level: 0 });
-  download(`inkgraph_feedback_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.zip`, new Blob([zip], { type: 'application/zip' }));
+  return { blob: new Blob([zip], { type: 'application/zip' }), filename: FB.batchFilename(mode, now), meta };
 }
+
+async function showFeedbackExportDialog(initialMode = 'diff') {
+  document.querySelector('.fb-dialog-overlay')?.remove();
+  const all = await db.allMatches();
+  const snapsById = new Map();
+  for (const m of all.filter(FB.hasReview)) snapsById.set(m.id, await db.snapsOf(m.id));
+  let mode = initialMode === 'full' ? 'full' : 'diff';
+  const unchecked = new Set();
+  let markExported = true;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'fb-dialog-overlay';
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+
+  const render = () => {
+    const targets = FB.exportableMatches(all, mode).sort((a, b) => String(b.created).localeCompare(String(a.created)));
+    const selected = targets.filter(m => !unchecked.has(m.id));
+    const est = FB.estimateExport(selected, snapsById);
+    const perAll = FB.estimateExport(targets, snapsById).perMatch;
+    const hist = FB.getFeedbackHistory();
+    const last = hist[hist.length - 1];
+    const lastTxt = last ? `前回：${FB.formatHistoryItem(last).label}` : '前回：なし';
+    const none = targets.length === 0;
+    const noSel = !none && selected.length === 0;
+
+    let removeCount = 0;
+    if (est.over50MB) {
+      const sorted = [...selected].sort((a, b) => (est.perMatch.get(b.id)?.bytes || 0) - (est.perMatch.get(a.id)?.bytes || 0));
+      let rem = est.totalBytes;
+      for (const sm of sorted) {
+        rem -= (est.perMatch.get(sm.id)?.bytes || 0);
+        removeCount++;
+        if (rem <= FB.LIMIT_BYTES) break;
+      }
+    }
+    const mbStr = (est.totalBytes / (1024 * 1024)).toFixed(1);
+
+    overlay.innerHTML = `
+      <div class="fb-dialog" role="dialog" aria-label="正解データを書き出す">
+        <h2 class="fb-dialog-title">正解データを書き出す</h2>
+        <div class="fb-dialog-modes">
+          <label><input type="radio" name="fbmode" value="diff" ${mode === 'diff' ? 'checked' : ''}> 差分（未書き出し分のみ）</label>
+          <label><input type="radio" name="fbmode" value="full" ${mode === 'full' ? 'checked' : ''}> 全件（確認済みすべて）</label>
+        </div>
+        <div class="fb-dialog-last">${esc(lastTxt)}</div>
+        ${none ? `<div class="fb-dialog-empty" id="fbd-empty">${mode === 'diff' ? '未書き出しの正解データがありません（全件モードで出し直せます）。' : '確認済みの試合がありません。'}</div>` : `
+        <div class="fb-dialog-list">
+          ${targets.map(m => {
+            const r = resultOf(m);
+            const p = perAll.get(m.id);
+            const dt = m.created ? new Date(m.created).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+            return `<label class="fb-dialog-row" data-id="${esc(m.id)}">
+              <input type="checkbox" class="fbd-chk" data-id="${esc(m.id)}" ${unchecked.has(m.id) ? '' : 'checked'}>
+              <span class="num">${esc(dt)}</span>
+              <span>${esc(r.stage || 'ステージ不明')}</span>
+              <span>${esc(resJa(r.result))}</span>
+              <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
+              <span class="num">確認済み ${FB.confirmedCount(m)}件</span>
+              <span class="${p.stillsAvailable ? 'num' : 'fb-nostill'}">${p.stillsAvailable ? `静止画 ${p.snaps}枚・${fmtBytes(p.bytes)}` : '静止画なし（削除済み／未保存）'}</span>
+            </label>`;
+          }).join('')}
+        </div>`}
+        <div class="fb-dialog-total" id="fbd-total">対象 <span class="num">${selected.length}</span>試合・合計 約<span class="num">${fmtBytes(est.totalBytes)}</span></div>
+        ${est.over50MB ? `<div class="fb-dialog-warn" id="fbd-warn">合計 約${mbStr}MBで目安の50MBを超えています。チェックを外して分けてください。あと${removeCount}試合外すと50MB以内です</div>` : ''}
+        ${noSel ? `<div class="fb-dialog-empty" id="fbd-reason">書き出す試合が選ばれていません。</div>` : ''}
+        <div class="fb-dialog-note">静止画にはプレイヤー名が映る場合があります。ZIPは自動送信されません。手動で渡してください。</div>
+        <label class="fb-dialog-mark"><input type="checkbox" id="fbd-mark" ${markExported ? 'checked' : ''}> 書き出し済みにする（次回は差分に出ません）</label>
+        ${!markExported ? `<div class="fb-dialog-skip-note" id="fbd-skip-note">今回は記録を残さないため、次回も差分に出ます</div>` : ''}
+        <div class="fb-dialog-actions">
+          <button class="btn" id="fbd-cancel" type="button">キャンセル</button>
+          <button class="btn btn-primary" id="fbd-go" type="button" ${selected.length ? '' : 'disabled'}>ZIPを書き出す</button>
+        </div>
+      </div>`;
+    overlay.querySelectorAll('input[name="fbmode"]').forEach(r => { r.onchange = () => { mode = r.value; unchecked.clear(); render(); }; });
+    overlay.querySelectorAll('.fbd-chk').forEach(c => { c.onchange = () => { if (c.checked) unchecked.delete(c.dataset.id); else unchecked.add(c.dataset.id); render(); }; });
+    $('#fbd-mark', overlay).onchange = e => { markExported = e.target.checked; render(); };
+    $('#fbd-cancel', overlay).onclick = close;
+    $('#fbd-go', overlay).onclick = async () => {
+      const btn = $('#fbd-go', overlay);
+      btn.disabled = true;
+      const batchId = FB.makeBatchId();
+      const { blob, filename, meta } = await buildBatchZip(selected, { mode, batchId });
+      download(filename, blob);
+      const at = new Date().toISOString();
+      if (markExported) {
+        for (const em of meta.matches) {
+          const cur = await db.getMatch(em.id);
+          if (!cur || !cur.review) continue;
+          cur.review.reviewHash = em.reviewHash;
+          cur.review.export = { state: 'exported', lastExportedAt: at, lastExportedHash: em.reviewHash, lastBatchId: batchId };
+          await db.putMatch(cur);
+        }
+      }
+      FB.addFeedbackHistory({ at, batchId, count: meta.matches.length, filename, mode });
+      close();
+      if (currentPage === 'list') PAGES.list();
+    };
+  };
+  render();
+}
+
 
 async function grabFrames(video, times, reason, matchId, event) {
   if (!video.src || !video.duration) return 0;
@@ -672,7 +1559,10 @@ PAGES.match = async () => {
   m.review.fix = m.review.fix || {};
   const save = async () => {
     m.review.updated = new Date().toISOString();
+    syncExportState(m);
     await db.putMatch(m);
+    const st = document.getElementById('fbone-state');
+    if (st) st.textContent = `この試合：${EXPORT_STATE_LABEL[exportStateOf(m)]}（確認済み ${confirmedCount(m)}件）`;
   };
 
   const r = resultOf(m);
@@ -709,6 +1599,7 @@ PAGES.match = async () => {
             <span>最終カウント <b class="num">${fmtCount(r.count)}</b></span>
             ${finalDiff !== null ? `<span class="num ${diffCls(finalDiff)}">（カウント差 ${fmtDiff(finalDiff)}）</span>` : ''}
           </div>
+          ${m.stills ? (stillsStateKey(m) === 'deleted' ? `<div class="muted" id="stills-info">静止画 削除済み（記録は残っています。もとの静止画 ${m.stills.count}枚・合計 ${Math.round((m.stills.bytes || 0) / 1024)} KB）</div>` : `<div class="muted" id="stills-info">静止画 ${m.stills.count}枚・合計 ${Math.round((m.stills.bytes || 0) / 1024)} KB（映像は保存されていません）</div>`) : ''}
         </div>
       </div>
 
@@ -748,10 +1639,13 @@ PAGES.match = async () => {
 
       <aside class="review-panel" id="review-panel">
         <div class="card">
-          <div class="card-title">確認用の映像</div>
-          <div class="review-video-wrap">
-            <video id="rv" controls muted></video>
+          <div class="card-title">確認用の静止画</div>
+          <div class="review-video-wrap" style="position:relative">
+            <img id="still-img" alt="確認用の静止画" style="width:100%;height:100%;object-fit:contain;display:none">
+            <div id="still-empty" class="muted" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:12px">静止画なし（この試合では静止画が保存されていません）</div>
+            <video id="rv" controls muted style="display:none"></video>
           </div>
+          <div id="still-cap" class="muted" style="margin-top:8px;min-height:1.4em"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px">
             <span id="vstat" class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
             <label class="btn btn-sm">録画ファイルを選ぶ<input type="file" id="vf" accept="video/*" hidden></label>
@@ -776,7 +1670,8 @@ PAGES.match = async () => {
           <div id="acc"></div>
         </details>
 
-        <button class="btn btn-primary" id="fbone" type="button" style="width:100%">この試合のフィードバックを書き出す</button>
+        <button class="btn btn-primary" id="fbone" type="button" style="width:100%">試合一覧でまとめて書き出す →</button>
+        <div class="export-state" id="fbone-state">この試合：${esc(EXPORT_STATE_LABEL[exportStateOf(m)])}（確認済み ${confirmedCount(m)}件）</div>
       </aside>
     </div>
   `;
@@ -802,13 +1697,33 @@ PAGES.match = async () => {
   video.addEventListener('timeupdate', updatePlayhead);
   video.addEventListener('seeked', updatePlayhead);
 
+  const stills = (await db.snapsOf(m.id)).sort((a, b) => a.t - b.t);
+  const stillImg = $('#still-img', page), stillEmpty = $('#still-empty', page), stillCap = $('#still-cap', page);
+  const KIND_JA = { kill: 'キル', death: 'デス', special: 'スペシャル', celebration: 'リザルト', personal: 'リザルト', board: 'リザルト', event: '見逃し・誤検出' };
+  let stillUrl = null;
+  const showEmpty = msg => { stillImg.style.display = 'none'; stillEmpty.textContent = msg; stillEmpty.style.display = 'flex'; };
+  const showStill = (t, near = 15) => {
+    if (video.src && video.style.display !== 'none') return;
+    if (!stills.length) { stillCap.textContent = ''; showEmpty('静止画なし（この試合では静止画が保存されていません）'); return; }
+    let best = stills[0];
+    for (const s of stills) if (Math.abs(s.t - t) < Math.abs(best.t - t)) best = s;
+    const d = Math.abs(best.t - t);
+    if (d > near) { stillCap.textContent = `最も近い静止画は ${mss(best.t)}（対象から ±${d.toFixed(1)}秒）`; showEmpty(`静止画なし（${mss(t)} の近くには静止画がありません）`); return; }
+    if (stillUrl) URL.revokeObjectURL(stillUrl);
+    stillUrl = URL.createObjectURL(best.blob);
+    stillImg.onerror = () => { stillCap.textContent = ''; showEmpty('静止画なし（静止画を表示できません）'); };
+    stillImg.onload = () => { stillEmpty.style.display = 'none'; stillImg.style.display = 'block'; };
+    stillImg.src = stillUrl;
+    stillCap.textContent = `最も近い静止画 ${mss(best.t)}（対象から ±${d.toFixed(1)}秒） · ${KIND_JA[best.kind] || best.kind || '静止画'}${best.reason ? ' / ' + best.reason : ''}`;
+  };
+
   const seek = t => {
     lastSeekTime = t;
+    showStill(t);
+    if (tlEl && tlEl.setPlayhead && !video.src) tlEl.setPlayhead(t);
     if (video.src) {
       video.currentTime = Math.max(0, t - offset - 2);
       video.play().catch(() => {});
-    } else {
-      $('#vstat', page).textContent = '映像未読込（録画ファイルを選択してください）';
     }
   };
 
@@ -827,19 +1742,13 @@ PAGES.match = async () => {
     }
   };
 
-  const vrec = await db.getVideo(m.id);
-  if (vrec) {
-    video.src = URL.createObjectURL(vrec.blob);
-    offset = vrec.offset || 0;
-    $('#vstat', page).textContent = 'ブラウザ内の録画を表示中';
-  } else {
-    $('#vstat', page).textContent = m.source?.name ? `元ファイル: ${m.source.name}` : '録画ファイル未選択';
-  }
+  $('#vstat', page).textContent = '映像は保存されていません（手元の録画ファイルを選ぶと映像でも確認できます）';
 
   $('#vf', page).onchange = e => {
     const f = e.target.files[0];
     if (f) {
       video.src = URL.createObjectURL(f);
+      video.style.display = 'block'; stillImg.style.display = 'none'; stillEmpty.style.display = 'none';
       offset = 0;
       $('#vstat', page).textContent = f.name;
     }
@@ -1008,7 +1917,11 @@ PAGES.match = async () => {
     };
   });
 
-  $('#fbone', page).onclick = () => exportFeedback([m]);
+  $('#fbone', page).onclick = () => {
+    const s = exportStateOf(m);
+    openDialogOnList = (s === 'accumulated' || s === 'changed') ? 'diff' : null;
+    nav('list');
+  };
 
   const refresh = () => {
     drawTL();
@@ -1018,6 +1931,7 @@ PAGES.match = async () => {
 
   rtab();
   refresh();
+  showStill(lastSeekTime, Infinity);
 
   if (pendingSeek !== null) {
     const t = pendingSeek;
