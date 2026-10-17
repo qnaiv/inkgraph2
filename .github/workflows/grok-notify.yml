@@ -1,0 +1,70 @@
+name: Grok Notify (@grok mention to webhook)
+
+# NOTE: PR へのコメントも issue_comment イベントに含まれる。
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      (github.event_name == 'issue_comment'
+        && github.event.comment.user.login == 'qnaiv'
+        && contains(github.event.comment.body, '@grok'))
+      ||
+      (github.event_name == 'issues'
+        && github.event.issue.user.login == 'qnaiv'
+        && contains(github.event.issue.body, '@grok'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check webhook secrets
+        id: check
+        env:
+          GROK_WEBHOOK_URL: ${{ secrets.GROK_WEBHOOK_URL }}
+          GROK_WEBHOOK_KEY: ${{ secrets.GROK_WEBHOOK_KEY }}
+        run: |
+          if [ -n "$GROK_WEBHOOK_URL" ] && [ -n "$GROK_WEBHOOK_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GROK_WEBHOOK_URL / GROK_WEBHOOK_KEY が未設定のため Grok 通知をスキップします"
+          fi
+
+      - name: Send to Grok webhook
+        if: steps.check.outputs.configured == 'true'
+        env:
+          GROK_WEBHOOK_URL: ${{ secrets.GROK_WEBHOOK_URL }}
+          GROK_WEBHOOK_KEY: ${{ secrets.GROK_WEBHOOK_KEY }}
+          EVENT_TYPE: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          COMMENT_BODY: ${{ github.event.comment.body || github.event.issue.body }}
+          COMMENT_URL: ${{ github.event.comment.html_url || github.event.issue.html_url }}
+          AUTHOR: ${{ github.event.comment.user.login || github.event.issue.user.login }}
+          IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$GROK_WEBHOOK_URL"
+          echo "::add-mask::$GROK_WEBHOOK_KEY"
+          payload="$(mktemp)"
+          trap 'rm -f "$payload"' EXIT
+          bash .github/scripts/grok_notify_payload.sh > "$payload"
+          # TODO: ヘッダ名・認証方式は webhook 仕様に合わせて要確認（X-Webhook-Key は仮）
+          status="$(curl -sS --fail -o /dev/null -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -H "X-Webhook-Key: ${GROK_WEBHOOK_KEY}" \
+            --data-binary "@${payload}" \
+            "$GROK_WEBHOOK_URL")"
+          echo "Webhook responded: HTTP ${status}"
