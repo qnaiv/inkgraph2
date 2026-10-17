@@ -3,7 +3,38 @@ import numpy as np, pickle, os, cv2
 from scipy.ndimage import median_filter
 from .common import frames, runs, MODELS
 from . import cues
-P=dict(icon_th=0.7,med=5,minlen=2.0,gap=2.5,cover=3.0,sig_gap=4.0,enemy_fill=False,sp_min=0.3,l0_hud_fallback=False,dead_max_sat=55)
+P=dict(icon_th=0.7,med=5,minlen=2.0,gap=2.5,cover=3.0,sig_gap=4.0,enemy_fill=False,sp_min=0.3,l0_hud_fallback=False,dead_max_sat=55) # sig_gap kept for backwards compatibility (unused in merge_death_runs)
+def merge_death_runs(t,sig,ok,mp,minlen=1.5):
+    raw=runs(t,sig,0.0,0.0)
+    if not raw: return []
+    diffs=[float(t[i]-t[i-1]) for i in range(1,len(t)) if (t[i]-t[i-1])>0]
+    step=float(np.median(diffs)) if len(diffs) else 0.2
+    def has_alive_span(end_a,start_b):
+        alive_start,alive_end=None,None
+        for i in range(len(t)):
+            ti=float(t[i])
+            if ti<=end_a: continue
+            if ti>=start_b: break
+            is_alive=bool(ok[i]) and (not bool(mp[i])) and (not bool(sig[i]))
+            if is_alive:
+                if alive_start is None: alive_start=ti
+                alive_end=ti
+            elif alive_start is not None:
+                if (alive_end-alive_start+step)>=1.0-1e-6: return True
+                alive_start,alive_end=None,None
+        if alive_start is not None and (alive_end-alive_start+step)>=1.0-1e-6: return True
+        return False
+    merged=[]
+    cur=[raw[0][0],raw[0][1]]
+    for k in range(1,len(raw)):
+        nxt=raw[k]
+        if has_alive_span(cur[1],nxt[0]):
+            merged.append(cur)
+            cur=[nxt[0],nxt[1]]
+        else:
+            cur[1]=nxt[1]
+    merged.append(cur)
+    return [[a,b] for a,b in merged if (b-a)>=minlen]
 def team_hues(crops):
     out=[]
     for side in (0,1):
@@ -41,7 +72,7 @@ def build(R,clf=None):
         return (not w.any()) or np.median(S[w,i])<P['dead_max_sat']
     ev={k:[{'start':round(a,1),'end':round(b,1),'src':'hud'} for a,b in runs(t,d[:,i],P['minlen'],P['gap']) if keep(i,a,b)] for i,k in enumerate(slots)}
     sig=median_filter(np.array(R['sig']).astype(int),5)>0
-    sr=runs(t,sig,1.5,P['sig_gap'])
+    sr=merge_death_runs(t,sig,ok,mp,1.5)
     own=[{'start':round(a,1),'end':round(b,1),'src':'signal'} for a,b in sr]
     if P['l0_hud_fallback'] or not sr: own+=[e for e in ev['L0'] if not any(a-1<=e['end'] and e['start']<=b+1 for a,b in sr)]
     ev['L0']=sorted(own,key=lambda e:e['start'])

@@ -4,10 +4,43 @@ import * as C from './cues.js';
 import * as R from './result.js';
 import * as T from './tower.js';
 import { runs, medfilt, median, r1 } from './img.js';
-export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240 };
+export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
+
+export class DeathLatch {
+  constructor(clearSec = 1.0) {
+    this.clearSec = clearSec;
+    this.latched = false;
+    this.clearSince = null;
+    this.prevDead = false;
+  }
+  reset() {
+    this.latched = false;
+    this.clearSince = null;
+    this.prevDead = false;
+  }
+  update(dead, tp, mp, t) {
+    if (tp && !mp && !dead) {
+      if (this.clearSince === null) this.clearSince = t;
+      if (this.latched && (t - this.clearSince >= this.clearSec - 1e-6)) {
+        this.latched = false;
+      }
+    } else {
+      this.clearSince = null;
+    }
+    const isRising = dead && !this.prevDead;
+    let fire = false;
+    if (isRising && !this.latched) {
+      fire = true;
+      this.latched = true;
+    }
+    this.prevDead = dead;
+    return fire;
+  }
+}
+
 export class Analyzer {
-  constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; }
-  newBattle(t) { this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); }
+  newBattle(t) { this.deathLatch.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
     this.lastT = t; const tp = C.timerPresent(this.A, fr);
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
@@ -35,7 +68,7 @@ export class Analyzer {
     if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); }
     if (m.spPrev <= 0.2 && gw > 0.2) this.onEvent({ type: 'special_ready', t });
     m.spPrev = gw;
-    if (sg.dead && !(m.F.length && m.F[m.F.length - 1].sig)) this.onEvent({ type: 'own_death', t });
+    if (this.deathLatch.update(sg.dead, tp, mp, t)) this.onEvent({ type: 'own_death', t });
     if (kill && !(m.F.length && m.F[m.F.length - 1].kill)) this.onEvent({ type: 'own_kill', t });
     m.F.push(f);
   }
@@ -52,7 +85,7 @@ export class Analyzer {
       if (m.snaps.length < 6 && (m.snaps.length < 2 || lowConf) && (!m.snaps.length || t - m.snaps[m.snaps.length - 1].t > 1.5)) this.onEvent({ type: 'snapshot', t, reason: lowConf ? 'リザルト画面の読み取りに自信なし' : 'リザルト画面のサンプル', kind: c.kind, header });
       if (lowConf || m.snaps.length < 2) m.snaps.push({ t }); }
   }
-  flush() { if (this.state === 'battle') { const m = this.cur; m.b = m.lastTp; if (m.b - m.a >= P.battle_min) { this.state = 'result'; this.finish(); } else { this.cur = null; this.state = 'idle'; } }
+  flush() { if (this.state === 'battle') { const m = this.cur; m.b = m.lastTp; if (m.b - m.a >= P.battle_min) { this.state = 'result'; this.finish(); } else { this.cur = null; this.state = 'idle'; this.deathLatch.reset(); } }
     else if (this.state === 'result') this.finish(); }
   finish() {
     const m = this.cur; if (!m) return; if (!m.th) this.fixHue();
@@ -63,11 +96,56 @@ export class Analyzer {
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
     if (rs.mode === 'ガチヤグラ' && m.tower.length) tagEvents(rec, T.series(m.tower));
     rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
-    rec.tower_raw = m.tower.length; this.cur = null; this.state = 'idle'; this.onMatch(rec);
+    rec.tower_raw = m.tower.length; this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.onMatch(rec);
   }
 }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
+export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
+  const raw = runs(t, sig, 0, 0);
+  if (!raw.length) return [];
+  let step = 0.2;
+  if (t.length >= 2) {
+    const diffs = [];
+    for (let i = 1; i < t.length; i++) {
+      const d = t[i] - t[i - 1];
+      if (d > 0) diffs.push(d);
+    }
+    if (diffs.length) step = median(diffs);
+  }
+  const hasAliveSpan = (endA, startB) => {
+    let aliveStart = null, aliveEnd = null;
+    for (let i = 0; i < t.length; i++) {
+      const ti = t[i];
+      if (ti <= endA) continue;
+      if (ti >= startB) break;
+      const isAlive = ok[i] && !mp[i] && !sig[i];
+      if (isAlive) {
+        if (aliveStart === null) aliveStart = ti;
+        aliveEnd = ti;
+      } else if (aliveStart !== null) {
+        if ((aliveEnd - aliveStart + step) >= 1.0 - 1e-6) return true;
+        aliveStart = null;
+        aliveEnd = null;
+      }
+    }
+    if (aliveStart !== null && (aliveEnd - aliveStart + step) >= 1.0 - 1e-6) return true;
+    return false;
+  };
+  const merged = [];
+  let cur = [raw[0][0], raw[0][1]];
+  for (let k = 1; k < raw.length; k++) {
+    const nxt = raw[k];
+    if (hasAliveSpan(cur[1], nxt[0])) {
+      merged.push(cur);
+      cur = [nxt[0], nxt[1]];
+    } else {
+      cur[1] = nxt[1];
+    }
+  }
+  merged.push(cur);
+  return merged.filter(([a, b]) => (b - a) >= minlen);
+}
 export function buildMatch(m, no, srcH) {
   const F = m.F, t = F.map(f => f.t), ok = F.map(f => f.ok), mp = F.map(f => f.map), n = F.length;
   const d = F.map(f => (f.p || Array(8).fill(0)).map(p => p > P.icon_th));
@@ -76,7 +154,7 @@ export function buildMatch(m, no, srcH) {
   slots.forEach((k, i) => { const col = medfilt(d.map(r => r[i]), P.med);
     const keep = (a, b) => { if (!P.dead_max_sat || srcH < 1000) return true; const w = F.filter(f => f.t >= a && f.t <= b && f.ok && f.s); return !w.length || median(w.map(f => f.s[i])) < P.dead_max_sat; };
     ev[k] = runs(t, col, P.minlen, P.gap).filter(([a, b]) => keep(a, b)).map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'hud' })); });
-  const sig = medfilt(F.map(f => f.sig), 5); const sr = runs(t, sig, 1.5, P.sig_gap);
+  const sig = medfilt(F.map(f => f.sig), 5); const sr = mergeDeathRuns(t, sig, ok, mp);
   let own = sr.map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'signal' }));
   if (!sr.length) own = own.concat(ev.L0); ev.L0 = own.sort((x, y) => x.start - y.start);
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
