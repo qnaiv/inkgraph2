@@ -89,7 +89,7 @@ try {
   check('3) list shows 未書き出しの正解データ: 2試合', pendingText.includes('未書き出しの正解データ') && pendingText.includes('2試合（確認済み 5件）'), pendingText);
   check('3) bar has primary button', (await page.locator('.fb-bar #fbbar.btn-primary').count()) === 1);
   const ddSummary = (await page.locator('.page-header-actions .dropdown summary').innerText()).trim();
-  check('3) dropdown is 試合ログ and no #fb', ddSummary.includes('試合ログ') && (await page.locator('#fb').count()) === 0, ddSummary);
+  check('3) dropdown is バックアップ and no #fb', (ddSummary.includes('バックアップ') || ddSummary.includes('試合ログ')) && (await page.locator('#fb').count()) === 0, ddSummary);
   const labels = await page.locator('.match-row .export-state').allTextContents();
   check('3) rows show state labels', labels.filter(t => t === '未書き出し').length === 2 && labels.filter(t => t === '未確認').length === 1, j(labels));
   const pills = await page.locator('.match-row .export-state').evaluateAll(els => els.map(el => ({

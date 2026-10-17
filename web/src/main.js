@@ -2,8 +2,9 @@ import * as db from './db.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
 import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct } from './analysis.js';
-import { zipSync, strToU8 } from 'fflate';
+import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
+import * as BK from './backup.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
 
 const app = document.getElementById('app');
@@ -19,7 +20,9 @@ let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自
 window.inkgraph = {
   db,
   feedback: FB,
+  backup: BK,
   buildBatchZip: (...a) => buildBatchZip(...a),
+  buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
   setReviewMode: v => { reviewMode = !!v; if (currentPage === 'match') PAGES.match(); }
 };
@@ -112,6 +115,8 @@ const download = (name, blob) => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };
+
+const fmtBytes = b => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB');
 
 const PAGES = {};
 
@@ -448,6 +453,11 @@ function stillsStateLabel(m) {
 
 PAGES.list = async () => {
   const ms = await db.allMatches();
+  const snapsById = new Map();
+  for (const m of ms) snapsById.set(m.id, await db.snapsOf(m.id));
+  const summary = BK.summarize(ms, snapsById);
+  const expLabel = `バックアップを書き出す（ZIP）・${summary.matches}試合／静止画${summary.stills}枚／約${fmtBytes(summary.bytes)}`;
+
   const page = document.createElement('div');
 
   const modes = [...new Set(ms.map(m => resultOf(m).mode || '不明'))];
@@ -471,13 +481,13 @@ PAGES.list = async () => {
       <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
       <div class="page-header-actions">
         <label class="btn ${hasMatches ? 'btn-primary' : ''}">
-          試合ログを読み込む
-          <input type="file" id="imp" accept=".json" hidden>
+          バックアップを読み込む
+          <input type="file" id="imp" accept=".json,.zip" hidden>
         </label>
         <details class="dropdown">
-          <summary class="btn">試合ログ ▾</summary>
+          <summary class="btn">バックアップ ▾</summary>
           <div class="dropdown-menu">
-            <button class="dropdown-item" id="exp" type="button">試合ログ（JSON）</button>
+            <button class="dropdown-item" id="bkexp" type="button" title="${esc(expLabel)}">${esc(expLabel)}</button>
           </div>
         </details>
       </div>
@@ -529,7 +539,7 @@ PAGES.list = async () => {
     ${!hasMatches ? `
       <div class="card">
         <div class="empty-state">
-          <p>保存された試合がまだありません。ライブ分析で録画を解析するか、試合ログを読み込んでください。</p>
+          <p>保存された試合がまだありません。ライブ分析で録画を解析するか、バックアップを読み込んでください。</p>
           <button class="btn btn-primary" id="empty-go-live" type="button">ライブ分析へ移動</button>
         </div>
       </div>
@@ -674,21 +684,108 @@ PAGES.list = async () => {
     };
   });
 
-  $('#exp', page).onclick = async () => download(
-    `inkgraph_matches_${new Date().toISOString().slice(0, 10)}.json`,
-    new Blob([JSON.stringify(await db.exportAll())], { type: 'application/json' })
-  );
+  const bkexp = $('#bkexp', page);
+  if (bkexp) {
+    bkexp.onclick = async () => {
+      try {
+        const { blob, filename } = await buildBackupZip();
+        download(filename, blob);
+      } catch (err) {
+        alert('バックアップの書き出しに失敗しました: ' + (err?.message || err));
+      }
+    };
+  }
   $('#imp', page).onchange = async e => {
     const f = e.target.files[0];
     if (!f) return;
-    const n = await db.importAll(JSON.parse(await f.text()));
-    alert(`${n}試合を読み込みました`);
-    PAGES.list();
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      const isZip = f.name.toLowerCase().endsWith('.zip') || (buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4B);
+      if (isZip) {
+        const unzipped = unzipSync(buf);
+        const metaU8 = unzipped['backup.json'];
+        if (!metaU8) {
+          throw new Error('ZIP内に backup.json が見つかりません');
+        }
+        const meta = JSON.parse(new TextDecoder().decode(metaU8));
+        if (meta.kind !== 'backup') {
+          throw new Error('バックアップ形式ではありません');
+        }
+        BK.applySettings(meta.settings, localStorage);
+        const stills = [];
+        for (const s of (meta.stills || [])) {
+          const u8 = unzipped[s.file];
+          if (u8) {
+            stills.push({
+              matchId: s.matchId,
+              t: s.t,
+              reason: s.reason,
+              kind: s.kind,
+              header: s.header,
+              event: s.event,
+              blob: new Blob([u8], { type: 'image/jpeg' })
+            });
+          }
+        }
+        const res = await db.importBackup({ matches: meta.matches || [], stills });
+        alert(`バックアップから ${res.matches}試合（静止画${res.stills}枚）を読み込みました`);
+      } else {
+        const text = new TextDecoder().decode(buf);
+        const j = JSON.parse(text);
+        const n = await db.importAll(j);
+        alert(`旧形式の試合ログから ${n}試合を読み込みました（静止画・設定は含まれません）`);
+      }
+      PAGES.list();
+    } catch (err) {
+      alert('読み込みに失敗しました: ' + (err?.message || err));
+    } finally {
+      e.target.value = '';
+    }
   };
   const fbbar = $('#fbbar', page);
   if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
   if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
 };
+
+// ============================================================================
+// Backup ZIP & Still-Frame Export
+// ============================================================================
+// バックアップの書き出し (#34)。試合データ＋設定＋保持中の静止画 (videosは含めない)。
+async function buildBackupZip() {
+  const matches = await db.allMatches();
+  const files = {};
+  const stillsById = new Map();
+
+  for (const m of matches) {
+    const snaps = await db.snapsOf(m.id);
+    if (!snaps || snaps.length === 0) continue;
+    const safe = m.id.replace(/[^0-9A-Za-z]/g, '_');
+    const snapMetaList = [];
+    for (const s of snaps) {
+      const name = `stills/${safe}/${s.kind || 'frame'}_${s.t.toFixed(1)}_${s.id}.jpg`;
+      const buf = new Uint8Array(await s.blob.arrayBuffer());
+      files[name] = buf;
+      snapMetaList.push({
+        file: name,
+        t: s.t,
+        reason: s.reason,
+        kind: s.kind,
+        header: s.header ?? null,
+        event: s.event ?? null,
+        bytes: buf.byteLength
+      });
+    }
+    stillsById.set(m.id, snapMetaList);
+  }
+
+  const settings = BK.collectSettings(typeof localStorage !== 'undefined' ? localStorage : null);
+  const now = new Date();
+  const meta = BK.buildBackupMeta(matches, stillsById, settings, now.toISOString());
+  files['backup.json'] = strToU8(JSON.stringify(meta, null, 1));
+  files['README.txt'] = strToU8(BK.backupReadme(meta));
+  const zip = zipSync(files, { level: 0 });
+  return { blob: new Blob([zip], { type: 'application/zip' }), filename: BK.BACKUP_FILENAME(now), meta };
+}
 
 // ============================================================================
 // Feedback ZIP & Still-Frame Extraction
@@ -715,8 +812,6 @@ async function buildBatchZip(matches, { mode = 'diff', batchId = FB.makeBatchId(
   const zip = zipSync(files, { level: 0 });
   return { blob: new Blob([zip], { type: 'application/zip' }), filename: FB.batchFilename(mode, now), meta };
 }
-
-const fmtBytes = b => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB');
 
 async function showFeedbackExportDialog(initialMode = 'diff') {
   document.querySelector('.fb-dialog-overlay')?.remove();
