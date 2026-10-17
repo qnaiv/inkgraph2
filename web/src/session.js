@@ -1,6 +1,7 @@
 import * as db from './db.js';
 import * as learn from './learn.js';
 import { frameStepForState } from './analysis.js';
+import { powerForMatchType } from './core/result.js';
 import AnalyzerWorker from './worker.js?worker';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
@@ -42,6 +43,8 @@ export class Session {
     else if (m.type === 'flushed') this.flushed?.();
   }
   async saveMatch(rec) {
+    if (rec.match_type === undefined) rec.match_type = null;
+    if (!rec.power) rec.power = powerForMatchType(rec.match_type);
     const id = `${this.sessionId}#${rec.match}`; rec.id = id; rec.created = new Date().toISOString(); rec.session = this.sessionId; rec.source = { kind: this.mode, name: this.sourceName, height: this.srcH };
     rec.review = rec.review || { marks: {}, added: [], fix: {} };
     const cand = this.pendingSnaps.filter(s => s.t >= rec.battle[0] - 30); let snaps = cand; if (snaps.length > 48) { const drop = snaps.length - 48, nulls = snaps.filter(s => !s.kind).slice(0, drop); snaps = snaps.filter(s => !nulls.includes(s)).slice(0, 48); } /* over cap: drop kind-less mid-match samples first */ this.pendingSnaps = this.pendingSnaps.filter(s => !cand.includes(s));

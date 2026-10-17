@@ -867,7 +867,8 @@ button, input, select {
   font-weight: var(--fw-bold);
 }
 
-.detail-count-line {
+.detail-count-line,
+.match-type-line {
   font-size: var(--fs-sm);
   color: var(--text-muted);
   display: flex;

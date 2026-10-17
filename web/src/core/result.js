@@ -17,6 +17,14 @@ export function classify(A, fr) {
   return { kind: bannerScore(A, fr, dx, dy) > 0.5 ? 'board' : 'personal', value: null, off: [dx, dy] };
 }
 const MODE_BOX = [552, 50, 650, 84], STAGE_BOX = [655, 52, 800, 84];
+export const MATCH_TYPE_BOX = [546, 26, 706, 50];
+export const MATCH_TYPE_BY_LABEL = {
+  'バンカラ・オープン': 'bankara_open',
+  'バンカラ・チャレンジ': 'bankara_challenge',
+  'Xマッチ': 'x',
+  'レギュラーマッチ': 'other',
+  'フェスマッチ': 'other'
+};
 function normText(c) { const b = bin(gray(c), 170); for (let i = 0; i < b.length; i++) b[i] *= 255; return resizeArea(b, c.w, c.h, 120, 32); }
 function pearson(a, b) { let ma = 0, mb = 0; const n = a.length; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n; let s = 0, sa = 0, sb = 0;
   for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) + 1e-6); }
@@ -28,7 +36,17 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR) {
   const strip = k => k ? k.split('__')[0] : null;
   const mThr = (thr && typeof thr.mode === 'number') ? thr.mode : 0.5;
   const sThr = (thr && typeof thr.stage === 'number') ? thr.stage : 0.5;
-  return { mode: ms > mThr ? strip(mk) : null, mode_score: ms, stage: ss > sThr ? strip(sk) : null, stage_score: ss };
+  let match_type = null, match_type_score = 0;
+  if (A.lib?.match_type && Object.keys(A.lib.match_type).length > 0) {
+    const mtc = bx(MATCH_TYPE_BOX);
+    const [mtk, mts] = best(mtc, A.lib.match_type);
+    match_type_score = mts;
+    if (mts > 0.85) { // labels share a long prefix (e.g. バンカラマッチ), so only near-identical matches count; otherwise stay null (safe side)
+      const raw = strip(mtk);
+      match_type = (raw && MATCH_TYPE_BY_LABEL[raw]) ? MATCH_TYPE_BY_LABEL[raw] : null;
+    }
+  }
+  return { mode: ms > mThr ? strip(mk) : null, mode_score: ms, stage: ss > sThr ? strip(sk) : null, stage_score: ss, match_type, match_type_score };
 }
 function white(c) { const h = hsv(c), m = new Uint8Array(h.V.length); for (let i = 0; i < m.length; i++) m[i] = h.V[i] > 165 && h.S[i] < 80 ? 1 : 0; return m; }
 function statGlyphs(fr, y0, y1, x0, x1) {
@@ -60,11 +78,12 @@ function vote(vals) { vals = vals.filter(v => v !== null && v !== undefined); if
 export function finalizeResult(S) {
   const celResult = vote((S.celebration || []).map(x => x.value));
   let resultSource = null;
-  const res = { result: celResult, mode: null, stage: null, own: null };
+  const res = { result: celResult, mode: null, stage: null, match_type: null, own: null };
   if (celResult) resultSource = 'celebration';
   const hs = [...pick(S.board || []), ...pick(S.personal || [])].map(x => x.header);
   res.mode = vote(hs.map(h => h.mode)); res.stage = vote(hs.map(h => h.stage));
-  res.confidence = { mode: Math.max(0, ...hs.map(h => h.mode_score)), stage: Math.max(0, ...hs.map(h => h.stage_score)) };
+  res.match_type = vote(hs.map(h => h.match_type));
+  res.confidence = { mode: Math.max(0, ...hs.map(h => h.mode_score)), stage: Math.max(0, ...hs.map(h => h.stage_score)), match_type: hs.length ? Math.max(0, ...hs.map(h => h.match_type_score ?? 0)) : 0 };
   const pers = pick(S.personal || []).map(x => x.personal).filter(Boolean);
   if (pers.length) res.own = Object.fromEntries(['ka', 'deaths', 'specials'].map(k => [k, vote(pers.map(p => p[k]))]));
   const bs = pick(S.board || []);
@@ -80,4 +99,23 @@ export function finalizeResult(S) {
   }
   res.result_source = resultSource;
   return res;
+}
+
+/**
+ * Power status vocabulary (5 types):
+ * - 'acquired': Power value read successfully (reserved for future X-match reading)
+ * - 'not_applicable': Mode does not track power (bankara, regular, fest)
+ * - 'not_shown': Mode tracks power but not visible on this screen (e.g. X-match before reading)
+ * - 'read_failed': Power expected but reading failed (reserved for future)
+ * - 'unknown_type': Match type is null or unrecognized
+ * Note: Never read ink points (p) as power.
+ */
+export function powerForMatchType(matchType) {
+  if (matchType === 'x') {
+    return { value: null, status: 'not_shown', confidence: 0 };
+  }
+  if (matchType === 'bankara_open' || matchType === 'bankara_challenge' || matchType === 'other') {
+    return { value: null, status: 'not_applicable', confidence: 0 };
+  }
+  return { value: null, status: 'unknown_type', confidence: 0 };
 }

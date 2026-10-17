@@ -1,6 +1,36 @@
 // Corrections-aware views of a match + accuracy + trend aggregation
 import { aliveAt } from './core/analyzer.js';
 import * as T from './core/tower.js';
+import { powerForMatchType } from './core/result.js';
+
+export const MATCH_TYPE_LABEL = {
+  x: 'Xマッチ',
+  bankara_open: 'バンカラ・オープン',
+  bankara_challenge: 'バンカラ・チャレンジ',
+  other: 'その他'
+};
+
+export const POWER_STATUS_LABEL = {
+  acquired: '取得済み',
+  not_applicable: '対象外',
+  not_shown: '未表示',
+  read_failed: '読取失敗',
+  unknown_type: 'タイプ不明'
+};
+
+export function powerOf(m) {
+  if (!m) return powerForMatchType(null);
+  if (m.power && typeof m.power.status === 'string') {
+    return {
+      value: m.power.value ?? null,
+      status: m.power.status,
+      confidence: m.power.confidence ?? 0
+    };
+  }
+  const mt = (m.review && m.review.fix && m.review.fix.match_type) ?? m.match_type ?? (m.result_screen && m.result_screen.match_type) ?? null;
+  return powerForMatchType(mt);
+}
+
 export const KINDS = { death: 'デス', kill: 'キル', special: 'スペシャル発動' };
 export const SP_LABEL = { activated: '発動', lost_on_death: '未使用のままデス', unused_at_end: '未使用のまま終了' };
 export const key = (kind, t) => `${kind}@${(+t).toFixed(1)}`;
@@ -77,7 +107,8 @@ export function frameStepForState(state, base = 0.2) {
   return state === 'result' ? RESULT_FRAME_STEP : base;
 }
 export function resultOf(m) { const rs = (m && m.result_screen) || {}, f = ((m && m.review) || {}).fix || {}; const own = rs.own || {};
-  return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m), result_source: resultSourceLabel(m) }; }
+  const match_type = f.match_type ?? (m && m.match_type) ?? rs.match_type ?? null;
+  return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m), result_source: resultSourceLabel(m), match_type, power: powerOf(m) }; }
 export function finalCount(m) { const s = m.tower_series; if (!s || !s.length) return null; const l = s[s.length - 1]; return `${l.own}-${l.enemy}`; }
 export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
 /** accuracy from review marks. per kind: tp=✓, fp=✗, fn=added. result fields: rmarks ok/wrong */
