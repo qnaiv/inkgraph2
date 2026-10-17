@@ -942,9 +942,10 @@ PAGES.list = async () => {
   if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
   if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
 
-  // 自己学習パネル（S0-S1）
+  // 自己学習パネル（S0-S2）
   let learnCandidate = null;
   let learnConfirming = false;
+  let versionSwitchingPack = null;
 
   function renderCandidateResult(cand, confirming) {
     const renderRow = (section, fieldLabel, cmp, isInsuf) => {
@@ -1041,6 +1042,149 @@ PAGES.list = async () => {
     `;
   }
 
+  function renderSwitchConfirmCard(targetPack, currentThr, samples) {
+    const switchCmp = learn.compareSamples(samples, currentThr, targetPack.thresholds);
+    const totalBroken = switchCmp.total.broken;
+    const currentThrStr = `ルール <strong>${currentThr.mode.toFixed(2)}</strong> / ステージ <strong>${currentThr.stage.toFixed(2)}</strong>`;
+    const targetThrStr = `ルール <strong>${targetPack.thresholds.mode.toFixed(2)}</strong> / ステージ <strong>${targetPack.thresholds.stage.toFixed(2)}</strong>`;
+
+    return `
+      <div id="learn-switch-confirm" class="learn-confirm-card">
+        <div class="learn-candidate-header">
+          <h3 class="learn-candidate-title">版切り替えの確認: <code>${esc(targetPack.packId)}</code></h3>
+          <span class="learn-candidate-note muted">
+            現在の閾値（${currentThrStr}）から対象の版（${targetThrStr}）への全サンプル再判定比較
+          </span>
+        </div>
+
+        <table class="table learn-result-table">
+          <thead>
+            <tr>
+              <th>区分</th>
+              <th>正解数 (前 → 後)</th>
+              <th>一致率 (前 → 後)</th>
+              <th>直った</th>
+              <th>新たに壊れた</th>
+              <th>不変</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>全体</strong></td>
+              <td class="num">${switchCmp.total.beforeCorrect} → ${switchCmp.total.afterCorrect} / ${switchCmp.total.n}</td>
+              <td class="num">${(switchCmp.total.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.total.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.total.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.total.fixed > 0 ? `+${switchCmp.total.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.total.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.total.broken > 0 ? `-${switchCmp.total.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.total.unchanged}</td>
+            </tr>
+            <tr>
+              <td>ルール (mode)</td>
+              <td class="num">${switchCmp.mode.beforeCorrect} → ${switchCmp.mode.afterCorrect} / ${switchCmp.mode.n}</td>
+              <td class="num">${(switchCmp.mode.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.mode.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.mode.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.mode.fixed > 0 ? `+${switchCmp.mode.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.mode.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.mode.broken > 0 ? `-${switchCmp.mode.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.mode.unchanged}</td>
+            </tr>
+            <tr>
+              <td>ステージ (stage)</td>
+              <td class="num">${switchCmp.stage.beforeCorrect} → ${switchCmp.stage.afterCorrect} / ${switchCmp.stage.n}</td>
+              <td class="num">${(switchCmp.stage.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.stage.afterAcc * 100).toFixed(1)}%</td>
+              <td class="num ${switchCmp.stage.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.stage.fixed > 0 ? `+${switchCmp.stage.fixed}` : '0'}</td>
+              <td class="num ${switchCmp.stage.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.stage.broken > 0 ? `-${switchCmp.stage.broken}` : '0'}</td>
+              <td class="num muted">${switchCmp.stage.unchanged}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        ${totalBroken > 0 ? `
+          <div class="learn-broken-warning">
+            ⚠️ <strong>警告: 新たに判定が壊れた件数が ${totalBroken} 件あります。</strong><br>
+            切り替えると、現在正解判定されている試合の一部が不正解（未検出）になる可能性があります。
+          </div>
+        ` : `
+          <div class="learn-confirm-msg">
+            この版（<code>${esc(targetPack.packId)}</code>）に切り替えます。今後の試合解析および静止画再判定に反映されます。よろしいですか？
+          </div>
+        `}
+
+        <div class="learn-confirm-actions">
+          <button class="btn ${totalBroken > 0 ? 'btn-danger' : 'btn-primary'}" id="learn-switch-confirm-yes" type="button">確認して切り替える</button>
+          <button class="btn btn-secondary" id="learn-switch-confirm-no" type="button">やめる</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderVersionsSection(versions, activePackId) {
+    if (!versions || versions.length === 0) {
+      return `
+        <div class="learn-versions-section">
+          <h3 class="learn-versions-title">学習パックの版</h3>
+          <div class="learn-versions-empty muted">保存された学習パックの版はありません。</div>
+        </div>
+      `;
+    }
+
+    const rows = versions.map(p => {
+      const isActive = p.packId === activePackId;
+      let createdStr = '-';
+      if (p.created) {
+        try {
+          createdStr = new Date(p.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+        } catch {
+          createdStr = p.created.slice(0, 16).replace('T', ' ');
+        }
+      }
+      const modeThr = p.thresholds?.mode ?? 0.50;
+      const stageThr = p.thresholds?.stage ?? 0.50;
+      const matchCount = p.sourceMatchIds ? p.sourceMatchIds.length : 0;
+
+      return `
+        <tr class="${isActive ? 'row-active' : ''}">
+          <td><strong class="num">${esc(p.packId)}</strong></td>
+          <td>${esc(createdStr)}</td>
+          <td>ルール <strong>${modeThr.toFixed(2)}</strong> / ステージ <strong>${stageThr.toFixed(2)}</strong></td>
+          <td>${matchCount} 試合</td>
+          <td>
+            <span class="learn-badge ${isActive ? 'badge-active' : 'badge-neutral'}">
+              ${isActive ? '適用中' : '保存済み'}
+            </span>
+          </td>
+          <td>
+            ${isActive ? `
+              <span class="muted text-sm">適用中</span>
+            ` : `
+              <button class="btn btn-secondary btn-sm learn-switch-btn" data-pack-id="${esc(p.packId)}" type="button">この版を使う</button>
+            `}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="learn-versions-section">
+        <h3 class="learn-versions-title">学習パックの版（全 ${versions.length} 件）</h3>
+        <div class="table-wrap">
+          <table class="table learn-versions-table">
+            <thead>
+              <tr>
+                <th>版ID</th>
+                <th>作成日時 (JST)</th>
+                <th>閾値</th>
+                <th>学習元</th>
+                <th>状態</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
   const updateLearnPanel = async () => {
     const learnPanelEl = $('#learn-panel', page);
     if (!learnPanelEl) return;
@@ -1050,14 +1194,22 @@ PAGES.list = async () => {
     const { train: trn, holdout: hld } = learn.splitHoldout(allSamples);
     const hasHoldout = hld.length > 0;
     const activePack = await db.activeLearnPack().catch(() => null);
+    const activePackId = activePack?.packId || null;
+    const packVersions = await db.listLearnPacks().catch(() => []);
+    const currentThr = activePack ? activePack.thresholds : learn.DEFAULT_THRESHOLDS;
 
     learnPanelEl.innerHTML = `
       <div class="learn-panel-header">
         <div class="learn-panel-title-wrap">
-          <h2 class="learn-panel-title">自己学習（候補提示）</h2>
+          <h2 class="learn-panel-title">自己学習（候補提示・版管理）</h2>
           <span class="learn-badge ${activePack ? 'badge-active' : 'badge-neutral'}">${activePack ? '学習適用中' : '未適用（既定値）'}</span>
         </div>
-        ${activePack ? `<button class="btn btn-secondary btn-sm" id="learn-rollback" type="button">学習を1つ前に戻す</button>` : ''}
+        <div class="learn-header-actions">
+          ${activePack ? `
+            <button class="btn btn-secondary btn-sm" id="learn-deactivate" type="button">未適用に戻す</button>
+            <button class="btn btn-secondary btn-sm" id="learn-rollback" type="button">学習を1つ前に戻す</button>
+          ` : ''}
+        </div>
       </div>
 
       <div class="learn-panel-body">
@@ -1066,14 +1218,14 @@ PAGES.list = async () => {
           <div class="learn-meta-item">サンプル数: <strong class="num">${allSamples.length}</strong> 件</div>
           <div class="learn-meta-item">holdout: <strong>${hasHoldout ? `あり（${hld.length}件）` : 'なし'}</strong></div>
         </div>
-        <p class="learn-note muted">※ 映像は保存されていないため再判定は静止画・特徴量・系列のみで行われます。</p>
+        <p class="learn-note muted">※ 映像は保存されていないため再判定は静止画・特徴量・系列のみで行われます。学習パックおよび閾値は端末内（IndexedDB）のみに保持され、外部送信されません。</p>
 
         <div class="learn-active-info">
           ${activePack ? `
             <div class="learn-pack-desc">
-              適用中パック: <strong class="num">${esc(activePack.packId)}</strong>（作成: ${esc(activePack.created.slice(0, 16).replace('T', ' '))}) / 
+              適用中パック: <strong class="num">${esc(activePack.packId)}</strong>（作成: ${esc(activePack.created ? new Date(activePack.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : activePack.created)}) / 
               閾値: ルール <strong>${activePack.thresholds.mode.toFixed(2)}</strong>、ステージ <strong>${activePack.thresholds.stage.toFixed(2)}</strong> / 
-              元試合: <strong>${activePack.sourceMatchIds.length}</strong> 試合
+              元試合: <strong>${activePack.sourceMatchIds ? activePack.sourceMatchIds.length : 0}</strong> 試合
             </div>
           ` : `
             <div class="learn-pack-desc muted">適用中パック: なし（既定値: ルール 0.50 / ステージ 0.50）</div>
@@ -1087,21 +1239,37 @@ PAGES.list = async () => {
         <div id="learn-result" class="learn-result" ${learnCandidate ? '' : 'hidden'}>
           ${learnCandidate ? renderCandidateResult(learnCandidate, learnConfirming) : ''}
         </div>
+
+        ${versionSwitchingPack ? renderSwitchConfirmCard(versionSwitchingPack, currentThr, allSamples) : ''}
+
+        ${renderVersionsSection(packVersions, activePackId)}
       </div>
     `;
 
     const btnCand = $('#learn-candidate', learnPanelEl);
     if (btnCand) {
       btnCand.onclick = () => {
+        versionSwitchingPack = null;
         learnCandidate = learn.generateCandidate(allSamples);
         learnConfirming = false;
         updateLearnPanel();
+      };
+    }
+    const btnDeactivate = $('#learn-deactivate', learnPanelEl);
+    if (btnDeactivate) {
+      btnDeactivate.onclick = async () => {
+        await db.deactivateLearnPack();
+        versionSwitchingPack = null;
+        learnCandidate = null;
+        learnConfirming = false;
+        PAGES.list();
       };
     }
     const btnRollback = $('#learn-rollback', learnPanelEl);
     if (btnRollback) {
       btnRollback.onclick = async () => {
         await db.rollbackLearnPack();
+        versionSwitchingPack = null;
         learnCandidate = null;
         learnConfirming = false;
         PAGES.list();
@@ -1137,6 +1305,40 @@ PAGES.list = async () => {
         learnCandidate = null;
         learnConfirming = false;
         PAGES.list();
+      };
+    }
+
+    // 版切り替えボタン
+    learnPanelEl.querySelectorAll('.learn-switch-btn').forEach(btn => {
+      btn.onclick = () => {
+        const pid = btn.dataset.packId;
+        const target = packVersions.find(p => p.packId === pid);
+        if (target) {
+          versionSwitchingPack = target;
+          learnCandidate = null;
+          learnConfirming = false;
+          updateLearnPanel();
+        }
+      };
+    });
+
+    const btnSwitchYes = $('#learn-switch-confirm-yes', learnPanelEl);
+    if (btnSwitchYes) {
+      btnSwitchYes.onclick = async () => {
+        if (versionSwitchingPack) {
+          await db.activateLearnPack(versionSwitchingPack.packId);
+          versionSwitchingPack = null;
+          learnCandidate = null;
+          learnConfirming = false;
+          PAGES.list();
+        }
+      };
+    }
+    const btnSwitchNo = $('#learn-switch-confirm-no', learnPanelEl);
+    if (btnSwitchNo) {
+      btnSwitchNo.onclick = () => {
+        versionSwitchingPack = null;
+        updateLearnPanel();
       };
     }
   };

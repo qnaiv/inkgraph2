@@ -1644,6 +1644,33 @@ tr.added td {
 .text-danger {
   color: var(--danger);
 }
+.learn-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.learn-versions-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.learn-versions-title {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-bold);
+  color: var(--text);
+}
+.learn-versions-empty {
+  font-size: var(--fs-sm);
+  padding: var(--sp-2);
+}
+.table tr.row-active td {
+  background: var(--surface-2);
+}
+
 
 /* ---------------- 静止画容量管理 (#32 stage 2) ---------------- */
 .capacity-banner {

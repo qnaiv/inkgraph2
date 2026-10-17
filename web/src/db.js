@@ -130,23 +130,84 @@ export async function importBackup({ matches = [], stills = [] } = {}) {
   return { matches: matchCount, stills: snapCount };
 }
 
+function normalizeLearnState(row) {
+  if (!row) {
+    return { stack: [], versions: [], activePackId: null };
+  }
+  const stack = Array.isArray(row.stack) ? row.stack : [];
+  let versions = null;
+  if (Array.isArray(row.versions)) {
+    const seen = new Set();
+    versions = [];
+    for (const p of row.versions) {
+      if (p && p.packId && !seen.has(p.packId)) {
+        seen.add(p.packId);
+        versions.push(p);
+      }
+    }
+  } else {
+    const seen = new Set();
+    versions = [];
+    for (const p of stack) {
+      if (p && p.packId && !seen.has(p.packId)) {
+        seen.add(p.packId);
+        versions.push(p);
+      }
+    }
+  }
+  const activePackId = (stack.length > 0 && stack[stack.length - 1]?.packId) ? stack[stack.length - 1].packId : null;
+  return { stack, versions, activePackId };
+}
+
 export async function getLearnState() {
   const row = await tx('learn', 'readonly', s => s.get('state')).catch(() => null);
-  if (!row || !Array.isArray(row.stack)) return { stack: [] };
-  return { stack: row.stack };
+  return normalizeLearnState(row);
 }
 
 export async function putLearnState(state) {
-  const rec = { key: 'state', stack: Array.isArray(state?.stack) ? state.stack : [] };
+  const norm = normalizeLearnState(state);
+  const rec = { key: 'state', stack: norm.stack, versions: norm.versions, activePackId: norm.activePackId };
   await tx('learn', 'readwrite', s => s.put(rec));
-  return rec;
+  return norm;
 }
 
 export async function applyLearnPack(pack) {
   const state = await getLearnState();
+  let candidateId = pack?.packId || ('lp-' + new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').split('.')[0]);
+  const existingIds = new Set(state.versions.map(p => p.packId));
+  if (existingIds.has(candidateId)) {
+    let counter = 2;
+    while (existingIds.has(`${candidateId}-${counter}`)) {
+      counter++;
+    }
+    candidateId = `${candidateId}-${counter}`;
+  }
+  const savedPack = { ...pack, packId: candidateId };
+  state.versions.push(savedPack);
+  state.stack.push(savedPack);
+  await putLearnState(state);
+  return savedPack;
+}
+
+export async function listLearnPacks() {
+  const state = await getLearnState();
+  return [...state.versions].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+}
+
+export async function activateLearnPack(packId) {
+  const state = await getLearnState();
+  const pack = state.versions.find(p => p.packId === packId);
+  if (!pack) return null;
   state.stack.push(pack);
   await putLearnState(state);
   return pack;
+}
+
+export async function deactivateLearnPack() {
+  const state = await getLearnState();
+  state.stack = [];
+  await putLearnState(state);
+  return null;
 }
 
 export async function activeLearnPack(state = null) {
