@@ -6,7 +6,7 @@ from inkgraph.common import imread_unicode, TPL, MODELS
 def b64(a): return base64.b64encode(np.ascontiguousarray(a).astype(np.uint8).tobytes()).decode()
 def binimg(a,th): b=(a>th).astype(np.uint8); return dict(w=int(b.shape[1]),h=int(b.shape[0]),data=b64(b))
 def gray(name): return imread_unicode(os.path.join(TPL,name),0)
-out={'version':1,'tpl':{},'gray':{},'lib':{'mode':{},'stage':{}}}
+out={'version':1,'tpl':{},'gray':{},'lib':{'mode':{},'stage':{},'match_type':{}}}
 for n,th in [('tpl_colon.png',127),('tpl_signal_yarareta.png',127),('tpl_signal_camon.png',127),('tpl_wotaoshita.png',127)]:
     out['tpl'][n[:-4]]=binimg(gray(n),th)
 mx=gray('tpl_mapx.png')[15:75,15:75]; out['tpl']['tpl_mapx']=binimg(mx,200)
@@ -15,9 +15,10 @@ out['tpl']['tpl_res_lobby']=binimg(gray('tpl_res_lobby.png'),170)
 for n in ('tpl_res_board_win','tpl_res_board_lose'):
     v=cv2.cvtColor(imread_unicode(os.path.join(TPL,n+'.png')),cv2.COLOR_BGR2HSV)[...,2]
     out['gray'][n]=dict(w=int(v.shape[1]),h=int(v.shape[0]),data=b64(v))
-for kind in ('mode','stage'):
-    for p in sorted(glob.glob(os.path.join(TPL,'res_'+kind,'*.png'))):
+for kind, folder in (('mode', 'res_mode'), ('stage', 'res_stage'), ('match_type', 'res_matchtype')):
+    for p in sorted(glob.glob(os.path.join(TPL,folder,'*.png'))):
         k=os.path.splitext(os.path.basename(p))[0]; t=cv2.resize(imread_unicode(p,0),(120,32))
+        if kind=='match_type': t=((t>170)*255).astype('uint8')  # small label: binarize like normText crops so Pearson stays high
         out['lib'][kind][k]=b64(t)
 clf=pickle.load(open(os.path.join(MODELS,'icon_lr.pkl'),'rb'))
 out['icon_lr']=dict(coef=[round(float(x),6) for x in clf.coef_.ravel()],intercept=float(clf.intercept_[0]))

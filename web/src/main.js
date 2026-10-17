@@ -2,7 +2,7 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL } from './analysis.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -24,10 +24,10 @@ let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自
 window.inkgraph = {
   db,
   learn,
+  analysis: AN,
   capacity: CP,
   feedback: FB,
   backup: BK,
-  analysis: AN,
   AN,
   buildBatchZip: (...a) => buildBatchZip(...a),
   buildBackupZip: (...a) => buildBackupZip(...a),
@@ -1646,6 +1646,11 @@ PAGES.match = async () => {
 
   const r = resultOf(m);
   const rsStat = resultStatus(m);
+  const matchTypeLabel = (r.match_type && MATCH_TYPE_LABEL[r.match_type]) || '不明';
+  const powerStatusLabel = (r.power?.status && POWER_STATUS_LABEL[r.power.status]) || 'タイプ不明';
+  const powerValueExtra = (r.power?.status === 'acquired' && r.power.value !== null && r.power.value !== undefined)
+    ? ` <b class="num" id="power-value">${esc(r.power.value)}</b>`
+    : '';
   const t0 = m.battle[0];
   const evAll = effective(m);
   const kCount = evAll.filter(e => e.kind === 'kill').length;
@@ -1675,6 +1680,9 @@ PAGES.match = async () => {
         <span class="${badgeCls(r.result)} result-hero">${resJa(r.result)}</span>
         <div class="detail-stage-info">
           <div class="detail-stage-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="result-status" data-status="${rsStat.key}">${esc(rsStat.label)}</span></div>
+          <div class="match-type-line">
+            マッチタイプ <b id="match-type">${esc(matchTypeLabel)}</b> ・ パワー <b id="power-status">${esc(powerStatusLabel)}</b>${powerValueExtra}
+          </div>
           <div class="detail-count-line">
             <span>最終カウント <b class="num">${fmtCount(r.count)}</b></span>
             ${finalDiff !== null ? `<span class="num ${diffCls(finalDiff)}">（カウント差 ${fmtDiff(finalDiff)}）</span>` : ''}
