@@ -73,6 +73,9 @@
 - Grokは仕様書の作成、検証、レビューを担当し、コードの記述はAntigravity CLI（`agy`）が行う。
 - 作業の記録は `docs/AGY_LOG.md` に残す。
 
+## D18 (2026-10-17) デザインレビュー反映：キル+アシストの廃止と停止ボタンの追加
+- キル+アシスト（ka）はUIから外す。`tools/ingest_feedback.py` は `result_screen` や `fix` に `ka` がなくても止まらず、「未確認」（None）として扱う。自分のキルは、タイムラインのキルイベントで確認する（Leadの決定）。
+- `.btn-stop` を `tokens.css` に追加した（背景は透明、文字色は `--danger`、1pxの `--danger` 枠線、ホバーで12%の薄い赤）。`.btn-danger-ghost` は残し、試合一覧の「…」メニュー内の「削除」に使う。
 ## D19 (2026-10-17) ヤグラ保持チーム判定：HoughCircles の忠実移植＋密サンプルの多数決
 - 円検出：`web/src/core/tower.js` の `findCircle` を OpenCV 4 `HOUGH_GRADIENT`（medianBlur3→Canny 60/120→勾配方向投票→極大・minDist30→半径ヒストグラム）の JS 移植に置換。所有判定（色割合 S>140・V>120・0.15）は Python と同一。同じ cv2 画素を通す `tools/tower_frames.mjs` で保持チーム・x位置とも **100%一致**（3試合）、約50→8ms/フレーム。
 - 系列化：ブラウザ版は約5fpsで全フレームに towerRow をかけ（`grid` 行は従来どおり約1秒ごと）、各1秒点の保持チームを ±3秒内の全検出の多数決で決める（同数なら最も近い行）。窓内に検出がなければ直前の保持チームを3秒まで引き継ぐ。生データは `tower_rows` として試合記録に保存し、`tools/tower_series_sweep.mjs` でオフライン探索できる。
