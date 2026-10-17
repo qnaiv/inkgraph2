@@ -1,4 +1,5 @@
 // IndexedDB: matches (records), videos (recorded clips), snaps (still frames), learn (learning packs)
+import { CAP_BYTES, TARGET_RATIO, getCapBytes, matchStillsBytes, summarizeCapacity, planCapacityCleanup } from './capacity.js';
 const DB = 'inkgraph', VER = 2; let dbp = null;
 function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r = indexedDB.open(DB, VER);
   r.onupgradeneeded = () => {
@@ -36,6 +37,58 @@ export async function enforceRetention(keep = 30) {
     await deleteStills(m.id); removed.push(m.id);
   }
   return removed;
+}
+export async function stillsUsage(capBytes = getCapBytes()) {
+  const cap = getCapBytes(capBytes);
+  const ms = await allMatches();
+  const list = [];
+  for (const m of ms) {
+    const snaps = await snapsOf(m.id);
+    const snapCount = snaps.length;
+    let actualBytes = 0;
+    for (const sn of snaps) {
+      actualBytes += sn.blob?.size || 0;
+    }
+    const bytes = matchStillsBytes(m, actualBytes);
+    const hasStills = snapCount > 0 || (m.stillsState === 'kept' && bytes > 0);
+    list.push({
+      id: m.id,
+      created: m.created,
+      favorite: !!m.favorite,
+      stillsBytes: bytes,
+      hasStills,
+      stillsState: stillsStateOf(m, snapCount),
+      snapCount,
+      match: m
+    });
+  }
+  const summary = summarizeCapacity(list, cap);
+  return { ...summary, matches: list };
+}
+export async function enforceCapacity(capBytes = getCapBytes(), targetRatio = TARGET_RATIO, opts = {}) {
+  const cap = getCapBytes(capBytes);
+  const usageBefore = await stillsUsage(cap);
+  const plan = planCapacityCleanup(usageBefore.matches, cap, targetRatio, opts);
+  if (plan.favOnlyOver && plan.removedIds.length === 0) {
+    return {
+      removed: [],
+      summaryBefore: usageBefore,
+      summaryAfter: usageBefore,
+      favOnlyOver: true
+    };
+  }
+  const removed = [];
+  for (const id of plan.removedIds) {
+    await deleteStills(id);
+    removed.push(id);
+  }
+  const usageAfter = await stillsUsage(cap);
+  return {
+    removed,
+    summaryBefore: usageBefore,
+    summaryAfter: usageAfter,
+    favOnlyOver: plan.favOnlyOver
+  };
 }
 export const putVideo = v => tx('videos', 'readwrite', s => s.put(v));
 export const getVideo = id => tx('videos', 'readonly', s => s.get(id));

@@ -6,7 +6,9 @@ import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
+import * as CP from './capacity.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
+import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
 
 const app = document.getElementById('app');
 const $ = (s, r = document) => r.querySelector(s);
@@ -21,11 +23,13 @@ let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自
 window.inkgraph = {
   db,
   learn,
+  capacity: CP,
   feedback: FB,
   backup: BK,
   buildBatchZip: (...a) => buildBatchZip(...a),
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
+  showCapacityCleanupDialog: (...a) => showCapacityCleanupDialog(...a),
   setReviewMode: v => { reviewMode = !!v; if (currentPage === 'match') PAGES.match(); }
 };
 
@@ -120,6 +124,144 @@ const download = (name, blob) => {
 
 const fmtBytes = b => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB');
 
+function renderCapacityBanner(summary) {
+  if (!summary) return '';
+  const isFavOnly = (summary.favBytes > summary.capBytes);
+  if (!isFavOnly && summary.level === 'ok') return '';
+
+  if (isFavOnly) {
+    return `
+      <div class="capacity-banner capacity-banner--favonly">
+        <div class="capacity-banner-text">
+          <span class="capacity-banner-icon">⚠</span>
+          <span>お気に入りの試合だけで容量がいっぱいです。試合一覧でお気に入りを外すか、手動で静止画を消してください</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const label = formatCapacityLabel(summary);
+  return `
+    <div class="capacity-banner">
+      <div class="capacity-banner-text">
+        <span class="capacity-banner-icon">⚠</span>
+        <span>静止画の容量：${esc(label)}</span>
+      </div>
+      <button class="btn capacity-cleanup-btn" type="button">古い試合の静止画を整理する</button>
+    </div>
+  `;
+}
+
+async function showCapacityCleanupDialog() {
+  document.querySelector('.capacity-dialog-overlay')?.remove();
+  const cap = getCapBytes();
+  const usage = await db.stillsUsage(cap);
+  const plan = planCapacityCleanup(usage.matches, cap, MANUAL_TARGET_RATIO, { force: true });
+  const targetCount = plan.removedIds.length;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'capacity-dialog-overlay';
+  document.body.appendChild(overlay);
+
+  let isResult = false;
+  const close = () => {
+    window.removeEventListener('keydown', onKey);
+    overlay.remove();
+    if (isResult) {
+      nav(currentPage);
+    }
+  };
+  const onKey = e => {
+    if (e.key === 'Escape') close();
+  };
+  window.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) close();
+  });
+
+  overlay.innerHTML = `
+    <div class="capacity-dialog" role="dialog" aria-modal="true" aria-label="古い試合の静止画を整理">
+      <h2 class="capacity-dialog-title">古い試合の静止画を整理</h2>
+      <div class="capacity-dialog-target">対象：古い順の${targetCount}試合（お気に入りを除く）</div>
+      <div class="capacity-dialog-notes">
+        <p>消えるのは静止画だけで、試合の記録と正解データは残ります。</p>
+        <p class="capacity-dialog-warn-text">消した静止画は戻せないため、手元に残したい場合は、先にバックアップまたは正解データを書き出してください。</p>
+      </div>
+      <div class="capacity-dialog-shortcuts">
+        <button type="button" class="btn capacity-dialog-backup">バックアップを書き出す</button>
+        <button type="button" class="btn capacity-dialog-feedback">正解データを書き出す</button>
+      </div>
+      <div class="capacity-dialog-actions">
+        <button type="button" class="btn capacity-dialog-cancel">キャンセル</button>
+        <button type="button" class="btn capacity-dialog-execute">静止画だけを消す（記録は残ります）</button>
+      </div>
+    </div>
+  `;
+
+  const cancelBtn = overlay.querySelector('.capacity-dialog-cancel');
+  if (cancelBtn) cancelBtn.onclick = close;
+
+  const backupBtn = overlay.querySelector('.capacity-dialog-backup');
+  if (backupBtn) {
+    backupBtn.onclick = async () => {
+      try {
+        backupBtn.disabled = true;
+        const { blob, filename } = await buildBackupZip();
+        download(filename, blob);
+      } catch (err) {
+        alert('バックアップの書き出しに失敗しました: ' + (err?.message || err));
+      } finally {
+        backupBtn.disabled = false;
+      }
+    };
+  }
+
+  const feedbackBtn = overlay.querySelector('.capacity-dialog-feedback');
+  if (feedbackBtn) {
+    feedbackBtn.onclick = () => {
+      close();
+      showFeedbackExportDialog('diff');
+    };
+  }
+
+  const executeBtn = overlay.querySelector('.capacity-dialog-execute');
+  if (executeBtn) {
+    executeBtn.onclick = async () => {
+      executeBtn.disabled = true;
+      try {
+        const res = await db.enforceCapacity(getCapBytes(), MANUAL_TARGET_RATIO, { force: true });
+        isResult = true;
+        const pct = res.summaryAfter?.pct ?? 0;
+        const n = res.removed.length;
+        const dialog = overlay.querySelector('.capacity-dialog');
+        dialog.innerHTML = `
+          <h2 class="capacity-dialog-title">整理完了</h2>
+          <div class="capacity-cleanup-result">
+            ${n}試合分の静止画を消しました。使用量は${pct}%です
+          </div>
+          <div class="capacity-dialog-actions">
+            <button type="button" class="btn capacity-dialog-close-result">閉じる</button>
+          </div>
+        `;
+        const closeResultBtn = dialog.querySelector('.capacity-dialog-close-result');
+        if (closeResultBtn) {
+          closeResultBtn.onclick = close;
+        }
+      } catch (e) {
+        console.warn('enforceCapacity failed', e);
+        executeBtn.disabled = false;
+      }
+    };
+  }
+}
+
+function wireCapacityBanner(page, summary) {
+  const btn = $('.capacity-cleanup-btn', page);
+  if (btn) {
+    btn.onclick = () => showCapacityCleanupDialog();
+  }
+}
+
 const PAGES = {};
 
 // ============================================================================
@@ -131,10 +273,18 @@ PAGES.live = async () => {
     return;
   }
   const savedMatches = await db.allMatches();
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
+  const isBlocked = capUsage.level === 'block';
+  const showBanner = capUsage.level !== 'ok' || (capUsage.favBytes > capUsage.capBytes);
   const page = document.createElement('div');
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">ライブ分析</h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">ライブ分析</h1>
+        ${!showBanner ? `<span class="capacity-status muted">${esc(capLabel)}</span>` : ''}
+      </div>
     </div>
 
     <div class="card live-source-card">
@@ -170,9 +320,10 @@ PAGES.live = async () => {
       </details>
 
       <div class="live-source-actions">
-        <button class="btn btn-primary" id="start" type="button">解析を開始</button>
+        <button class="btn btn-primary" id="start" type="button" ${isBlocked ? 'disabled' : ''}>解析を開始</button>
         <button class="btn btn-stop" id="stop" type="button" disabled style="display:none">停止</button>
       </div>
+      ${isBlocked ? `<div class="capacity-block-reason">⚠ 使用量${capUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます</div>` : ''}
     </div>
 
     <div class="live-grid">
@@ -242,6 +393,7 @@ PAGES.live = async () => {
     </div>
   `;
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   $('#to-list', page).onclick = e => { e.preventDefault(); nav('list'); };
 
@@ -316,6 +468,11 @@ PAGES.live = async () => {
   let savedCount = savedMatches.length;
 
   $('#start', page).onclick = async () => {
+    const curUsage = await db.stillsUsage(getCapBytes()).catch(() => null);
+    if (curUsage && curUsage.level === 'block') {
+      alert(`使用量${curUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます`);
+      return;
+    }
     const mode = page.querySelector('input[name="src"]:checked').value;
     const file = $('#file', page).files[0];
     if (mode === 'file' && !file) {
@@ -485,6 +642,8 @@ PAGES.list = async () => {
 
   const summary = BK.summarize(ms, snapsById);
   const expLabel = `バックアップを書き出す（ZIP）・${summary.matches}試合／静止画${summary.stills}枚／約${fmtBytes(summary.bytes)}`;
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
 
   const page = document.createElement('div');
 
@@ -504,9 +663,15 @@ PAGES.list = async () => {
   const pendingConfirmed = pending.reduce((a, m) => a + FB.confirmedCount(m), 0);
   const recentHist = [...FB.getFeedbackHistory()].slice(-5).reverse();
 
+  const showBanner = capUsage.level !== 'ok' || (capUsage.favBytes > capUsage.capBytes);
+
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+        ${!showBanner ? `<span class="capacity-status muted">${esc(capLabel)}</span>` : ''}
+      </div>
       <div class="page-header-actions">
         <label class="btn ${hasMatches ? 'btn-primary' : ''}">
           バックアップを読み込む
@@ -663,6 +828,7 @@ PAGES.list = async () => {
   `;
 
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   const goLiveBtn = $('#empty-go-live', page);
   if (goLiveBtn) goLiveBtn.onclick = () => nav('live');
