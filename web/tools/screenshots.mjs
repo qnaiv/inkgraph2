@@ -10,7 +10,8 @@ const ROOT = path.resolve(WEB_DIR, '..');
 const SH = path.resolve(WEB_DIR, '../docs/screenshots/ui-redesign');
 fs.mkdirSync(SH, { recursive: true });
 
-const srv = spawn('npx', ['vite', 'preview', '--port', '4174', '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const PORT = Number(process.env.PORT) || 4216;
+const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
 await new Promise(r => setTimeout(r, 2500));
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
@@ -19,7 +20,7 @@ const page = await ctx.newPage();
 await page.route('https://fonts.**/**', route => route.abort());
 page.on('pageerror', e => console.log('pageerror', e.message));
 
-const U = 'http://127.0.0.1:4174/';
+const U = `http://127.0.0.1:${PORT}/`;
 await page.goto(U + '#live');
 const ms = JSON.parse(fs.readFileSync(path.join(WEB_DIR, 'test-results/web_matches.json')));
 await page.evaluate(async ms => { await window.inkgraph.db.importAll(ms); }, ms);
@@ -104,11 +105,16 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(500);
 
-const dl = page.waitForEvent('download');
+// #33: 書き出しは一覧のダイアログ経由 (詳細の #fbone → 一覧 → 全件で書き出し → 詳細へ戻る)
 await page.click('#fbone');
-const d = await dl;
+try { await page.waitForSelector('.fb-dialog', { timeout: 1500 }); } catch { await page.click('#fbbar'); await page.waitForSelector('.fb-dialog'); }
+await page.check('input[name="fbmode"][value="full"]');
+const [d] = await Promise.all([page.waitForEvent('download'), page.click('#fbd-go')]);
 await d.saveAs(path.join(WEB_DIR, 'test-results/feedback_sample.zip'));
 console.log('feedback zip', d.suggestedFilename());
+await page.waitForTimeout(300);
+await page.click('[data-page="match"]');
+await page.waitForSelector('#fbone');
 
 await page.evaluate(() => window.scrollTo(0, 0));
 await page.waitForTimeout(200);
