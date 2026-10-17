@@ -60,6 +60,14 @@ python -m inkgraph.viz <outdir>
 
 バックエンド不要のブラウザアプリです（Vite＋素のES Modules）。分析はWeb Worker内で動き、試合データはブラウザ内（IndexedDB）に保存されます。
 
+### GitHub Pages配信
+
+ブラウザ版は GitHub Pages にて静的配信されます。
+
+- **公開URL**：https://qnaiv.github.io/inkgraph2/ （リポジトリの Settings > Pages に最終URLが表示されます）
+- **自動デプロイ**：`main` ブランチへのマージ時に `.github/workflows/pages.yml` により自動でビルド・デプロイされます。GitHub Actions の `workflow_dispatch`（手動実行）からも実行可能ですが、本番デプロイが行われるのは `main` ブランチから実行した場合のみです（PRや機能ブランチからの実行時はビルド検証のみ行われ、本番環境は上書きされません）。
+- **リポジトリ側の必須設定（Naoki / Bobo作業）**：リポジトリの **Settings > Pages > Build and deployment > Source** を **"GitHub Actions"** に変更する必要があります（コード・CIからは変更できないため、管理者による手動設定が必要です）。※本PRではリポジトリ設定の変更は行いません。
+
 ### Windowsでの使い方
 
 1. Node.js（LTS版）をインストールする

@@ -29,7 +29,7 @@
 | 23 | 2026-10-17 | #32第2段階: 静止画の容量ベース管理（250MB制限・80%警告バナー・95%開始ブロック・90%自動削除・stills_capacity_check、D30） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（純粋関数仕様、db、UI、stills_capacity_check、D30） | 成功。build通過、stills_capacity_check 24項目 ALL PASS、既存回帰5種通過（stills_retention 13, no_video 12, feedback_batch 37, backup 22, self_learn 22） | `#start:disabled` の視認性CSS 1行を手直し | 仕様1回＋差分レビュー・検証（build／capacity 24／回帰5種／スクショ3枚確認） |
 | 24 | 2026-10-17 | Designer必須修正 PR#126（バナー文言、独自整理ダイアログ導入・手動75%目標、お気に入り単独超過バナー、--warnトークン調整、重複ステータス非表示、95%ブロック理由全幅配置・#start:disabledスタイル、stills_capacity_check追随） | gemini-3.8-flash-medium | 要件を4項目＋テスト要件を箇条書き（約45行） | 成功。build通過、stills_capacity_check 34項目 ALL PASS、既存回帰3種通過（stills_retention 13, no_video 12, ui_check 3） | なし | なし |
 | 25 | 2026-10-17 | #36 自己学習S3: Grok側再現ハーネス（tools/repro_s3.py・CLI・test_repro_s3.py 13件PASS・repro_s3.md・D31） | gemini-3.8-flash-medium | CLI仕様・純粋関数・入出力フォーマット・合否判定を厳密に箇条書き（約50行） | 成功。unittest 13件ALL PASS、eval_ci回帰通過、実データおよび合成データでCLI実走確認 | なし | 仕様1回＋テスト・CLI実走確認（約4回） |
-
+| 26 | 2026-10-17 | GitHub Pages配信（U1: .github/workflows/pages.yml・サブパス安全性確認・README・D32） | gemini-3.8-flash-medium | 要件を5項目で箇条書き（Actions仕様、サブパス検証、README、D32、AGY_LOG） | 成功。actionlint通過、build成功、サブパス(/inkgraph2/)配信で画面・アセットJSON 200を確認 | DECISIONSの誤字とAGY番号（実物は次が22）をGrokが修正 | 仕様1回＋検証・修正2件 |
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
 - 単一ファイル・入出力が明確なタスクは flash でも一発で通る。ドキュメントは事実を箇条書きで渡すと正確。
