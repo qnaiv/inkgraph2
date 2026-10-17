@@ -1,5 +1,6 @@
 import * as db from './db.js';
 import * as learn from './learn.js';
+import { frameStepForState } from './analysis.js';
 import AnalyzerWorker from './worker.js?worker';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
@@ -26,7 +27,8 @@ export class Session {
     this.worker.postMessage({ type: 'frame', t, w: vw, h: vh, buf: d.data.buffer }, [d.data.buffer]); }
   liveLoop() { let next = 0; const tick = () => { if (!this.running) return; const t = this.now();
       if (this.mode === 'file' && this.video.ended) { this.stop(); return; }
-      if (!this.busy && t >= next) { next = t + this.step; this.grab(t); } else if (this.busy && t >= next + 1) { this.stats.dropped = (this.stats.dropped || 0) + 1; next = t + this.step; }
+      const step = frameStepForState(this.lastState, this.step);
+      if (!this.busy && t >= next) { next = t + step; this.grab(t); } else if (this.busy && t >= next + 1) { this.stats.dropped = (this.stats.dropped || 0) + 1; next = t + step; }
       (this.video.requestVideoFrameCallback ? this.video.requestVideoFrameCallback(tick) : requestAnimationFrame(tick)); };
     tick(); }
   async fastLoop() { const v = this.video, dur = v.duration; for (let t = 0; t < dur && this.running; t = Math.round((t + this.step) * 1000) / 1000) {

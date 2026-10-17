@@ -1,8 +1,8 @@
 import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
-import { renderTimeline } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, specialIntervals, specialStats } from './analysis.js';
+import { renderTimeline, LEGEND } from './timeline.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats } from './analysis.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -772,6 +772,7 @@ PAGES.list = async () => {
       <div class="match-list">
         ${filtered.map(m => {
           const r = resultOf(m);
+          const rsStat = resultStatus(m);
           const ev = effective(m);
           const det = detected(m);
           const rv = det.filter(e => e.mark).length;
@@ -807,6 +808,7 @@ PAGES.list = async () => {
                 <span class="match-row-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')}</span>
                 <span class="stills-state">${esc(stillsStateLabel(m))}</span>
                 <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
+                <span class="result-status" data-status="${rsStat.key}">${esc(rsStat.label)}</span>
                 ${r.count ? `<span class="match-row-count num">${fmtCount(r.count)}</span>` : ''}
               </div>
 
@@ -1577,6 +1579,7 @@ PAGES.match = async () => {
   };
 
   const r = resultOf(m);
+  const rsStat = resultStatus(m);
   const t0 = m.battle[0];
   const evAll = effective(m);
   const kCount = evAll.filter(e => e.kind === 'kill').length;
@@ -1605,7 +1608,7 @@ PAGES.match = async () => {
       <div class="detail-header-left">
         <span class="${badgeCls(r.result)} result-hero">${resJa(r.result)}</span>
         <div class="detail-stage-info">
-          <div class="detail-stage-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')}</div>
+          <div class="detail-stage-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="result-status" data-status="${rsStat.key}">${esc(rsStat.label)}</span></div>
           <div class="detail-count-line">
             <span>最終カウント <b class="num">${fmtCount(r.count)}</b></span>
             ${finalDiff !== null ? `<span class="num ${diffCls(finalDiff)}">（カウント差 ${fmtDiff(finalDiff)}）</span>` : ''}
@@ -2032,6 +2035,7 @@ PAGES.trend = async () => {
 
   const R = ms.map((m, idx) => ({ m, idx, r: resultOf(m), ev: effective(m) }));
   const known = R.filter(x => x.r.result === 'WIN' || x.r.result === 'LOSE');
+  const unknown = R.length - known.length;
   const wins = known.filter(x => x.r.result === 'WIN').length;
   const losses = known.length - wins;
   const cnt = (x, k) => x.ev.filter(e => e.kind === k).length;
@@ -2085,7 +2089,7 @@ PAGES.trend = async () => {
 
       ${ptsData.map(p => {
         const cx = Xm(p.i).toFixed(1), cy = Yw(p.cumWp).toFixed(1);
-        const col = p.isWin ? 'var(--win)' : 'var(--lose)';
+        const col = p.x.r.result === 'WIN' ? 'var(--win)' : (p.x.r.result === 'LOSE' ? 'var(--lose)' : 'var(--text-faint)');
         const tip = `第${p.i + 1}試合: ${p.x.r.mode || ''} ${p.x.r.stage || ''}（${resJa(p.x.r.result)}） 累計勝率 ${Math.round(p.cumWp * 100)}%`;
         return `
           <g class="wp-dot" data-id="${esc(p.x.m.id)}" style="cursor:pointer">
@@ -2159,7 +2163,7 @@ PAGES.trend = async () => {
               <g class="click-match" data-id="${esc(x.m.id)}" style="cursor:pointer">
                 <rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(2, h).toFixed(1)}" rx="3" fill="${color}"/>
                 <text x="${(bx + barW / 2).toFixed(1)}" y="${(by - 4).toFixed(1)}" text-anchor="middle" class="num" font-size="11" font-weight="700" fill="var(--text)">${v}</text>
-                <text x="${(bx + barW / 2).toFixed(1)}" y="${bBot + 15}" text-anchor="middle" class="num" font-size="10" fill="${x.r.result === 'WIN' ? 'var(--win)' : 'var(--lose)'}">#${i + 1}</text>
+                <text x="${(bx + barW / 2).toFixed(1)}" y="${bBot + 15}" text-anchor="middle" class="num" font-size="10" fill="${x.r.result === 'WIN' ? 'var(--win)' : (x.r.result === 'LOSE' ? 'var(--lose)' : 'var(--text-faint)')}">#${i + 1}</text>
               </g>`;
           }).join('')}
         </svg>
@@ -2178,6 +2182,7 @@ PAGES.trend = async () => {
           <span class="stat-value-2xl num">${pct(known.length ? wins / known.length : null)}</span>
           <span class="stat-sub num">${wins}勝${losses}敗</span>
         </div>
+        ${unknown > 0 ? `<div class="trend-winrate-note">勝敗不明${unknown}試合を除く${known.length}試合で計算</div>` : ''}
       </div>
       <div class="stat">
         <div class="stat-label">1試合あたりのキル</div>
@@ -2223,6 +2228,7 @@ PAGES.trend = async () => {
           ${showRoll ? '<span><i class="tl-swatch" style="background:var(--accent)"></i>直近10試合（破線）</span>' : ''}
           <span><i class="tl-swatch" style="background:var(--win);border-radius:50%"></i>勝ち</span>
           <span><i class="tl-swatch" style="background:var(--lose);border-radius:50%"></i>負け</span>
+          ${unknown > 0 ? '<span><i class="tl-swatch" style="background:var(--text-faint);border-radius:50%"></i>不明</span>' : ''}
         </div>
       </div>
       <div class="winrate-chart-wrap">${winrateSvg}</div>

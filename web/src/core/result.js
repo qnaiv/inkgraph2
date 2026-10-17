@@ -58,15 +58,26 @@ function vote(vals) { vals = vals.filter(v => v !== null && v !== undefined); if
   let bk = null, bc = -1; for (const [k, n] of [...c.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) if (n > bc) { bc = n; bk = k; } return JSON.parse(bk); }
 /** S: {celebration:[{t,value}], personal:[{t,header,personal}], board:[{t,header,board}]} -> result_screen */
 export function finalizeResult(S) {
-  const res = { result: vote(S.celebration.map(x => x.value)), mode: null, stage: null, own: null };
-  const hs = [...pick(S.board), ...pick(S.personal)].map(x => x.header);
+  const celResult = vote((S.celebration || []).map(x => x.value));
+  let resultSource = null;
+  const res = { result: celResult, mode: null, stage: null, own: null };
+  if (celResult) resultSource = 'celebration';
+  const hs = [...pick(S.board || []), ...pick(S.personal || [])].map(x => x.header);
   res.mode = vote(hs.map(h => h.mode)); res.stage = vote(hs.map(h => h.stage));
   res.confidence = { mode: Math.max(0, ...hs.map(h => h.mode_score)), stage: Math.max(0, ...hs.map(h => h.stage_score)) };
-  const pers = pick(S.personal).map(x => x.personal).filter(Boolean);
+  const pers = pick(S.personal || []).map(x => x.personal).filter(Boolean);
   if (pers.length) res.own = Object.fromEntries(['ka', 'deaths', 'specials'].map(k => [k, vote(pers.map(p => p[k]))]));
-  const bs = pick(S.board);
+  const bs = pick(S.board || []);
   if (bs.length) { const B = bs[0].board.map((r, i) => ({ ...r, ...Object.fromEntries(['ka', 'deaths', 'specials'].map(k => [k, vote(bs.map(b => b.board[i][k]))])) }));
     const own = B.find(b => b.own); res.board = B;
-    if (own) { if (!res.own) res.own = { ka: own.ka, deaths: own.deaths, specials: own.specials }; if (!res.result) res.result = own.group === 'top' ? 'WIN' : 'LOSE'; } }
+    if (own) {
+      if (!res.own) res.own = { ka: own.ka, deaths: own.deaths, specials: own.specials };
+      if (!res.result) {
+        res.result = own.group === 'top' ? 'WIN' : 'LOSE';
+        if (res.result) resultSource = 'board';
+      }
+    }
+  }
+  res.result_source = resultSource;
   return res;
 }

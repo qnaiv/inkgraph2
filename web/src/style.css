@@ -1418,6 +1418,32 @@ tr.added td {
   margin-top: var(--sp-1);
 }
 
+/* リザルト画面の取得状態バッジ・傾向分析注記 */
+.result-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.result-status[data-status="missing"] {
+  color: var(--text-faint);
+}
+
+.trend-winrate-note {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: var(--sp-1);
+}
+
 .fb-bar {
   display: flex;
   align-items: center;
