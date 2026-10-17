@@ -59,7 +59,8 @@ def build(R,clf=None):
     for a,b in runs(t,ready,P['sp_min'],3.0):
         lost=any(a<=e['start']<=b+1.0 for e in ev['L0'])   # ready ended by own death -> gauge lost
         unused=(not lost) and b>=t[ok][-1]-1.0 if ok.any() else False   # still full when battle ends
-        sp.append({'ready':round(a,1),'end':round(b,1),'outcome':'lost_on_death' if lost else ('unused_at_end' if unused else 'activated')})
+        outcome='lost_on_death' if lost else ('unused_at_end' if unused else 'activated')
+        sp.append({'ready':round(a,1),'end':round(b,1),'outcome':outcome,'activated_at':round(b,1) if outcome=='activated' else None})
     kills=[{'start':round(a,1),'end':round(b,1)} for a,b in runs(t,np.array(R['kill']),0.2,1.0)]
     dur=float(t[-1]-t[0]) if len(t) else 0
     return {'squid_down':ev,'own_deaths':ev['L0'],'special':sp,'own_kills':kills,

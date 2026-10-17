@@ -2,7 +2,8 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, specialIntervals, specialStats } from './analysis.js';
+import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
@@ -26,6 +27,8 @@ window.inkgraph = {
   capacity: CP,
   feedback: FB,
   backup: BK,
+  analysis: AN,
+  AN,
   buildBatchZip: (...a) => buildBatchZip(...a),
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
@@ -315,7 +318,7 @@ PAGES.live = async () => {
         <summary>詳細設定 ▸</summary>
         <div class="details-popover-body">
           <label><input type="checkbox" id="fast" checked> ファイルは早送りで解析（再生しない）</label>
-          <p class="muted" id="still-note" style="margin:6px 0 0">映像は保存しません。確認用に、リザルトやキル・デス・スペシャルなどの要所の静止画だけを保存します。</p>
+          <p class="muted" id="still-note" style="margin:6px 0 0">映像は保存しません。確認用に、リザルトやキル・デス・スペシャル発動などの要所の静止画だけを保存します。</p>
         </div>
       </details>
 
@@ -352,7 +355,7 @@ PAGES.live = async () => {
             <div class="stat-value-2xl num" id="d">—</div>
           </div>
           <div class="stat">
-            <div class="stat-label">スペシャル</div>
+            <div class="stat-label">スペシャル発動</div>
             <div class="stat-value-2xl num" id="sp">—</div>
           </div>
         </div>
@@ -379,6 +382,7 @@ PAGES.live = async () => {
         </div>
 
         <div>
+          <div id="live-sp-ready" hidden style="background:var(--special-soft);color:var(--text);border:1px solid var(--special);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);font-weight:var(--fw-bold);font-size:var(--fs-sm);text-align:center;margin-bottom:var(--sp-3)">スペシャル使用可能</div>
           <div class="stat-label" style="margin-bottom:6px">出来事（新しい順）</div>
           <div class="live-events-list" id="log">
             <div class="faint" id="log-empty" style="padding:16px 8px;text-align:center">解析を開始すると出来事が表示されます</div>
@@ -490,10 +494,14 @@ PAGES.live = async () => {
         const tt = mss(e.t - t0);
         if (e.type === 'battle_start') {
           t0 = e.t; k = d = sp = 0; estWp = 0.5;
+          const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
           updateSpark(50);
           addEventRow('0:00', '▶', 'バトル開始', null);
         } else if (e.type === 'battle_end') {
+          const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
           addEventRow(tt, '■', 'バトル終了', null);
+        } else if (e.type === 'special_ready') {
+          const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = false;
         } else if (e.type === 'own_kill') {
           k++;
           const delta = 0.08;
@@ -502,13 +510,15 @@ PAGES.live = async () => {
           addEventRow(tt, '<b style="color:var(--kill)">★</b>', 'キル', delta);
         } else if (e.type === 'own_death') {
           d++;
+          const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
           const delta = -0.10;
           estWp = Math.max(0.05, estWp + delta);
           updateSpark(estWp * 100);
           addEventRow(tt, '<b style="color:var(--death)">×</b>', 'デス', delta);
         } else if (e.type === 'special') {
           sp++;
-          addEventRow(tt, '<b style="color:var(--special)">◆</b>', 'スペシャル', 0);
+          const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+          addEventRow(tt, '<b style="color:var(--special)">◆</b>', 'スペシャル発動', 0);
         }
         $('#k', page).textContent = k;
         $('#d', page).textContent = d;
@@ -533,6 +543,7 @@ PAGES.live = async () => {
       match: rec => {
         savedCount++;
         justSaved = true;
+        const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
         $('#live-dot', page).className = 'status-dot-idle';
         $('#live-dot', page).style.background = 'var(--kill)';
         $('#state', page).textContent = '保存しました';
@@ -777,8 +788,8 @@ PAGES.list = async () => {
             diffTipParts.push(`デス：検出${dCnt} / リザルト画面${r.deaths}`);
           }
           if (spMismatch) {
-            diffParts.push(`スペシャル<span class="num mismatch-val">${esc(r.specials)}</span>`);
-            diffTipParts.push(`スペシャル：検出${spCnt} / リザルト画面${r.specials}`);
+            diffParts.push(`スペシャル発動<span class="num mismatch-val">${esc(r.specials)}</span>`);
+            diffTipParts.push(`スペシャル発動：検出${spCnt} / リザルト画面${r.specials}`);
           }
           const diffTip = diffTipParts.join('、');
           const pctRv = det.length ? Math.round((rv / det.length) * 100) : 0;
@@ -803,7 +814,7 @@ PAGES.list = async () => {
                 <div class="kda-metrics">
                   <span class="kda-item"><span class="kda-label">キル</span><span class="kda-val num">${kCnt}</span></span>
                   <span class="kda-item"><span class="kda-label">デス</span><span class="kda-val num ${dMismatch ? 'mismatch-val' : ''}" ${dMismatch ? `title="リザルト画面ではデス${esc(r.deaths)}"` : ''}>${dCnt}</span></span>
-                  <span class="kda-item"><span class="kda-label">スペシャル</span><span class="kda-val num ${spMismatch ? 'mismatch-val' : ''}" ${spMismatch ? `title="リザルト画面ではスペシャル${esc(r.specials)}"` : ''}>${spCnt}</span></span>
+                  <span class="kda-item"><span class="kda-label">スペシャル発動</span><span class="kda-val num ${spMismatch ? 'mismatch-val' : ''}" ${spMismatch ? `title="リザルト画面ではスペシャル発動${esc(r.specials)}"` : ''}>${spCnt}</span></span>
                 </div>
                 ${showResultDiff ? `<span class="kda-mismatch" title="${esc(diffTip)}">リザルト画面では${diffParts.join('・')}</span>` : ''}
               </div>
@@ -1613,7 +1624,7 @@ PAGES.match = async () => {
           <div class="stat-value num" id="hdr-d">${dCount}</div>
         </div>
         <div class="stat">
-          <div class="stat-label">スペシャル</div>
+          <div class="stat-label">スペシャル発動</div>
           <div class="stat-value num" id="hdr-sp">${spCount}</div>
         </div>
       </div>
@@ -1655,7 +1666,7 @@ PAGES.match = async () => {
             <div style="display:flex;gap:8px">
               <button class="btn btn-sm add" data-k="kill" type="button">＋ キル</button>
               <button class="btn btn-sm add" data-k="death" type="button">＋ デス</button>
-              <button class="btn btn-sm add" data-k="special" type="button">＋ スペシャル発動</button>
+              <button class="btn btn-sm add" data-k="special" type="button">＋ スペシャル発動を追加</button>
             </div>
           </div>
         </div>
@@ -1699,7 +1710,7 @@ PAGES.match = async () => {
 
   const stills = (await db.snapsOf(m.id)).sort((a, b) => a.t - b.t);
   const stillImg = $('#still-img', page), stillEmpty = $('#still-empty', page), stillCap = $('#still-cap', page);
-  const KIND_JA = { kill: 'キル', death: 'デス', special: 'スペシャル', celebration: 'リザルト', personal: 'リザルト', board: 'リザルト', event: '見逃し・誤検出' };
+  const KIND_JA = { kill: 'キル', death: 'デス', special: 'スペシャル発動', celebration: 'リザルト', personal: 'リザルト', board: 'リザルト', event: '見逃し・誤検出' };
   let stillUrl = null;
   const showEmpty = msg => { stillImg.style.display = 'none'; stillEmpty.textContent = msg; stillEmpty.style.display = 'flex'; };
   const showStill = (t, near = 15) => {
@@ -1828,6 +1839,20 @@ PAGES.match = async () => {
       ...add.map(a => ({ ...a, isAdded: true }))
     ].sort((a, b) => a.t - b.t);
 
+    const spInts = specialIntervals(m);
+    const unusedInts = spInts.filter(si => si.outcome === 'unused_at_end');
+    const unusedRowHtml = unusedInts.length ? (() => {
+      const lastUnused = unusedInts[unusedInts.length - 1];
+      return `<tr class="sp-unused-end-row click" data-t="${lastUnused.end}">
+        <td class="num">${mss(lastUnused.end - t0)}</td>
+        <td>スペシャル未使用のまま終了</td>
+        <td>—</td>
+        <td class="num count-zero">—</td>
+        <td><span class="num delta-zero">—</span></td>
+        <td class="col-review-only"></td>
+      </tr>`;
+    })() : '';
+
     $('#etab', page).innerHTML = `
       <thead>
         <tr>
@@ -1853,7 +1878,12 @@ PAGES.match = async () => {
             : e.kind === 'death'
               ? '<b style="color:var(--death)">×</b> '
               : '<b style="color:var(--special)">◆</b> ';
-          const kindText = KINDS[e.kind] + (e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '');
+          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '');
+          let extraBadge = '';
+          if (e.kind === 'death') {
+            const isWasted = spInts.some(si => si.outcome === 'lost_on_death' && Math.abs(e.t - si.end) <= 1.0);
+            if (isWasted) extraBadge = ' <span class="badge sp-wasted-badge" style="background:var(--special-wasted);color:var(--text);margin-left:4px;font-size:11px">スペシャル未使用</span>';
+          }
 
           const reviewCell = e.isAdded
             ? `<button class="mk rm" data-i="${e.addedIdx}" type="button">取り消す</button>`
@@ -1863,13 +1893,13 @@ PAGES.match = async () => {
 
           return `<tr class="${rowClasses.join(' ')}" data-t="${e.t}">
             <td class="num">${mss(e.t - t0)}</td>
-            <td>${kindIcon}${esc(kindText)}</td>
+            <td>${kindIcon}${esc(kindText)}${extraBadge}</td>
             <td>${phaseBadge(x.phase)}</td>
             <td class="num ${diffCls(x.count_diff)}">${fmtDiff(x.count_diff)}</td>
             <td>${deltaCellHtml(x.wp_delta)}</td>
             <td class="col-review-only">${reviewCell}</td>
           </tr>`;
-        }).join('')}
+        }).join('')}${unusedRowHtml}
       </tbody>
     `;
 
@@ -2007,6 +2037,14 @@ PAGES.trend = async () => {
   const losses = known.length - wins;
   const cnt = (x, k) => x.ev.filter(e => e.kind === k).length;
   const sum = k => R.reduce((s, x) => s + cnt(x, k), 0);
+  const spStatsList = ms.map(m => specialStats(m));
+  const totActivated = spStatsList.reduce((s, x) => s + x.activated, 0);
+  const totReadySec = spStatsList.reduce((s, x) => s + x.readySeconds, 0);
+  const avgReadySec = ms.length ? (totReadySec / ms.length).toFixed(1) : '0.0';
+  const totLost = spStatsList.reduce((s, x) => s + x.lost, 0);
+  const unusedEndMatches = spStatsList.filter(x => x.unusedEnd > 0).length;
+  const totReadyCount = spStatsList.reduce((s, x) => s + x.readyCount, 0);
+  const wastedRatePct = pct(totReadyCount > 0 ? totLost / totReadyCount : null);
 
   const deaths = R.flatMap(x => x.ev.filter(e => e.kind === 'death').map(e => ({ ...e, x })));
   const kills = R.flatMap(x => x.ev.filter(e => e.kind === 'kill').map(e => ({ ...e, x })));
@@ -2151,12 +2189,30 @@ PAGES.trend = async () => {
         <div class="stat-value num">${(sum('death') / ms.length).toFixed(1)}</div>
       </div>
       <div class="stat">
-        <div class="stat-label">1試合あたりのスペシャル</div>
-        <div class="stat-value num">${(sum('special') / ms.length).toFixed(1)}</div>
-      </div>
-      <div class="stat">
         <div class="stat-label">キル÷デス</div>
         <div class="stat-value num">${(sum('kill') / Math.max(1, sum('death'))).toFixed(2)}</div>
+      </div>
+    </div>
+    <div class="trends-stat-band special-stat-band">
+      <div class="stat">
+        <div class="stat-label">スペシャル発動の回数</div>
+        <div class="stat-value num">${totActivated}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">使用可能だった時間（秒／試合）</div>
+        <div class="stat-value num">${avgReadySec}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">未使用のままデスの回数</div>
+        <div class="stat-value num">${totLost}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">未使用のまま終了した試合</div>
+        <div class="stat-value num">${unusedEndMatches}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">ためたままデスした割合</div>
+        <div class="stat-value num">${wastedRatePct}</div>
       </div>
     </div>
 
@@ -2259,11 +2315,11 @@ PAGES.trend = async () => {
     </div>
 
     <div class="card" style="margin-bottom:var(--sp-6)">
-      <div class="card-title">試合ごとのキル・デス・スペシャル</div>
+      <div class="card-title">試合ごとのキル・デス・スペシャル発動</div>
       <div class="small-charts-grid">
         ${smallChart('kill', 'キル', 'var(--kill)')}
         ${smallChart('death', 'デス', 'var(--special-wasted)')}
-        ${smallChart('special', 'スペシャル', 'var(--special)')}
+        ${smallChart('special', 'スペシャル発動', 'var(--special)')}
       </div>
     </div>
 

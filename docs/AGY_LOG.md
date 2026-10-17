@@ -31,6 +31,7 @@
 | 25 | 2026-10-17 | #36 自己学習S3: Grok側再現ハーネス（tools/repro_s3.py・CLI・test_repro_s3.py 13件PASS・repro_s3.md・D31） | gemini-3.8-flash-medium | CLI仕様・純粋関数・入出力フォーマット・合否判定を厳密に箇条書き（約50行） | 成功。unittest 13件ALL PASS、eval_ci回帰通過、実データおよび合成データでCLI実走確認 | なし | 仕様1回＋テスト・CLI実走確認（約4回） |
 | 26 | 2026-10-17 | GitHub Pages配信（U1: .github/workflows/pages.yml・サブパス安全性確認・README・D32） | gemini-3.8-flash-medium | 要件を5項目で箇条書き（Actions仕様、サブパス検証、README、D32、AGY_LOG） | 成功。actionlint通過、build成功、サブパス(/inkgraph2/)配信で画面・アセットJSON 200を確認 | DECISIONSの誤字とAGY番号（実物は次が22）をGrokが修正 | 仕様1回＋検証・修正2件 |
 | 27 | 2026-10-17 | grok-notify 認証を `GROK_WEBHOOK_AUTH` の Authorization ヘッダ方式へ変更（workflow・テスト・README） | claude-sonnet-5-5-medium | 複数ファイル・要件を箇条書き | 成功（検証は Grok 側で実施） | なし（予定） | 仕様1回＋検証 |
+| 28 | 2026-10-17 | スペシャル状態分離（使用可能区間/発動瞬間/未使用デス/未使用終了、D33、special_states_check） | gemini-3.8-flash-medium | 要件を10節で箇条書き（データモデル・tokens・timeline描画・出来事表・傾向5指標・ライブ・テスト・スクショ） | 成功。build通過、special_states_check 27項目 ALL PASS、回帰 tower_label/no_video ALL PASS | 傾向指標カードの窮屈さを Grok が別帯に分離（main.js/style.css小修正）、回帰で再生成された無関係スクショ7枚を差し戻し | 仕様1回＋差分レビュー・検証（build／special 27／回帰2種／スクショ2枚確認、前後比較算出） |
 
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
