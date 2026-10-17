@@ -1,0 +1,22 @@
+{
+  "pred": "python",
+  "tol": 2.0,
+  "metrics": {
+    "デス": {
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "キル": {
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "スペシャル": {
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "勝敗": {
+      "precision": 1.0,
+      "recall": 1.0
+    }
+  }
+}

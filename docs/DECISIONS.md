@@ -110,3 +110,8 @@
 - カウント系列（review.count_series）の記録点は、動画の同期ずれに依存せず再現できるよう、該当区間の開始時刻（秒、0.1秒丸め）に記録する。
 - ポップオーバーには確認済み区間を未確認状態に戻す「未確認に戻す」ボタンを設け、押下時は内部の確認状態（review.tower_seg）から該当区間を削除し、タイムラインの確認マーカーを除去して tower_holder を再生成する。
 - review.tower_seg は検出された区間の開始時刻（秒、0.1秒丸め）をキーとして own|enemy|neutral を保持する内部管理用とし、ここから 0.1 秒丸めの tower_holder を再構築する。評価ツール側は tower_seg ではなく tower_holder / count_series を参照する。
+
+## D22 (2026-10-17) 精度回帰テストのCI化（警告のみ）
+- `tools/eval_ci.py` が `tools/eval_labels.py` を再利用し、`labels/*.json` と検出結果（既定はPython版 `out/1080p/`）を比べてデス／キル／スペシャル／勝敗などの適合率・再現率を出す。ラベルがない項目は従来どおり採点から外す。
+- 基準値 `tools/eval_baseline.json`（現状値、全て試合2の部分ラベル由来）を下回ったら `::warning::` とStep Summaryで警告するが、ジョブは失敗させない。理由：正解ラベルがまだ試合2の部分ラベルのみで母数が小さいため。ラベルが増えたら失敗条件への移行を再検討する。
+- ワークフロー `.github/workflows/eval-ci.yml` は既存ワークフローと分離し、評価に関係するパスが変わったPR／main pushと手動実行でのみ回す。結果はStep Summaryとartifact（eval-summary.md／eval-result.json）で見る。
