@@ -60,8 +60,10 @@ export class Analyzer {
     return tp;
   }
   battleFrame(fr, t, tp) {
-    const m = this.cur, A = this.A; const mp = C.mapOpen(A, fr), sg = C.ownDeadSignal(A, fr), kill = C.killNotice(A, fr), [gw, go] = C.gauge(fr), crops = C.iconCrops(fr);
-    const f = { t, ok: tp, map: mp, sig: sg.dead, kill, gw, go, p: null, s: null, ally: null };
+    const m = this.cur, A = this.A; const mp = C.mapOpen(A, fr), sg = C.ownDeadSignal(A, fr);
+    const killSlots = C.killNoticeSlots(A, fr), kill = killSlots.some(Boolean);
+    const [gw, go] = C.gauge(fr), crops = C.iconCrops(fr);
+    const f = { t, ok: tp, map: mp, sig: sg.dead, kill, killSlots, gw, go, p: null, s: null, ally: null };
     if (!m.th) { if (tp && m.hueN < 60) { C.hueHist(crops, 0, m.hist[0]); C.hueHist(crops, 1, m.hist[1]); m.hueN++; }
       m.pend.push([f, crops, mp ? fr : null]);
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
@@ -69,7 +71,11 @@ export class Analyzer {
     if (m.spPrev <= 0.2 && gw > 0.2) this.onEvent({ type: 'special_ready', t });
     m.spPrev = gw;
     if (this.deathLatch.update(sg.dead, tp, mp, t)) this.onEvent({ type: 'own_death', t });
-    if (kill && !(m.F.length && m.F[m.F.length - 1].kill)) this.onEvent({ type: 'own_kill', t });
+    const prevSlots = (m.F.length && m.F[m.F.length - 1].killSlots) ? m.F[m.F.length - 1].killSlots : [];
+    for (let i = 0; i < killSlots.length; i++) {
+      const prev = i < prevSlots.length ? !!prevSlots[i] : false;
+      if (killSlots[i] && !prev) this.onEvent({ type: 'own_kill', t });
+    }
     m.F.push(f);
   }
   fixHue() { const m = this.cur; m.th = m.hist.map(h => { let bi = 0; for (let i = 1; i < 180; i++) if (h[i] > h[bi]) bi = i; return h[bi] ? bi : 0; });
@@ -146,6 +152,27 @@ export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
   merged.push(cur);
   return merged.filter(([a, b]) => (b - a) >= minlen);
 }
+export function killEventsFromSlots(t, F) {
+  if (!t || !t.length || !F || !F.length) return [];
+  let maxSlots = 0;
+  for (let i = 0; i < F.length; i++) {
+    const s = F[i] && F[i].killSlots ? F[i].killSlots : (Array.isArray(F[i]) ? F[i] : null);
+    if (s && s.length > maxSlots) maxSlots = s.length;
+  }
+  const events = [];
+  for (let s = 0; s < maxSlots; s++) {
+    const mask = F.map(f => {
+      const arr = f && f.killSlots ? f.killSlots : (Array.isArray(f) ? f : null);
+      return arr && s < arr.length ? !!arr[s] : false;
+    });
+    const slotRuns = runs(t, mask, 0.2, 1.0);
+    for (const [a, b] of slotRuns) {
+      events.push({ start: r1(a), end: r1(b), slot: s });
+    }
+  }
+  events.sort((x, y) => x.start - y.start || x.slot - y.slot);
+  return events.map(e => ({ start: e.start, end: e.end }));
+}
 export function buildMatch(m, no, srcH) {
   const F = m.F, t = F.map(f => f.t), ok = F.map(f => f.ok), mp = F.map(f => f.map), n = F.length;
   const d = F.map(f => (f.p || Array(8).fill(0)).map(p => p > P.icon_th));
@@ -164,7 +191,10 @@ export function buildMatch(m, no, srcH) {
   for (const [a, b] of runs(t, ready, P.sp_min, 3.0)) { const lost = ev.L0.some(e => a <= e.start && e.start <= b + 1.0); const unused = !lost && okT.length && b >= lastOk - 1.0;
     const outcome = lost ? 'lost_on_death' : (unused ? 'unused_at_end' : 'activated');
     sp.push({ ready: r1(a), end: r1(b), outcome, activated_at: outcome === 'activated' ? r1(b) : null }); }
-  const kills = runs(t, F.map(f => f.kill), 0.2, 1.0).map(([a, b]) => ({ start: r1(a), end: r1(b) }));
+  const hasKillSlots = F.some(f => f.killSlots && f.killSlots.length);
+  const kills = hasKillSlots
+    ? killEventsFromSlots(t, F)
+    : runs(t, F.map(f => f.kill), 0.2, 1.0).map(([a, b]) => ({ start: r1(a), end: r1(b) }));
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };

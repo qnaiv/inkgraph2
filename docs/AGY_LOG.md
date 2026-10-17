@@ -40,6 +40,8 @@
 | 34 | 2026-10-17 | デス重複加算の防止（ライブDeathLatch、保存mergeDeathRuns/merge_death_runs、death_dedup_check、test_death_dedup、D38） | gemini-3.8-flash-medium | 要件を箇条書きで依頼（ライブ・保存・検証・ドキュメント） | 成功。death_dedup_check ALL PASS、Python単体6件OK、Python実走で3試合8/6/6件・開始時刻一致、JS実走は従来どおり8/5/6件で回帰なし、build通過 | コードの手直しなし。回帰確認で再生成された無関係な既存スクショ7枚を差し戻し、検証用に組み合わせた web_matches.json は対象外 | 仕様1回＋差分レビュー・検証（build／death_dedup／Python実走3試合／JS実走3試合／回帰2種） |
 | 35 | 2026-10-17 | 記録中の他ページ閲覧継続（ライブ画面を隠すだけにする・resume/世代トークン・session_keepalive_check・D39） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（表示スロット分離・session世代トークン/resume・検証ツール・D39、約50行） | 成功。build通過、session_keepalive_check 18項目 ALL PASS、回帰 stream_capture 35・no_video 12・ui_check 3 PASS | 回帰で再生成された無関係な既存スクショを差し戻し、本行の結果を実測値に更新（コードの手直しなし） | 仕様1回＋差分レビュー・検証（build／新規18／回帰3種／スクショ2枚確認） |
 | 36 | 2026-10-17 | 傾向画面のマッチタイプ×ルール切り替え（2段ピル・URL保持・対象件数・母数ルール・パワー内訳・Xパワー空状態・ステージ×ルール表・候補ランキング枠・trends_filter_check・D40） | gemini-3.8-flash-medium | 仕様ファイルと関数仕様・画面要件・チェック項目・スクショ4枚を節ごとに箇条書きで依頼（約70行） | 成功。build通過、trends_filter_check 53項目 ALL PASS、回帰 stream_capture 35・match_type_power 13・result_missing 36・special_states 26 PASS（no_video は web_matches.json 未配置で実行不可） | agyが変えた無関係なスペシャル指標ラベルと勝率推移の凡例を Grok が元に戻し、回帰で再生成された無関係スクショを差し戻し、stream_capture_check の勝率期待値を母数ルールに合わせて厳密化（手直し3件） | 仕様1回＋差分レビュー・検証（build／新規53／回帰4種／スクショ4枚確認） |
+| 37 | 2026-10-18 | #140 キル通知の帯（スロット）別検出（cues.py/cues.js の帯別score、detect.py/analyzer.js の帯別runs統合・ライブ帯別発火、合成テスト、D41） | gemini-3.8-flash-medium | 5節・実測アンカー247/44px・必須テストを箇条書き（約70行） | 成功。Python単体6件・JSチェック8件PASS、build通過。実素材検証・スクショ・PR本文はGrok側で実施 | コードの手直しなし。DECISIONSの検証メモに新match03と基準定義をGrokが追記、検証図を作成 | 仕様1回＋差分レビュー＋実素材whole-file検証6本（約12回） |
+
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
 - 単一ファイル・入出力が明確なタスクは flash でも一発で通る。ドキュメントは事実を箇条書きで渡すと正確。

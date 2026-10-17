@@ -1,6 +1,6 @@
 """Per-frame screen cues on a 1280x720 BGR frame."""
 import cv2, numpy as np
-from .common import tpl, match
+from .common import tpl, match, wb
 _T={}
 def T(n):
     if n not in _T: _T[n]=tpl(n)
@@ -14,8 +14,18 @@ def map_open(img):                # map overlay (X close button top-left)
 def own_dead_signal(img):         # D-pad signal label 'やられた' (vs 'カモン')
     r=img[590:624,15:100]; y=match(r,T('tpl_signal_yarareta.png'),215); k=match(r,T('tpl_signal_camon.png'),215)
     return y>0.5 and y>k
+KILL_ANCHORS=[247-44*k for k in range(247//44+1) if 247-44*k>=0]
+def kill_notice_slot_scores(img):
+    t=T('tpl_wotaoshita.png'); reg=img[420:720,200:1080]; n_slots=len(KILL_ANCHORS)
+    if reg.shape[0]<t.shape[0] or reg.shape[1]<t.shape[1]: return [0.0]*n_slots
+    r=wb(reg,190); res=np.nan_to_num(cv2.matchTemplate(r,t,cv2.TM_CCOEFF_NORMED))
+    row_max=res.max(axis=1); ys=np.arange(res.shape[0])
+    slot_ids=np.clip(np.floor((247-ys)/44.0+0.5).astype(int),0,n_slots-1)
+    return [float(row_max[slot_ids==s].max()) if (slot_ids==s).any() else -1.0 for s in range(n_slots)]
+def kill_notice_slots(img):
+    return [bool(s>0.6) for s in kill_notice_slot_scores(img)]
 def kill_notice(img):             # '〇〇をたおした!' bottom center (renders over map too)
-    return match(img[420:720,200:1080],T('tpl_wotaoshita.png'),190)>0.6
+    return any(kill_notice_slots(img))
 def gauge(img):                   # special gauge ring: (white_frac, orange_frac)
     g=img[10:150,1115:1260]; yy,xx=np.mgrid[0:140,0:145]; r=np.hypot(xx-75,yy-72); ann=(r>40)&(r<62)
     h=cv2.cvtColor(g,cv2.COLOR_BGR2HSV)[ann]

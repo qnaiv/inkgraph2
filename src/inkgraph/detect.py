@@ -35,6 +35,17 @@ def merge_death_runs(t,sig,ok,mp,minlen=1.5):
             cur[1]=nxt[1]
     merged.append(cur)
     return [[a,b] for a,b in merged if (b-a)>=minlen]
+def kill_events_from_slots(t, slots):
+    """マルチキルの縦スロット信号からキルイベント列を抽出"""
+    if not len(t) or not len(slots): return []
+    max_slots = max((len(s) for s in slots if s is not None), default=0)
+    ev = []
+    for s in range(max_slots):
+        mask = [bool(s < len(f) and f[s]) if f is not None else False for f in slots]
+        for a, b in runs(t, mask, 0.2, 1.0):
+            ev.append({'start': round(a, 1), 'end': round(b, 1), 'slot': s})
+    ev.sort(key=lambda e: (e['start'], e['slot']))
+    return [{'start': e['start'], 'end': e['end']} for e in ev]
 def team_hues(crops):
     out=[]
     for side in (0,1):
@@ -42,10 +53,12 @@ def team_hues(crops):
         h=h[(h[:,1]>170)&(h[:,2]>150)]; out.append(int(np.argmax(np.bincount(h[:,0],minlength=180))) if len(h) else 0)
     return out
 def collect(path,a,b,step=0.2):
-    R={k:[] for k in ['t','timer','map','sig','kill','gw','go','crops','ally','enemy']}; imgs_map=[]
+    R={k:[] for k in ['t','timer','map','sig','kill','kill_slots','gw','go','crops','ally','enemy']}; imgs_map=[]
     for t,img in frames(path,step,a,b):
         R['t'].append(t); tm=cues.timer_present(img); mp=cues.map_open(img)
-        R['timer'].append(tm); R['map'].append(mp); R['sig'].append(cues.own_dead_signal(img)); R['kill'].append(cues.kill_notice(img))
+        ks=cues.kill_notice_slots(img)
+        R['timer'].append(tm); R['map'].append(mp); R['sig'].append(cues.own_dead_signal(img))
+        R['kill_slots'].append(ks); R['kill'].append(any(ks))
         w,o=cues.gauge(img); R['gw'].append(w); R['go'].append(o); R['crops'].append(cues.icon_crops(img))
         imgs_map.append(img if mp else None)
     th=team_hues([c for c,ok in zip(R['crops'],R['timer']) if ok][:60])
@@ -92,7 +105,10 @@ def build(R,clf=None):
         unused=(not lost) and b>=t[ok][-1]-1.0 if ok.any() else False   # still full when battle ends
         outcome='lost_on_death' if lost else ('unused_at_end' if unused else 'activated')
         sp.append({'ready':round(a,1),'end':round(b,1),'outcome':outcome,'activated_at':round(b,1) if outcome=='activated' else None})
-    kills=[{'start':round(a,1),'end':round(b,1)} for a,b in runs(t,np.array(R['kill']),0.2,1.0)]
+    if R.get('kill_slots') and any(R['kill_slots']):
+        kills=kill_events_from_slots(t,R['kill_slots'])
+    else:
+        kills=[{'start':round(a,1),'end':round(b,1)} for a,b in runs(t,np.array(R['kill']),0.2,1.0)]
     dur=float(t[-1]-t[0]) if len(t) else 0
     return {'squid_down':ev,'own_deaths':ev['L0'],'special':sp,'own_kills':kills,
             'hud_hidden':[[round(a,1),round(b,1)] for a,b in hidden],'map_open':[[round(a,1),round(b,1)] for a,b in maps],
