@@ -18,8 +18,41 @@ export function detected(m) { const r = m.review || { marks: {} }; const out = [
 export function effective(m) { const S = series(m), r = m.review || { added: [] };
   const ev = detected(m).filter(e => e.mark !== 'wrong' && e.mark !== 'deleted').concat((r.added || []).map(a => ({ kind: a.kind, t: a.t, end: a.t + (a.kind === 'death' ? 5 : 0.5), outcome: a.outcome || (a.kind === 'special' ? 'activated' : undefined), added: true, key: key('add-' + a.kind, a.t) })));
   ev.forEach(e => Object.assign(e, ctx(m, S, e.kind, e.t))); return ev.sort((a, b) => a.t - b.t); }
-export function resultOf(m) { const rs = m.result_screen || {}, f = (m.review || {}).fix || {}; const own = rs.own || {};
-  return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m) }; }
+export const RESULT_STATUS_LABEL = { read: '読み取り済み', partial: '一部未取得', missing: '未取得（試合中データのみ）' };
+export function resultStatus(m) {
+  const rs = m ? m.result_screen : null;
+  const cf = m ? m.confidence : null;
+  const res = rs ? rs.result : null;
+  const hasResult = res === 'WIN' || res === 'LOSE';
+  const hasMode = rs && rs.mode != null;
+  const hasStage = rs && rs.stage != null;
+  const own = rs ? rs.own : null;
+  const hasAnyOwn = own != null && (own.ka != null || own.deaths != null || own.specials != null);
+  const hasAllOwn = own != null && own.ka != null && own.deaths != null && own.specials != null;
+  const hasFrames = cf != null && (((cf.celebration_frames || 0) > 0) || ((cf.personal_frames || 0) > 0) || ((cf.board_frames || 0) > 0));
+
+  if (!hasResult && !hasMode && !hasStage && !hasAnyOwn && !hasFrames) {
+    return { key: 'missing', label: RESULT_STATUS_LABEL.missing };
+  }
+  if (hasResult && hasMode && hasStage && hasAllOwn) {
+    return { key: 'read', label: RESULT_STATUS_LABEL.read };
+  }
+  return { key: 'partial', label: RESULT_STATUS_LABEL.partial };
+}
+export function resultSourceLabel(m) {
+  if (m && m.review && m.review.fix && m.review.fix.result != null) return '手動訂正';
+  const src = m && m.result_screen ? m.result_screen.result_source : null;
+  if (src === 'celebration') return '演出';
+  if (src === 'board') return '対戦表';
+  if (src === 'fix') return '手動訂正';
+  return '不明';
+}
+export const RESULT_FRAME_STEP = 0.08;
+export function frameStepForState(state, base = 0.2) {
+  return state === 'result' ? RESULT_FRAME_STEP : base;
+}
+export function resultOf(m) { const rs = (m && m.result_screen) || {}, f = ((m && m.review) || {}).fix || {}; const own = rs.own || {};
+  return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m), result_source: resultSourceLabel(m) }; }
 export function finalCount(m) { const s = m.tower_series; if (!s || !s.length) return null; const l = s[s.length - 1]; return `${l.own}-${l.enemy}`; }
 export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
 /** accuracy from review marks. per kind: tp=✓, fp=✗, fn=added. result fields: rmarks ok/wrong */

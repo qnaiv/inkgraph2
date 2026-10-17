@@ -271,3 +271,20 @@
 - デプロイ制御：`main` ブランチへの push（マージ時）のみ本番 Pages へアーティファクトをアップロード・デプロイする。PR や機能ブランチからの `workflow_dispatch` 実行時はビルド検証のみを行い、本番 Pages は上書きしない。
 - リポジトリ設定：GitHub Pages の Source を "GitHub Actions" へ切り替える設定はリポジトリ管理者の Naoki / Bobo が手動で実施する（コード・PRでは設定不可）。
 - 関連issue：なし（既存 issue を Pages / ホスティング / デプロイ で検索し該当 0 件を確認）。
+
+## D33 (2026-10-17) リザルト未取得試合の扱い（状態判定・由来保存・読み取り間隔・既存レコードは不明）
+- 背景・目的: リザルト画面が取得できなかった試合や一部欠損した試合で、null安全を確保しつつ状態を明示し、勝敗由来の追跡と傾向分析での除外計算を行う。またリザルト検出精度向上のためリザルト状態時のフレーム読み取り間隔を短縮する。
+- 状態判定（`resultStatus`）:
+  - `result_screen` および `confidence` から判定（`result_screen: null` や引数 null でも例外を投げず安全に動作）。
+  - `missing`（未取得（試合中データのみ））: 勝敗（WIN/LOSE）、ルール、ステージ、個人成績（ka/deaths/specials のいずれか）および各フレーム検出数（`celebration_frames`, `personal_frames`, `board_frames` > 0）のいずれも存在しない場合。
+  - `read`（読み取り済み）: 勝敗、ルール、ステージ、個人成績（全部）がすべて非nullで揃っている場合。
+  - `partial`（一部未取得）: 上記以外（一部項目のみ取得できた場合）。
+  - UIバッジ: 試合一覧の各行および詳細画面の見出し（`detail-stage-info`）に `<span class="result-status" data-status="...">` を表示（ピル型・エラー色や赤色は使わず中立色 `--surface-2` / `--text-muted`、`missing` は `--text-faint`）。
+- 勝敗由来の保存（`result_source`）:
+  - `finalizeResult` にて、celebration 演出の多数決で決定した場合は `'celebration'`、演出がなく board（対戦表）の自行から決定した場合は `'board'`、どちらも決まらなければ `null` を返し、`analyzer.finish()` で `rec.result_screen.result_source` として永続化。
+  - `resultSourceLabel`: `review.fix.result` があれば「手動訂正」、`celebration` は「演出」、`board` は「対戦表」、`fix` は「手動訂正」、未記録（既存レコード含む）や null は「不明」を返す。`resultOf` の戻り値にも `result_source` を追加。
+- 読み取り間隔の短縮:
+  - 通常のライブ解析フレーム間隔（`0.2s`）に対し、リザルト画面検出状態（`this.lastState === 'result'`）では短縮間隔 `0.08s`（`RESULT_FRAME_STEP` / `frameStepForState`）を動的に適用し、短い演出フレームの見逃しを低減。fastLoop は現状維持。次の試合開始で即確定する挙動は維持。
+- 傾向分析（トレンド）での未取得試合の除外:
+  - 勝敗不明（WIN/LOSE以外）の試合数を `unknown` として集計し、1件以上ある場合は勝率統計に「勝敗不明N試合を除くM試合で計算」の注記を表示。
+  - 勝率推移ドットおよび試合別小グラフの試合番号ラベル（`#i`）で、勝敗不明の試合は LOSE 色ではなく中立の `var(--text-faint)` で描画。凡例にも不明表示を追加。

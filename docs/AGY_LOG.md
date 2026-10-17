@@ -31,6 +31,7 @@
 | 25 | 2026-10-17 | #36 自己学習S3: Grok側再現ハーネス（tools/repro_s3.py・CLI・test_repro_s3.py 13件PASS・repro_s3.md・D31） | gemini-3.8-flash-medium | CLI仕様・純粋関数・入出力フォーマット・合否判定を厳密に箇条書き（約50行） | 成功。unittest 13件ALL PASS、eval_ci回帰通過、実データおよび合成データでCLI実走確認 | なし | 仕様1回＋テスト・CLI実走確認（約4回） |
 | 26 | 2026-10-17 | GitHub Pages配信（U1: .github/workflows/pages.yml・サブパス安全性確認・README・D32） | gemini-3.8-flash-medium | 要件を5項目で箇条書き（Actions仕様、サブパス検証、README、D32、AGY_LOG） | 成功。actionlint通過、build成功、サブパス(/inkgraph2/)配信で画面・アセットJSON 200を確認 | DECISIONSの誤字とAGY番号（実物は次が22）をGrokが修正 | 仕様1回＋検証・修正2件 |
 | 27 | 2026-10-17 | grok-notify 認証を `GROK_WEBHOOK_AUTH` の Authorization ヘッダ方式へ変更（workflow・テスト・README） | claude-sonnet-5-5-medium | 複数ファイル・要件を箇条書き | 成功（検証は Grok 側で実施） | なし（予定） | 仕様1回＋検証 |
+| 28 | 2026-10-17 | リザルト未取得試合の扱い（状態判定・由来保存・読み取り間隔0.08s・傾向分析除外・result_missing_check・D33） | gemini-3.8-flash-medium | 仕様9項目を箇条書きで依頼 | 成功。build通過、result_missing_check 36項目 ALL PASS、既存回帰通過 | 不要な PAGES.trends エイリアスを除去し check の遷移先を #trend に修正（2箇所） | 仕様1回＋差分レビュー・検証 |
 
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
