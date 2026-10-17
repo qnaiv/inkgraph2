@@ -2,7 +2,7 @@
 // Left label column 72px, 30s ticks, 7 lanes:
 // 1. 局面の帯 (28px)  2. カウント差 (80px)  3. 自分レーン  4. 勝率グラフ (120px, 50% split)
 // 5. 人数差 (smoothed <1s)  6. ヤグラ (count lines + holder band)  7. 味方・敵のやられ (collapsed)
-import { effective, series, wpAt, mss, SP_LABEL } from './analysis.js';
+import { effective, series, wpAt, mss, SP_LABEL, holderSegments, HOLDER_JA, setHolderLabel, clearHolderLabel, addCountPoint, removeCountPoint } from './analysis.js';
 import { aliveAt } from './core/analyzer.js';
 import * as T from './core/tower.js';
 
@@ -12,16 +12,22 @@ const fmtDiff = d => d === null || d === undefined || isNaN(d) ? '—' : d > 0 ?
 const diffClass = d => d === null || d === undefined || isNaN(d) ? 'count-zero' : d > 0 ? 'count-pos' : d < 0 ? 'count-neg' : 'count-zero';
 const phaseClass = p => p === '抑え' ? 'phase-osae' : p === '打開' ? 'phase-dakai' : 'phase-gokaku';
 
-export function renderTimeline(m, { onSeek } = {}) {
+// document-level listeners of the open popover; aborted whenever a timeline is re-rendered
+let popAbort = null;
+
+export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
+  if (popAbort) popAbort.abort();
+  popAbort = new AbortController();
+  const popSignal = popAbort.signal;
   const t0 = m.battle[0], t1 = m.battle[1], Tm = Math.max(60, t1 - t0);
   const L = 72, Wd = 950, Rpad = 38, W = L + Wd + Rpad;
   const X = t => L + Math.max(0, Math.min(1, (t - t0) / Tm)) * Wd;
-  const ev = effective(m), S = series(m);
+  const ev = effective(m), S = series(m), holderSegs = holderSegments(m);
   const uid = Math.random().toString(36).slice(2, 8);
 
   const unknownIntervals = (m.hud_hidden || []).concat(m.map_open || []);
   const unknownBand = (y0, h) => unknownIntervals.map(([a, b]) =>
-    `<rect x="${X(a).toFixed(1)}" y="${y0}" width="${Math.max(1, X(b) - X(a)).toFixed(1)}" height="${h}" fill="var(--unknown)"/>`
+    `<rect x="${X(a).toFixed(1)}" y="${y0}" width="${Math.max(1, X(b) - X(a)).toFixed(1)}" height="${h}" fill="var(--unknown)" pointer-events="none"/>`
   ).join('');
 
   const gridTicks = [];
@@ -185,22 +191,55 @@ export function renderTimeline(m, { onSeek } = {}) {
 
   // ---------------- 6. ヤグラ (70px) ----------------
   if (S.length) {
+    const isReview = reviewMode !== undefined ? !!reviewMode : (typeof document !== 'undefined' && !!document.querySelector('.detail-body.review-on'));
     const tcY = y, tcH = 70;
     const Ytc = v => tcY + tcH - 10 - (Math.max(0, Math.min(100, v || 0)) / 100) * (tcH - 18);
     body += `<text x="${L - 8}" y="${tcY + 38}" text-anchor="end" font-size="12" font-weight="500" fill="var(--text-muted)">ヤグラ</text>`;
     body += `<rect x="${L}" y="${tcY}" width="${Wd}" height="${tcH}" fill="var(--surface-2)" fill-opacity="0.35"/>`;
-    // Holder band at bottom of lane
-    const stepW = Math.max(2, Wd / Tm + 0.6);
-    for (const p of S) {
-      if (p.owner !== 'neutral') {
-        const col = p.owner === 'own' ? 'var(--ally)' : 'var(--enemy)';
-        body += `<rect x="${X(p.t).toFixed(1)}" y="${tcY + tcH - 5}" width="${stepW.toFixed(1)}" height="5" fill="${col}"/>`;
+    // Holder band at bottom of lane: review mode has 14px height and 24px hit area
+    const bandH = isReview ? 14 : 8, bandY = tcY + tcH - bandH;
+    const hitH = 24, hitY = bandY - (hitH - bandH) / 2;
+    const holderCol = v => v === 'own' ? 'var(--ally)' : v === 'enemy' ? 'var(--enemy)' : 'var(--surface-2)';
+    for (const sg of holderSegs) {
+      const xa = X(sg.ta), w = Math.max(2, X(sg.tb) - xa);
+      let tip;
+      if (sg.changed) {
+        tip = `修正済み（検出：${HOLDER_JA[sg.det]}）`;
+      } else if (sg.val === 'neutral') {
+        tip = '中立（だれも乗っていない）';
+      } else if (sg.confirmed) {
+        tip = `ヤグラ保持: ${HOLDER_JA[sg.val]}（確認済み）`;
+      } else {
+        tip = `ヤグラ保持: ${HOLDER_JA[sg.val]}`;
       }
+      const lab = `${mss(sg.ta - t0)}–${mss(sg.tb - t0)} ${tip}`;
+      const fillStyle = sg.val === 'neutral'
+        ? 'fill="var(--surface-2)" stroke="var(--border-strong)" stroke-width="1"'
+        : `fill="${holderCol(sg.val)}"`;
+      const dotX = xa + Math.min(5, w / 2), dotY = bandY + bandH / 2;
+      body += `<g class="tw-seg" data-key="${sg.key}" data-tip="${tip}" tabindex="0" role="button" aria-label="${lab}"><title>${tip}</title>`
+        + (isReview ? `<rect class="tw-hit" x="${xa.toFixed(1)}" y="${hitY.toFixed(1)}" width="${w.toFixed(1)}" height="${hitH}" fill="transparent"/>` : '')
+        + `<rect class="tw-fill" x="${xa.toFixed(1)}" y="${bandY.toFixed(1)}" width="${w.toFixed(1)}" height="${bandH.toFixed(1)}" ${fillStyle}/>`
+        + (sg.changed ? `<circle class="tw-changed-dot" cx="${dotX.toFixed(1)}" cy="${dotY.toFixed(1)}" r="3" fill="var(--accent)" pointer-events="none"/>` : '')
+        + (sg.confirmed && !sg.changed ? `<rect class="tw-confirmed" x="${(xa + 0.5).toFixed(1)}" y="${(bandY - 0.5).toFixed(1)}" width="${Math.max(1, w - 1).toFixed(1)}" height="${(bandH + 1).toFixed(1)}" fill="none" stroke="var(--accent)" stroke-width="1" pointer-events="none"/>` : '')
+        + `<rect class="tw-focus" x="${(xa - 1).toFixed(1)}" y="${(bandY - 2).toFixed(1)}" width="${(w + 2).toFixed(1)}" height="${(bandH + 4).toFixed(1)}" rx="2" fill="none" stroke="var(--text)" stroke-width="1.5" pointer-events="none"/></g>`;
     }
     const ownLine = S.map(p => `${X(p.t).toFixed(1)},${Ytc(p.count_own).toFixed(1)}`).join(' ');
     const eneLine = S.map(p => `${X(p.t).toFixed(1)},${Ytc(p.count_enemy).toFixed(1)}`).join(' ');
     body += `<polyline fill="none" stroke="var(--ally)" stroke-width="2" points="${ownLine}"/>`;
     body += `<polyline fill="none" stroke="var(--enemy)" stroke-width="2" points="${eneLine}"/>`;
+    // recorded count points (review.count_series) as dots on the count lines
+    for (const c of (m.review && m.review.count_series) || []) {
+      if (c[0] < t0 || c[0] > t1) continue;
+      const cTip = `味方 ${c[1]} ／ 敵 ${c[2]}`;
+      const cx = X(c[0]).toFixed(1), cyOwn = Ytc(c[1]).toFixed(1), cyEnemy = Ytc(c[2]).toFixed(1);
+      body += `<g class="tw-cp" data-c0="${c[0]}" data-own="${c[1]}" data-enemy="${c[2]}" data-tip="${cTip}" tabindex="0" role="button" aria-label="${cTip}">`
+        + `<title>${cTip}</title>`
+        + `<line x1="${cx}" x2="${cx}" y1="${cyOwn}" y2="${cyEnemy}" stroke="var(--border-strong)" stroke-width="1.5" stroke-dasharray="2,2"/>`
+        + `<circle cx="${cx}" cy="${cyOwn}" r="3.5" fill="var(--ally)" stroke="var(--surface)" stroke-width="1.5"/>`
+        + `<circle cx="${cx}" cy="${cyEnemy}" r="3.5" fill="var(--enemy)" stroke="var(--surface)" stroke-width="1.5"/>`
+        + `</g>`;
+    }
     body += unknownBand(tcY, tcH);
     body += `<text x="${L + Wd + 4}" y="${tcY + 12}" class="num" font-size="10" fill="var(--text-muted)">100</text>`;
     y += tcH + 8;
@@ -275,6 +314,36 @@ export function renderTimeline(m, { onSeek } = {}) {
   };
 
   svg.addEventListener('mousemove', e => {
+    if (pop) {
+      hoverLine.style.opacity = '0';
+      tooltip.style.display = 'none';
+      return;
+    }
+    const seg = e.target.closest('.tw-seg');
+    if (seg && seg.dataset.tip) {
+      hoverLine.style.opacity = '0';
+      tooltip.innerHTML = `<span>${seg.dataset.tip}</span>`;
+      tooltip.style.display = 'inline-flex';
+      const rect = wrap.getBoundingClientRect();
+      const relX = e.clientX - rect.left;
+      const relY = e.clientY - rect.top;
+      tooltip.style.left = `${Math.max(8, Math.min(rect.width - 260, relX - 110))}px`;
+      tooltip.style.top = `${Math.max(4, relY - 42)}px`;
+      return;
+    }
+    const cp = e.target.closest('.tw-cp');
+    if (cp && cp.dataset.tip) {
+      hoverLine.style.opacity = '0';
+      tooltip.innerHTML = `<span>${cp.dataset.tip}</span>`;
+      tooltip.style.display = 'inline-flex';
+      const rect = wrap.getBoundingClientRect();
+      const relX = e.clientX - rect.left;
+      const relY = e.clientY - rect.top;
+      tooltip.style.left = `${Math.max(8, Math.min(rect.width - 260, relX - 110))}px`;
+      tooltip.style.top = `${Math.max(4, relY - 42)}px`;
+      return;
+    }
+
     const t = clientToMatchTime(e);
     if (t === null) {
       hoverLine.style.opacity = '0';
@@ -310,6 +379,40 @@ export function renderTimeline(m, { onSeek } = {}) {
     tooltip.style.display = 'none';
   });
 
+  wrap.querySelectorAll('.tw-seg').forEach(g => {
+    g.addEventListener('mouseenter', e => {
+      if (pop) return;
+      const tip = g.dataset.tip;
+      if (!tip) return;
+      hoverLine.style.opacity = '0';
+      tooltip.innerHTML = `<span>${tip}</span>`;
+      tooltip.style.display = 'inline-flex';
+      const rect = wrap.getBoundingClientRect();
+      const gr = g.getBoundingClientRect();
+      const relX = gr.left - rect.left + gr.width / 2;
+      const relY = gr.top - rect.top;
+      tooltip.style.left = `${Math.max(8, Math.min(rect.width - 260, relX - 110))}px`;
+      tooltip.style.top = `${Math.max(4, relY - 42)}px`;
+    });
+  });
+
+  wrap.querySelectorAll('.tw-cp').forEach(g => {
+    g.addEventListener('mouseenter', e => {
+      if (pop) return;
+      const tip = g.dataset.tip;
+      if (!tip) return;
+      hoverLine.style.opacity = '0';
+      tooltip.innerHTML = `<span>${tip}</span>`;
+      tooltip.style.display = 'inline-flex';
+      const rect = wrap.getBoundingClientRect();
+      const gr = g.getBoundingClientRect();
+      const relX = gr.left - rect.left + gr.width / 2;
+      const relY = gr.top - rect.top;
+      tooltip.style.left = `${Math.max(8, Math.min(rect.width - 260, relX - 110))}px`;
+      tooltip.style.top = `${Math.max(4, relY - 42)}px`;
+    });
+  });
+
   wrap.querySelectorAll('.ev').forEach(g => g.addEventListener('click', e => {
     e.stopPropagation();
     if (onSeek) onSeek(+g.dataset.t);
@@ -319,6 +422,100 @@ export function renderTimeline(m, { onSeek } = {}) {
     const t = clientToMatchTime(e);
     if (t !== null && onSeek) onSeek(t);
   });
+
+  // ---- ヤグラ保持ラベルのポップオーバー（確認モードのみ） ----
+  // カウント点の時刻は「区間の開始時刻」に固定（動画の同期ずれに依存せず再現できるため）。
+  let pop = null, popKey = null;
+  const reviewOn = () => reviewMode !== undefined ? !!reviewMode : !!wrap.closest('.detail-body.review-on');
+  const segEl = key => [...svg.querySelectorAll('.tw-seg')].find(g => g.dataset.key === key);
+  const closePop = (refocus) => {
+    if (!pop) return;
+    svg.querySelectorAll('.tw-seg.is-editing').forEach(el => el.classList.remove('is-editing'));
+    const k = popKey; pop.remove(); pop = null; popKey = null;
+    if (refocus) { const g = segEl(k); if (g) g.focus(); }
+  };
+  const openPop = key => {
+    const sg = holderSegs.find(x => x.key === key), g = segEl(key);
+    if (!sg || !g || !reviewOn()) return;
+    closePop();
+    if (tooltip) {
+      tooltip.style.display = 'none';
+      tooltip.innerHTML = '';
+    }
+    if (hoverLine) {
+      hoverLine.style.opacity = '0';
+    }
+    popKey = key;
+    g.classList.add('is-editing');
+    pop = document.createElement('div');
+    pop.className = 'tw-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'ヤグラ保持のラベル');
+    const pts = ((m.review && m.review.count_series) || []).filter(c => c[0] >= sg.ta - 1e-6 && c[0] < sg.tb);
+    pop.innerHTML = `
+      <div class="tw-pop-head"><span class="tw-pop-title">ヤグラ保持</span><span class="num tw-pop-range">${mss(sg.ta - t0)}–${mss(sg.tb - t0)}</span><span class="tw-pop-det">検出: ${HOLDER_JA[sg.det]}</span></div>
+      <div class="tw-pop-choices" role="radiogroup" aria-label="保持者">
+        ${['own', 'enemy', 'neutral'].map(v => `<button type="button" class="tw-pill tw-pill-${v}" role="radio" aria-checked="${sg.val === v}" data-v="${v}">${HOLDER_JA[v]}</button>`).join('')}
+      </div>
+      <div class="tw-pop-count">
+        <span class="tw-pop-count-label">この時点のカウント</span>
+        <label>味方 <input type="number" class="input-sm tw-cn tw-cn-own" min="0" max="100" inputmode="numeric" aria-label="味方のカウント"></label>
+        <label>敵 <input type="number" class="input-sm tw-cn tw-cn-enemy" min="0" max="100" inputmode="numeric" aria-label="敵のカウント"></label>
+        <button type="button" class="btn btn-sm tw-cn-add">カウントを記録</button>
+      </div>
+      <div class="tw-pop-note">記録時刻: この区間の開始 ${mss(sg.ta - t0)}</div>
+      ${pts.length ? `<ul class="tw-pop-list">${pts.map(c => `<li><span class="num">${mss(c[0] - t0)}</span><span class="num">味方 ${c[1]} / 敵 ${c[2]}</span><button type="button" class="btn btn-sm tw-cn-del" data-sec="${c[0]}" aria-label="カウント点を削除">×</button></li>`).join('')}</ul>` : ''}
+      ${sg.confirmed ? `<div class="tw-pop-foot"><button type="button" class="tw-unconfirm">未確認に戻す</button></div>` : ''}
+      <svg class="tw-pop-arrow" width="16" height="8" viewBox="0 0 16 8"><path d="M0,0 L8,8 L16,0" fill="var(--surface)" stroke="var(--border-strong)" stroke-width="1"/><line x1="0" y1="0" x2="16" y2="0" stroke="var(--surface)" stroke-width="1.5"/></svg>`;
+    wrap.appendChild(pop);
+    const wr = wrap.getBoundingClientRect(), gr = g.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
+    const segCenterX = gr.left - wr.left + gr.width / 2;
+    const popLeft = Math.max(8, Math.min(wr.width - pw - 8, segCenterX - pw / 2));
+    const popTop = Math.max(4, gr.top - wr.top - ph - 8);
+    pop.style.left = `${popLeft}px`;
+    pop.style.top = `${popTop}px`;
+    const arrow = pop.querySelector('.tw-pop-arrow');
+    if (arrow) {
+      const arrowX = Math.max(16, Math.min(pw - 16, segCenterX - popLeft));
+      arrow.style.left = `${arrowX}px`;
+    }
+    pop.querySelectorAll('.tw-pill').forEach(b => b.addEventListener('click', () => {
+      setHolderLabel(m, key, b.dataset.v);
+      closePop();
+      if (onReviewChange) onReviewChange({ reopen: null, focus: key });
+    }));
+    const uc = pop.querySelector('.tw-unconfirm');
+    if (uc) uc.addEventListener('click', () => {
+      clearHolderLabel(m, key);
+      closePop();
+      if (onReviewChange) onReviewChange({ reopen: null, focus: key });
+    });
+    pop.querySelector('.tw-cn-add').addEventListener('click', () => {
+      const a = pop.querySelector('.tw-cn-own').value, b = pop.querySelector('.tw-cn-enemy').value;
+      const ok = v => v !== '' && Number.isFinite(+v) && +v >= 0 && +v <= 100;
+      if (!ok(a) || !ok(b)) { pop.querySelector(ok(a) ? '.tw-cn-enemy' : '.tw-cn-own').focus(); return; }
+      addCountPoint(m, sg.ta, Math.round(+a), Math.round(+b));
+      if (onReviewChange) onReviewChange({ reopen: key });
+    });
+    pop.querySelectorAll('.tw-cn-del').forEach(b => b.addEventListener('click', () => {
+      removeCountPoint(m, +b.dataset.sec);
+      if (onReviewChange) onReviewChange({ reopen: key });
+    }));
+    (pop.querySelector('.tw-pill[aria-checked="true"]') || pop.querySelector('.tw-pill')).focus();
+  };
+  wrap.openPopover = openPop;
+  wrap.closePopover = () => closePop(false);
+  wrap.focusSegment = key => { const g = segEl(key); if (g) g.focus(); };
+  svg.querySelectorAll('.tw-seg').forEach(g => {
+    g.addEventListener('click', e => { e.stopPropagation(); if (reviewOn()) openPop(g.dataset.key); });
+    g.addEventListener('keydown', e => {
+      if ((e.key === 'Enter' || e.key === ' ') && reviewOn()) { e.preventDefault(); openPop(g.dataset.key); }
+    });
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && pop) { e.preventDefault(); closePop(true); }
+  }, { signal: popSignal });
+  document.addEventListener('mousedown', e => {
+    if (pop && !pop.contains(e.target) && !(e.target.closest && e.target.closest('.tw-seg'))) closePop(false);
+  }, { signal: popSignal });
 
   wrap.setPlayhead = t => {
     const p = svg.querySelector('#playhead');
@@ -353,5 +550,6 @@ export const LEGEND = `
     <span><svg width="14" height="14" viewBox="0 0 14 14" style="vertical-align:middle"><line x1="2" y1="2" x2="12" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="2" x2="2" y2="12" stroke="var(--death)" stroke-width="2" stroke-linecap="round"/></svg> デス</span>
     <span><i class="tl-swatch" style="background:var(--special)"></i>スペシャル発動</span>
     <span><i class="tl-swatch" style="background:var(--special-wasted)"></i>スペシャル未使用・払い落とし</span>
+    <span><b style="color:var(--accent)">●</b> 修正済み</span>
   </div>
 </div>`;
