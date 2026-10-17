@@ -72,3 +72,7 @@
 ## D17 (2026-10-17) コードの実装はAntigravity CLI（agy）に任せる
 - Grokは仕様書の作成、検証、レビューを担当し、コードの記述はAntigravity CLI（`agy`）が行う。
 - 作業の記録は `docs/AGY_LOG.md` に残す。
+
+## D18 (2026-10-17) デザインレビュー反映：キル+アシストの廃止と停止ボタンの追加
+- キル+アシスト（ka）はUIから外す。`tools/ingest_feedback.py` は `result_screen` や `fix` に `ka` がなくても止まらず、「未確認」（None）として扱う。自分のキルは、タイムラインのキルイベントで確認する（Leadの決定）。
+- `.btn-stop` を `tokens.css` に追加した（背景は透明、文字色は `--danger`、1pxの `--danger` 枠線、ホバーで12%の薄い赤）。`.btn-danger-ghost` は残し、試合一覧の「…」メニュー内の「削除」に使う。
