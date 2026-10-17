@@ -6,6 +6,7 @@
 |---|---|---|---|---|---|---|---|
 | 1 | 2026-10-17 | `tools/ingest_feedback.py`（フィードバックzip取り込み・テンプレ追加・正解ラベル出力・精度集計） | gemini-3.8-flash-medium | 1ファイル・入出力形式と手順を箇条書き（約30行） | 成功。py_compile通過、実データ（Web版が書き出したzip）でそのまま動作 | なし | 仕様1回＋実行確認1回（ツール呼び出し約3回） |
 | 2 | 2026-10-17 | README / DECISIONS（D15〜D17）/ CONTEXT の日本語更新 | claude-sonnet-5-5-medium | 事実の箇条書き＋更新箇所の指定 | 成功。CRLF→LFも自主的に統一 | なし（差分確認のみ） | 仕様1回＋差分確認1回（約2回） |
+| 14 | 2026-10-17 | GitHub Actions `grok-notify`（@grok を Grok webhook へ通知。workflow・ペイロード生成スクリプト・検証スクリプト・README） | claude-sonnet-5-5-medium | 複数ファイル・要件を厳密に箇条書き（約50行） | 成功。`tools/test_grok_notify.sh` PASS、`bash -n` 通過 | テスト内サンプルの repo 名を `qnaiv/inkgraph2` に修正（表記のみ） | 仕様1回＋検証（actionlint/YAML/jq）＋軽微な表記修正1件 |
 
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。

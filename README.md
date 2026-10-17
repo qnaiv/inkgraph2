@@ -139,3 +139,15 @@ npm run preview
 - ヤグラの保持チーム（自チーム／敵／中立）
 - 簡易勝率カーブ
 - 勝率を大きく動かした自分のキル・デス（上位）
+
+## GitHub から Grok へ指示する（@grok）
+
+GitHub Actions（`.github/workflows/grok-notify.yml`）が、`@grok` を含む投稿を Grok の webhook に通知します。
+
+- **書き方**：Issue 新規作成の本文、または Issue / PR へのコメントに `@grok` と指示を書く。投稿者が `qnaiv` の場合だけ動作します。
+- **対象イベント**：`issues`（opened）、`issue_comment`（created。PR へのコメントも含む）
+- **必要な secrets**：`GROK_WEBHOOK_URL` / `GROK_WEBHOOK_KEY`（Settings > Secrets and variables > Actions に登録）
+- **自動でしないこと**：GitHub への自動返信、自動マージ、Issue の自動クローズ。通知のみです。
+- **secrets 未設定時**：警告（`::warning::`）を出して送信をスキップし、ジョブは成功扱いで終了します。
+- 認証ヘッダ名（仮：`X-Webhook-Key`）は webhook の仕様に合わせて要確認です。
+- 検証：`bash tools/test_grok_notify.sh`
