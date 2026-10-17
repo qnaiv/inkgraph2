@@ -1,0 +1,52 @@
+name: Eval CI (精度回帰)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/eval_labels.py'
+      - 'tools/eval_ci.py'
+      - 'tools/eval_baseline.json'
+      - 'tools/test_eval_ci.py'
+      - 'labels/**'
+      - 'out/1080p/**'
+      - '.github/workflows/eval-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'tools/eval_labels.py'
+      - 'tools/eval_ci.py'
+      - 'tools/eval_baseline.json'
+      - 'tools/test_eval_ci.py'
+      - 'labels/**'
+      - 'out/1080p/**'
+      - '.github/workflows/eval-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run unit tests
+        run: python3 tools/test_eval_ci.py
+
+      - name: Run evaluation
+        run: python3 tools/eval_ci.py --labels-dir labels --pred python --md eval-summary.md --json eval-result.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-result
+          path: |
+            eval-summary.md
+            eval-result.json
