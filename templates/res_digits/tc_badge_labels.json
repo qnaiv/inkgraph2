@@ -1,0 +1,2084 @@
+[
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 61.0,
+  "label": "88"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 62.0,
+  "label": "87"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 63.0,
+  "label": "87"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 65.0,
+  "label": "85"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 66.0,
+  "label": "83"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 67.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 68.0,
+  "label": "78"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 69.0,
+  "label": "76"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 70.0,
+  "label": "74"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 71.0,
+  "label": "71"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 72.0,
+  "label": "69"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 73.0,
+  "label": "66"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 74.0,
+  "label": "64"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 75.0,
+  "label": "61"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 77.0,
+  "label": "60"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 81.0,
+  "label": "60"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 85.0,
+  "label": "60"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 86.0,
+  "label": "60"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 88.0,
+  "label": "60"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 89.0,
+  "label": "60"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 90.0,
+  "label": "59"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 91.0,
+  "label": "59"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 92.0,
+  "label": "58"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 93.0,
+  "label": "56"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 94.0,
+  "label": "53"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 95.0,
+  "label": "51"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 99.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 100.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 102.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 103.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 104.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 105.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 106.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 107.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 108.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 109.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 110.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 111.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 112.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 113.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 114.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 115.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 116.0,
+  "label": "99"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 116.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 117.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 118.0,
+  "label": "94"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 118.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 119.0,
+  "label": "91"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 119.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 120.0,
+  "label": "89"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 120.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 121.0,
+  "label": "88"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 121.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 122.0,
+  "label": "86"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 122.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 123.0,
+  "label": "84"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 123.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 124.0,
+  "label": "82"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 124.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 125.0,
+  "label": "80"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 126.0,
+  "label": "78"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 127.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 128.0,
+  "label": "74"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 128.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 129.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 130.0,
+  "label": "69"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 130.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 131.0,
+  "label": "66"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 131.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 132.0,
+  "label": "64"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 132.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 133.0,
+  "label": "61"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 133.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 134.0,
+  "label": "59"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 135.0,
+  "label": "56"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 135.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 136.0,
+  "label": "54"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 136.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 137.0,
+  "label": "51"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 139.0,
+  "label": "48"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 139.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 140.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 141.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 143.0,
+  "label": "39"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 143.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 144.0,
+  "label": "38"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 144.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 145.0,
+  "label": "35"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 145.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 146.0,
+  "label": "33"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 147.0,
+  "label": "30"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 147.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 148.0,
+  "label": "27"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 148.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 149.0,
+  "label": "25"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 149.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "enemy",
+  "t": 150.0,
+  "label": "22"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 150.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 151.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 153.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 158.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f1",
+  "side": "own",
+  "t": 159.0,
+  "label": "50"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 48.0,
+  "label": "99"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 49.0,
+  "label": "98"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 50.0,
+  "label": "95"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 53.0,
+  "label": "93"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 55.0,
+  "label": "92"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 57.0,
+  "label": "86"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 58.0,
+  "label": "84"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 59.0,
+  "label": "82"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 60.0,
+  "label": "80"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 61.0,
+  "label": "78"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 62.0,
+  "label": "76"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 63.0,
+  "label": "74"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 65.0,
+  "label": "72"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 66.0,
+  "label": "69"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 67.0,
+  "label": "66"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 71.0,
+  "label": "54"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 72.0,
+  "label": "51"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 73.0,
+  "label": "48"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 75.0,
+  "label": "42"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 77.0,
+  "label": "38"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 78.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 79.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 80.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 81.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 82.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 84.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 85.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 87.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 88.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 89.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 90.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 91.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 93.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 94.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 95.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 101.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 102.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 103.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 104.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 105.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 106.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 107.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 108.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 109.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 110.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 111.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 113.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 114.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 121.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 124.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 125.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 126.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 127.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 128.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 129.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 130.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 132.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 134.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 135.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 136.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 137.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 140.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 142.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 145.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 146.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 153.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 154.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 155.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 156.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 159.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 161.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 162.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 163.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 164.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 165.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 167.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 168.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 169.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 170.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 171.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 172.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 173.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 174.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 175.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 176.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 177.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 178.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 179.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 180.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 181.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 184.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 185.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 189.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 190.0,
+  "label": "97"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 191.0,
+  "label": "94"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 191.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 194.0,
+  "label": "91"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 194.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 196.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 197.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 199.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 200.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 200.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 201.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 202.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 202.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 203.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 203.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 204.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 204.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 205.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 205.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 206.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 206.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 207.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 207.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 208.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 209.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 209.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 210.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 211.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 211.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 212.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 212.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 213.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 213.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 214.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 214.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 215.0,
+  "label": "81"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 215.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 219.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 219.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 220.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 221.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 221.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 222.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 222.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 224.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 224.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 225.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 225.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 227.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 228.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 230.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 230.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 233.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 234.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 235.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 235.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 236.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 236.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 237.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 237.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 240.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 241.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 243.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 244.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 244.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 245.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 245.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 247.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 247.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 248.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 248.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 249.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 250.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 252.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 252.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 253.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 254.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 255.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 255.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 256.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 258.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 259.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 260.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 260.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 261.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 264.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 265.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 266.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 267.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 269.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 273.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 274.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 274.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 275.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 276.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 276.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 277.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 278.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 278.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 279.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 279.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 280.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 280.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 281.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 282.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 282.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 283.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 283.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 284.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 284.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 285.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 286.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 287.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 287.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 288.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 289.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 289.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 290.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 291.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 291.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 292.0,
+  "label": "77"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 293.0,
+  "label": "76"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 293.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 294.0,
+  "label": "74"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 294.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 295.0,
+  "label": "72"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 295.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 296.0,
+  "label": "69"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 298.0,
+  "label": "63"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 298.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 299.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 300.0,
+  "label": "57"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 300.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 301.0,
+  "label": "54"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 301.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 303.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 304.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 305.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 306.0,
+  "label": "48"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 306.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 308.0,
+  "label": "48"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 308.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 309.0,
+  "label": "45"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 309.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 310.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 312.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 313.0,
+  "label": "40"
+ },
+ {
+  "match_id": "f2",
+  "side": "enemy",
+  "t": 314.0,
+  "label": "40"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 315.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 318.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 319.0,
+  "label": "36"
+ },
+ {
+  "match_id": "f2",
+  "side": "own",
+  "t": 320.0,
+  "label": "36"
+ }
+]
