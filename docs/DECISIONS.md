@@ -248,3 +248,19 @@
   - 重複ステータス非表示: バナー表示中（warn/block、またはお気に入り超過時）はヘッダーの `.capacity-status` を非表示化。ok時のみ `.capacity-status` を表示。
   - 95%ブロック理由・無効化スタイル: `.capacity-block-reason` を `.live-source-actions` の外（直後）に配置し全幅表示（アイコン接頭辞 `⚠ `、動的文言「使用量◯%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます」）。`#start:disabled` は背景 `var(--surface-2)`、文字色 `var(--text-faint)`、枠線 `1px solid var(--border)`、`cursor: not-allowed`（opacity廃止）。
 - 備考: PR #125 など先行PRとD番号が競合する場合はマージ時に番号を振り直す。
+
+## D31 (2026-10-17) 自己学習S3: Grok側再現ハーネス（#36）
+- 決定番号の整理: PR #125 と PR #126 の両ブランチで「D29」の番号重複が生じていたため自己学習S2を「D29」、静止画容量管理を「D30」とし、本S3再現ハーネスは「D31」を使用する。
+- 目的: ブラウザ端末側（Web版）で生成・適用された学習パックおよび検出器の出力を、Grok側（Python環境・標準ライブラリのみ）で完全再現・検証する独立ハーネス（`tools/repro_s3.py`）を構築（技術設計v2 §5.5, PR #125 メモ準拠）。
+- 構成要素と責務:
+  - 検出器再現: 各試合の検出結果（`timeline.json`）をロード、または `--run-detector` で `src/analyze.py` を実走して生成。
+  - 参照比較: ブラウザ実行結果（`--reference web:PATH` または plain timeline JSON）と `pred` を許容誤差 `--tol`（既定 2.0s）内で突合。イベント（デス/キル/スペシャル）およびリザルト画面（勝敗/ルール/ステージ/自キル・デス・スペシャル）の一致・差分を抽出。未指定時は `reference=null`（理由:「参照（ブラウザ実行結果）が未指定」）。
+  - 精度評価: 正解ラベル（フィードバックZIPまたはラベルDIR）が与えられた場合、`eval_labels.py` / `eval_ci.py` 互換で評価指標（TP/FP/FN/適合率/再現率）を集計。
+  - パック再判定: `web/src/learn.js` の `compareSamples` / `predict` / `collectSamples` ロジックをPythonに完全移植。`--pack` の閾値（`--thresholds` による上書き可能）をサンプル群に適用し、`beforeCorrect`, `afterCorrect`, `fixed`, `broken`, `unchanged` を再計算。
+  - 合否判定（Verdict）:
+    - 特徴量バージョン不一致（pack `featureVersion` vs sample `v`）は「再現不可」。
+    - `--expected`（端末レポート）指定時: `afterCorrect`, `fixed`, `broken`, `n` を完全突合し「一致」または「再現不可（不一致項目を列挙）」。
+    - `--expected` 未指定時: 「自己完結（端末レポート未指定）」。
+- 出力と終了コード:
+  - `<out-dir>/report.json` および `<out-dir>/report.md`（日本語テーブル）を出力し、標準出力に要約を表示。
+  - 差分があっても終了コード 0（CIや自動化で差分調査可能）、引数・ファイル不足等の入力エラー時のみ終了コード 2。
