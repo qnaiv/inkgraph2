@@ -126,3 +126,17 @@
 - 自動実行のタイミング: 試合保存後（saveMatch で静止画保存のあと enforceRetention(30)。失敗しても試合保存は壊さない）。import 後は実行しない。
 - 容量ベースの整理・警告は第2段階で、今回は未実施。
 - UI（お気に入りボタン・静止画状態表示）は最小の仮置きで、Designer 確定後に寄せる。
+
+## D24 (2026-10-17) 正解データの蓄積とバッチ書き出し（#33、技術設計v2 §3.4）
+- 依存: #32（D23）。即ダウンロードをやめ、試合一覧のダイアログでまとめて1つのZIPに書き出す（手動のみ、自動送信なし）。
+- 蓄積と状態: 正解データ本体は従来どおり各試合の review。試合ごとに review.export={state,lastExportedAt,lastExportedHash,lastBatchId} を持つ。表示上の状態は常に現在のhashから再計算する（unreviewed=確認内容なし／accumulated=確認済み・未書き出し／exported=現在のhashが lastExportedHash と一致／changed=不一致）。確認保存（save）の直前に syncExportState で review.reviewHash と state を更新するので、書き出し後の再編集は「再編集」に遷移する。
+- reviewHash: review から tower_seg・export・updated（と reviewHash 自身）を除いた内容を、キーを再帰ソートして安定stringifyし、cyrb53（同期・非暗号）で16進化した値。確認内容が変わらない限り不変（保存時刻の更新では変わらない）。
+- 差分は試合単位: 対象試合は review 全体と関連静止画を含める。差分=accumulated/changed の試合、全件=確認内容のある全試合（書き出し済みも含む）。未確認（確認内容なし）の試合は対象外。
+- ファイル名: `ink-graph_正解データ_YYYYMMDD-HHMM_追加分.zip`／`..._全件.zip`（ローカル時刻）。バッチID: `fb-YYYYMMDD-HHMMSS-ランダム4桁`。
+- format 2 の追加項目: batchId, exportMode, appBuild（暫定で 'dev'）, includes={videos:false,snaps:true}、各試合に reviewHash / reviewUpdated / stillsAvailable。review は tower_seg を含めない。ZIP には README.txt（含まれるもの・含まれないもの・プレイヤー名の注意・自動送信しない）を同梱。スナップの sha256・priority 等の任意項目は今回未実施。
+- 50MB超: 静止画Blobの合計＋JSON長で見積もり、ダイアログで警告し「試合のチェックを外して分割」を案内する（自動分割はしない。チェック状態で再計算）。
+- 静止画が削除済み／未保存の試合は JSON のみで書き出し（snapshots は空配列、stillsAvailable=false）。ダイアログに「静止画なし（削除済み／未保存）」と明示。
+- 「書き出し済みにしない」: ブラウザーは保存の成否を知れないため、チェックを入れると書き出しても状態を更新しない（履歴は残る）。全件の再書き出しでいつでも出し直せる。
+- 書き出し履歴: localStorage 'inkgraph.feedbackHistory' に {at,batchId,count,filename,mode} を最大20件。設定画面での表示は未実装。
+- 試合詳細の「正解データの書き出し」は一覧へ遷移するだけ（未書き出しなら差分ダイアログを自動表示）。旧 `inkgraph_feedback_*.zip`（format 1）は出さなくなった。互換確認: 生成した format 2 の追加分zipを `tools/ingest_feedback.py`（--applyなし）で実際に取り込み、2試合の判定集計と正解ラベル出力が従来どおり動くことを確認した（ingest は format 値を参照せず feedback.json の中身で処理するため互換）。
+- Designer 確認事項: ダイアログ・一覧の「未書き出しの正解データ」バー・状態ラベルの配置と文言、確認モードのヘッダーへのボタン追加、設定画面の履歴表示。いずれも仮置きのUI。

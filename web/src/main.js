@@ -3,6 +3,8 @@ import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
 import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct } from './analysis.js';
 import { zipSync, strToU8 } from 'fflate';
+import * as FB from './feedback.js';
+import { EXPORT_STATE_LABEL, exportStateOf, syncExportState } from './feedback.js';
 
 const app = document.getElementById('app');
 const $ = (s, r = document) => r.querySelector(s);
@@ -12,9 +14,13 @@ let session = null;
 let currentId = null;
 let pendingSeek = null;
 let reviewMode = false;
+let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自動で開くダイアログのモード
 
 window.inkgraph = {
   db,
+  feedback: FB,
+  buildBatchZip: (...a) => buildBatchZip(...a),
+  showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
   setReviewMode: v => { reviewMode = !!v; if (currentPage === 'match') PAGES.match(); }
 };
 
@@ -456,6 +462,8 @@ PAGES.list = async () => {
   });
 
   const hasMatches = ms.length > 0;
+  const pending = FB.pendingMatches(ms);
+  const pendingConfirmed = pending.reduce((a, m) => a + FB.confirmedCount(m), 0);
 
   page.innerHTML = `
     <div class="page-header">
@@ -469,11 +477,16 @@ PAGES.list = async () => {
           <summary class="btn">書き出す ▾</summary>
           <div class="dropdown-menu">
             <button class="dropdown-item" id="exp" type="button">試合ログ（JSON）</button>
-            <button class="dropdown-item" id="fb" type="button">フィードバック（ZIP）</button>
+            <button class="dropdown-item" id="fb" type="button">正解データを書き出す</button>
           </div>
         </details>
       </div>
     </div>
+
+    ${hasMatches ? `<div class="fb-bar">
+      <span id="fb-pending">未書き出しの正解データ: <span class="num">${pending.length}</span>試合（確認済み <span class="num">${pendingConfirmed}</span>件）</span>
+      <button class="btn" id="fbbar" type="button">正解データを書き出す</button>
+    </div>` : ''}
 
     ${!hasMatches ? `
       <div class="card">
@@ -539,6 +552,7 @@ PAGES.list = async () => {
               <div class="match-row-col-stage">
                 <span class="match-row-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')}</span>
                 <span class="stills-state">${esc(stillsStateLabel(m))}</span>
+                <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
                 ${r.count ? `<span class="match-row-count num">${fmtCount(r.count)}</span>` : ''}
               </div>
 
@@ -633,17 +647,20 @@ PAGES.list = async () => {
     alert(`${n}試合を読み込みました`);
     PAGES.list();
   };
-  $('#fb', page).onclick = () => exportFeedback(ms);
+  $('#fb', page).onclick = () => { $('.dropdown', page)?.removeAttribute('open'); showFeedbackExportDialog('diff'); };
+  const fbbar = $('#fbbar', page);
+  if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
+  if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
 };
 
 // ============================================================================
 // Feedback ZIP & Still-Frame Extraction
 // ============================================================================
-async function exportFeedback(ms) {
+// 正解データのバッチ書き出し (#33)。即ダウンロードはせず、試合一覧のダイアログでまとめて出す。
+async function buildBatchZip(matches, { mode = 'diff', batchId = FB.makeBatchId() } = {}) {
   const files = {};
-  const acc = accuracy(ms);
-  const meta = { app: 'InkGraph', kind: 'feedback', format: 1, exported: new Date().toISOString(), accuracy: acc, matches: [] };
-  for (const m of ms) {
+  const snapshotsById = {};
+  for (const m of matches) {
     const snaps = await db.snapsOf(m.id);
     const safe = m.id.replace(/[^0-9A-Za-z]/g, '_');
     const sn = [];
@@ -652,13 +669,105 @@ async function exportFeedback(ms) {
       files[name] = new Uint8Array(await s.blob.arrayBuffer());
       sn.push({ file: name, t: s.t, reason: s.reason, kind: s.kind, header: s.header, event: s.event || null });
     }
-    const { tower_series, squid_down, ...light } = m;
-    meta.matches.push({ ...light, tower_series, squid_down, snapshots: sn });
+    snapshotsById[m.id] = sn;
   }
+  const now = new Date();
+  const meta = FB.buildFeedbackMeta(matches, { mode, batchId, exportedAt: now.toISOString(), accuracy: accuracy(matches), snapshotsById });
   files['feedback.json'] = strToU8(JSON.stringify(meta, null, 1));
+  files['README.txt'] = strToU8(FB.feedbackReadme(meta));
   const zip = zipSync(files, { level: 0 });
-  download(`inkgraph_feedback_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.zip`, new Blob([zip], { type: 'application/zip' }));
+  return { blob: new Blob([zip], { type: 'application/zip' }), filename: FB.batchFilename(mode, now), meta };
 }
+
+const fmtBytes = b => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB');
+
+async function showFeedbackExportDialog(initialMode = 'diff') {
+  document.querySelector('.fb-dialog-overlay')?.remove();
+  const all = await db.allMatches();
+  const snapsById = new Map();
+  for (const m of all.filter(FB.hasReview)) snapsById.set(m.id, await db.snapsOf(m.id));
+  let mode = initialMode === 'full' ? 'full' : 'diff';
+  const unchecked = new Set();
+  let skipMark = false;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'fb-dialog-overlay';
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+
+  const render = () => {
+    const targets = FB.exportableMatches(all, mode).sort((a, b) => String(b.created).localeCompare(String(a.created)));
+    const selected = targets.filter(m => !unchecked.has(m.id));
+    const est = FB.estimateExport(selected, snapsById);
+    const perAll = FB.estimateExport(targets, snapsById).perMatch;
+    const hist = FB.getFeedbackHistory();
+    const last = hist[hist.length - 1];
+    const lastTxt = last ? `前回書き出し: ${new Date(last.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}・${last.batchId}` : '前回書き出し: なし';
+    const none = targets.length === 0;
+    const noSel = !none && selected.length === 0;
+    overlay.innerHTML = `
+      <div class="fb-dialog" role="dialog" aria-label="正解データを書き出す">
+        <h2 class="fb-dialog-title">正解データを書き出す</h2>
+        <div class="fb-dialog-modes">
+          <label><input type="radio" name="fbmode" value="diff" ${mode === 'diff' ? 'checked' : ''}> 差分（未書き出し分のみ）</label>
+          <label><input type="radio" name="fbmode" value="full" ${mode === 'full' ? 'checked' : ''}> 全件（確認済みすべて）</label>
+        </div>
+        <div class="fb-dialog-last">${esc(lastTxt)}</div>
+        ${none ? `<div class="fb-dialog-empty" id="fbd-empty">${mode === 'diff' ? '未書き出しの正解データがありません（全件モードで出し直せます）。' : '確認済みの試合がありません。'}</div>` : `
+        <div class="fb-dialog-list">
+          ${targets.map(m => {
+            const r = resultOf(m);
+            const p = perAll.get(m.id);
+            const dt = m.created ? new Date(m.created).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+            return `<label class="fb-dialog-row" data-id="${esc(m.id)}">
+              <input type="checkbox" class="fbd-chk" data-id="${esc(m.id)}" ${unchecked.has(m.id) ? '' : 'checked'}>
+              <span class="num">${esc(dt)}</span>
+              <span>${esc(r.stage || 'ステージ不明')}</span>
+              <span>${esc(resJa(r.result))}</span>
+              <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
+              <span class="num">確認済み ${FB.confirmedCount(m)}件</span>
+              <span class="${p.stillsAvailable ? 'num' : 'fb-nostill'}">${p.stillsAvailable ? `静止画 ${p.snaps}枚・${fmtBytes(p.bytes)}` : '静止画なし（削除済み／未保存）'}</span>
+            </label>`;
+          }).join('')}
+        </div>`}
+        <div class="fb-dialog-total" id="fbd-total">対象 <span class="num">${selected.length}</span>試合・合計 約<span class="num">${fmtBytes(est.totalBytes)}</span></div>
+        ${est.over50MB ? `<div class="fb-dialog-warn" id="fbd-warn">合計が50MBを超える見込みです。試合のチェックを外して分割してください。</div>` : ''}
+        ${noSel ? `<div class="fb-dialog-empty" id="fbd-reason">書き出す試合が選ばれていません。</div>` : ''}
+        <label class="fb-dialog-skip"><input type="checkbox" id="fbd-skip" ${skipMark ? 'checked' : ''}> 書き出し済みにしない</label>
+        <div class="fb-dialog-note">静止画にはプレイヤー名が映る場合があります。ZIPは自動送信されません。手動で渡してください。</div>
+        <div class="fb-dialog-actions">
+          <button class="btn" id="fbd-cancel" type="button">キャンセル</button>
+          <button class="btn btn-primary" id="fbd-go" type="button" ${selected.length ? '' : 'disabled'}>ZIPを書き出す</button>
+        </div>
+      </div>`;
+    overlay.querySelectorAll('input[name="fbmode"]').forEach(r => { r.onchange = () => { mode = r.value; unchecked.clear(); render(); }; });
+    overlay.querySelectorAll('.fbd-chk').forEach(c => { c.onchange = () => { if (c.checked) unchecked.delete(c.dataset.id); else unchecked.add(c.dataset.id); render(); }; });
+    $('#fbd-skip', overlay).onchange = e => { skipMark = e.target.checked; };
+    $('#fbd-cancel', overlay).onclick = close;
+    $('#fbd-go', overlay).onclick = async () => {
+      const btn = $('#fbd-go', overlay);
+      btn.disabled = true;
+      const batchId = FB.makeBatchId();
+      const { blob, filename, meta } = await buildBatchZip(selected, { mode, batchId });
+      download(filename, blob);
+      const at = new Date().toISOString();
+      if (!skipMark) {
+        for (const em of meta.matches) {
+          const cur = await db.getMatch(em.id);
+          if (!cur || !cur.review) continue;
+          cur.review.reviewHash = em.reviewHash;
+          cur.review.export = { state: 'exported', lastExportedAt: at, lastExportedHash: em.reviewHash, lastBatchId: batchId };
+          await db.putMatch(cur);
+        }
+      }
+      FB.addFeedbackHistory({ at, batchId, count: meta.matches.length, filename, mode });
+      close();
+      if (currentPage === 'list') PAGES.list();
+    };
+  };
+  render();
+}
+
 
 async function grabFrames(video, times, reason, matchId, event) {
   if (!video.src || !video.duration) return 0;
@@ -705,7 +814,10 @@ PAGES.match = async () => {
   m.review.fix = m.review.fix || {};
   const save = async () => {
     m.review.updated = new Date().toISOString();
+    syncExportState(m);
     await db.putMatch(m);
+    const st = document.getElementById('fbone-state');
+    if (st) st.textContent = `書き出し状態: ${EXPORT_STATE_LABEL[exportStateOf(m)]}`;
   };
 
   const r = resultOf(m);
@@ -813,7 +925,8 @@ PAGES.match = async () => {
           <div id="acc"></div>
         </details>
 
-        <button class="btn btn-primary" id="fbone" type="button" style="width:100%">この試合のフィードバックを書き出す</button>
+        <button class="btn btn-primary" id="fbone" type="button" style="width:100%">正解データの書き出し（試合一覧でまとめて）</button>
+        <div class="export-state" id="fbone-state">書き出し状態: ${esc(EXPORT_STATE_LABEL[exportStateOf(m)])}</div>
       </aside>
     </div>
   `;
@@ -1059,7 +1172,11 @@ PAGES.match = async () => {
     };
   });
 
-  $('#fbone', page).onclick = () => exportFeedback([m]);
+  $('#fbone', page).onclick = () => {
+    const s = exportStateOf(m);
+    openDialogOnList = (s === 'accumulated' || s === 'changed') ? 'diff' : null;
+    nav('list');
+  };
 
   const refresh = () => {
     drawTL();

@@ -1371,3 +1371,20 @@ tr.added td {
 .tw-cp:hover circle { filter: brightness(1.25); }
 .fav-btn { background: none; border: 0; cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px; color: var(--text); }
 .stills-state { display: block; font-size: 11px; color: var(--muted, #888); }
+
+/* #33 正解データのバッチ書き出し */
+.export-state { font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.export-state[data-state="accumulated"], .export-state[data-state="changed"] { color: var(--accent); }
+.fb-bar { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); font-size: var(--fs-base); color: var(--text-muted); }
+.fb-dialog-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: var(--bg); background: color-mix(in srgb, var(--bg) 80%, transparent); }
+.fb-dialog { width: min(860px, 94vw); max-height: 90vh; overflow: auto; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-5); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--shadow-2); color: var(--text); }
+.fb-dialog-title { margin: 0; font-size: var(--fs-lg); }
+.fb-dialog-modes { display: flex; gap: var(--sp-5); }
+.fb-dialog-last, .fb-dialog-note { font-size: var(--fs-sm); color: var(--text-muted); }
+.fb-dialog-list { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 320px; overflow: auto; }
+.fb-dialog-row { display: grid; grid-template-columns: 20px 90px 1fr 50px 80px 100px 230px; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); font-size: var(--fs-sm); }
+.fb-nostill { color: var(--text-faint); }
+.fb-dialog-total { font-size: var(--fs-base); }
+.fb-dialog-warn { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--danger); border-radius: var(--r-md); color: var(--danger); font-size: var(--fs-sm); }
+.fb-dialog-empty { padding: var(--sp-3); background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: var(--r-md); color: var(--text-muted); font-size: var(--fs-sm); }
+.fb-dialog-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
