@@ -1,7 +1,16 @@
-// IndexedDB: matches (records), videos (recorded clips), snaps (still frames)
-const DB = 'inkgraph', VER = 1; let dbp = null;
+// IndexedDB: matches (records), videos (recorded clips), snaps (still frames), learn (learning packs)
+const DB = 'inkgraph', VER = 2; let dbp = null;
 function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r = indexedDB.open(DB, VER);
-  r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('matches', { keyPath: 'id' }); d.createObjectStore('videos', { keyPath: 'id' }); const s = d.createObjectStore('snaps', { keyPath: 'id', autoIncrement: true }); s.createIndex('match', 'matchId'); };
+  r.onupgradeneeded = () => {
+    const d = r.result;
+    if (!d.objectStoreNames.contains('matches')) d.createObjectStore('matches', { keyPath: 'id' });
+    if (!d.objectStoreNames.contains('videos')) d.createObjectStore('videos', { keyPath: 'id' });
+    if (!d.objectStoreNames.contains('snaps')) {
+      const s = d.createObjectStore('snaps', { keyPath: 'id', autoIncrement: true });
+      s.createIndex('match', 'matchId');
+    }
+    if (!d.objectStoreNames.contains('learn')) d.createObjectStore('learn', { keyPath: 'key' });
+  };
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); return dbp; }
 const tx = async (store, mode, fn) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const r = fn(s); t.oncomplete = () => res(r instanceof IDBRequest ? r.result : r); t.onerror = () => rej(t.error); }); };
 export const putMatch = m => tx('matches', 'readwrite', s => s.put(m));
@@ -66,4 +75,54 @@ export async function importBackup({ matches = [], stills = [] } = {}) {
     }
   }
   return { matches: matchCount, stills: snapCount };
+}
+
+export async function getLearnState() {
+  const row = await tx('learn', 'readonly', s => s.get('state')).catch(() => null);
+  if (!row || !Array.isArray(row.stack)) return { stack: [] };
+  return { stack: row.stack };
+}
+
+export async function putLearnState(state) {
+  const rec = { key: 'state', stack: Array.isArray(state?.stack) ? state.stack : [] };
+  await tx('learn', 'readwrite', s => s.put(rec));
+  return rec;
+}
+
+export async function applyLearnPack(pack) {
+  const state = await getLearnState();
+  state.stack.push(pack);
+  await putLearnState(state);
+  return pack;
+}
+
+export async function activeLearnPack(state = null) {
+  const s = state || await getLearnState();
+  const st = s?.stack;
+  return (st && st.length) ? st[st.length - 1] : null;
+}
+
+export async function rollbackLearnPack() {
+  const state = await getLearnState();
+  if (state.stack.length > 0) {
+    state.stack.pop();
+    await putLearnState(state);
+  }
+  return state.stack.length ? state.stack[state.stack.length - 1] : null;
+}
+
+export async function updateSnapFeatures(snapId, features) {
+  const snap = await tx('snaps', 'readonly', s => s.get(snapId));
+  if (!snap) return null;
+  snap.features = features;
+  await tx('snaps', 'readwrite', s => s.put(snap));
+  return snap;
+}
+
+export async function setMatchLearnFeatures(matchId, list) {
+  const m = await getMatch(matchId);
+  if (!m) return null;
+  m.learnFeatures = list;
+  await putMatch(m);
+  return m;
 }

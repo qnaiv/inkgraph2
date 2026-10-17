@@ -25,7 +25,7 @@ self.onmessage = async (ev) => {
   const m = ev.data;
   if (m.type === 'init') {
     if (!A) { const r = await fetch(m.assetsUrl); A = prepAssets(await r.json()); }
-    an = new Analyzer(A, { srcH: m.srcH || 1080, matchNo: m.matchNo || 1,
+    an = new Analyzer(A, { srcH: m.srcH || 1080, matchNo: m.matchNo || 1, learnThresholds: m.learnThresholds || null,
       onMatch: rec => { resetMatchState(); postMessage({ type: 'match', rec }); },
       onEvent: e => { postMessage({ type: 'event', e });
         if (e.type === 'battle_start') { battleA = e.t; snapPlan = [20, 90, 180]; resetMatchState(); }

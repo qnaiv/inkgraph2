@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
 import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct } from './analysis.js';
@@ -19,6 +20,7 @@ let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自
 
 window.inkgraph = {
   db,
+  learn,
   feedback: FB,
   backup: BK,
   buildBatchZip: (...a) => buildBatchZip(...a),
@@ -455,6 +457,32 @@ PAGES.list = async () => {
   const ms = await db.allMatches();
   const snapsById = new Map();
   for (const m of ms) snapsById.set(m.id, await db.snapsOf(m.id));
+
+  // 学習パネル表示時に, features欠けのsnapがあれば computeStillFeature で補完し db.updateSnapFeatures + setMatchLearnFeatures で永続化 (失敗は無視/表示のみ)
+  for (const m of ms) {
+    const snaps = snapsById.get(m.id) || [];
+    let updatedAny = false;
+    for (const s of snaps) {
+      if (!s.features && s.blob) {
+        try {
+          const feat = await learn.computeStillFeature(s.blob, s);
+          s.features = feat;
+          await db.updateSnapFeatures(s.id, feat);
+          updatedAny = true;
+        } catch (e) {
+          console.warn('computeStillFeature backfill failed', s.id, e);
+        }
+      }
+    }
+    if (updatedAny) {
+      const validFeats = snaps.map(s => s.features).filter(Boolean);
+      if (validFeats.length > 0) {
+        await db.setMatchLearnFeatures(m.id, validFeats).catch(() => {});
+        m.learnFeatures = validFeats;
+      }
+    }
+  }
+
   const summary = BK.summarize(ms, snapsById);
   const expLabel = `バックアップを書き出す（ZIP）・${summary.matches}試合／静止画${summary.stills}枚／約${fmtBytes(summary.bytes)}`;
 
@@ -535,6 +563,8 @@ PAGES.list = async () => {
         </div>
       </details>
     ` : ''}
+
+    <section id="learn-panel" class="card learn-panel"></section>
 
     ${!hasMatches ? `
       <div class="card">
@@ -745,6 +775,207 @@ PAGES.list = async () => {
   const fbbar = $('#fbbar', page);
   if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
   if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
+
+  // 自己学習パネル（S0-S1）
+  let learnCandidate = null;
+  let learnConfirming = false;
+
+  function renderCandidateResult(cand, confirming) {
+    const renderRow = (section, fieldLabel, cmp, isInsuf) => {
+      if (isInsuf) {
+        return `<tr>
+          <td>${esc(section)}</td>
+          <td>${esc(fieldLabel)}</td>
+          <td colspan="5" class="muted">材料不足（サンプル3件未満）</td>
+        </tr>`;
+      }
+      const p1 = (cmp.beforeAcc * 100).toFixed(1) + '%';
+      const p2 = (cmp.afterAcc * 100).toFixed(1) + '%';
+      return `<tr>
+        <td>${esc(section)}</td>
+        <td>${esc(fieldLabel)}</td>
+        <td class="num">${cmp.beforeCorrect} → ${cmp.afterCorrect} / ${cmp.n}</td>
+        <td class="num">${p1} → ${p2}</td>
+        <td class="num ${cmp.fixed > 0 ? 'text-success' : 'muted'}">${cmp.fixed > 0 ? `+${cmp.fixed}` : '0'}</td>
+        <td class="num ${cmp.broken > 0 ? 'text-danger' : 'muted'}">${cmp.broken > 0 ? `-${cmp.broken}` : '0'}</td>
+        <td class="num muted">${cmp.unchanged}</td>
+      </tr>`;
+    };
+
+    const trn = cand.trainCompare;
+    const hld = cand.holdoutCompare;
+    const isModeInsuf = cand.insufficient.includes('mode');
+    const isStageInsuf = cand.insufficient.includes('stage');
+
+    const rows = [];
+    rows.push(renderRow('train (学習)', 'ルール (mode)', trn.mode, isModeInsuf));
+    rows.push(renderRow('train (学習)', 'ステージ (stage)', trn.stage, isStageInsuf));
+    rows.push(renderRow('train (学習)', '合計', trn.total, false));
+
+    if (hld) {
+      rows.push(renderRow('holdout (評価)', 'ルール (mode)', hld.mode, isModeInsuf));
+      rows.push(renderRow('holdout (評価)', 'ステージ (stage)', hld.stage, isStageInsuf));
+      rows.push(renderRow('holdout (評価)', '合計', hld.total, false));
+    }
+
+    const totalBroken = trn.total.broken + (hld?.total?.broken || 0);
+
+    return `
+      <div class="learn-candidate-card">
+        <div class="learn-candidate-header">
+          <h3 class="learn-candidate-title">再判定結果（候補閾値: ルール <strong>${cand.thresholds.mode.toFixed(2)}</strong> / ステージ <strong>${cand.thresholds.stage.toFixed(2)}</strong>）</h3>
+          <span class="learn-candidate-note muted">${esc(cand.note)}</span>
+        </div>
+
+        <table class="table learn-result-table">
+          <thead>
+            <tr>
+              <th>区分</th>
+              <th>対象</th>
+              <th>正解数 (前 → 後)</th>
+              <th>一致率 (前 → 後)</th>
+              <th>直った</th>
+              <th>新たに壊れた</th>
+              <th>不変</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.join('')}
+          </tbody>
+        </table>
+
+        ${cand.insufficient.length > 0 ? `
+          <div class="learn-insufficient-banner muted">
+            ⚠️ 材料不足（サンプル3件未満）: ${cand.insufficient.map(f => f === 'mode' ? 'ルール' : 'ステージ').join(', ')} は既定値（0.50）を維持します。
+          </div>
+        ` : ''}
+
+        <div class="learn-decision-actions">
+          <button class="btn btn-primary" id="learn-apply" type="button">この候補を端末内に適用</button>
+          <button class="btn btn-ghost" id="learn-reject" type="button">候補を却下</button>
+        </div>
+
+        <div id="learn-confirm" class="learn-confirm-card" ${confirming ? '' : 'hidden'}>
+          ${totalBroken > 0 ? `
+            <div class="learn-broken-warning">
+              ⚠️ <strong>警告: 新たに判定が壊れた件数が ${totalBroken} 件あります。</strong><br>
+              適用すると、これまで正解判定されていた試合の一部が不正解（未検出）になる可能性があります。
+            </div>
+          ` : `
+            <div class="learn-confirm-msg">
+              この候補を端末内に適用します。今後の試合解析および静止画再判定に反映されます。よろしいですか？
+            </div>
+          `}
+          <div class="learn-confirm-actions">
+            <button class="btn ${totalBroken > 0 ? 'btn-danger' : 'btn-primary'}" id="learn-confirm-yes" type="button">確認して適用</button>
+            <button class="btn btn-secondary" id="learn-confirm-no" type="button">やめる</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const updateLearnPanel = async () => {
+    const learnPanelEl = $('#learn-panel', page);
+    if (!learnPanelEl) return;
+
+    const allSamples = learn.collectSamples(ms, snapsById);
+    const confirmedMatchesCount = new Set(allSamples.map(s => s.matchId)).size;
+    const { train: trn, holdout: hld } = learn.splitHoldout(allSamples);
+    const hasHoldout = hld.length > 0;
+    const activePack = await db.activeLearnPack().catch(() => null);
+
+    learnPanelEl.innerHTML = `
+      <div class="learn-panel-header">
+        <div class="learn-panel-title-wrap">
+          <h2 class="learn-panel-title">自己学習（候補提示）</h2>
+          <span class="learn-badge ${activePack ? 'badge-active' : 'badge-neutral'}">${activePack ? '学習適用中' : '未適用（既定値）'}</span>
+        </div>
+        ${activePack ? `<button class="btn btn-secondary btn-sm" id="learn-rollback" type="button">学習を1つ前に戻す</button>` : ''}
+      </div>
+
+      <div class="learn-panel-body">
+        <div class="learn-meta-row">
+          <div class="learn-meta-item">確認済み試合数: <strong class="num">${confirmedMatchesCount}</strong> 試合</div>
+          <div class="learn-meta-item">サンプル数: <strong class="num">${allSamples.length}</strong> 件</div>
+          <div class="learn-meta-item">holdout: <strong>${hasHoldout ? `あり（${hld.length}件）` : 'なし'}</strong></div>
+        </div>
+        <p class="learn-note muted">※ 映像は保存されていないため再判定は静止画・特徴量・系列のみで行われます。</p>
+
+        <div class="learn-active-info">
+          ${activePack ? `
+            <div class="learn-pack-desc">
+              適用中パック: <strong class="num">${esc(activePack.packId)}</strong>（作成: ${esc(activePack.created.slice(0, 16).replace('T', ' '))}) / 
+              閾値: ルール <strong>${activePack.thresholds.mode.toFixed(2)}</strong>、ステージ <strong>${activePack.thresholds.stage.toFixed(2)}</strong> / 
+              元試合: <strong>${activePack.sourceMatchIds.length}</strong> 試合
+            </div>
+          ` : `
+            <div class="learn-pack-desc muted">適用中パック: なし（既定値: ルール 0.50 / ステージ 0.50）</div>
+          `}
+        </div>
+
+        <div class="learn-actions-row">
+          <button class="btn btn-primary" id="learn-candidate" type="button">候補を作って再判定</button>
+        </div>
+
+        <div id="learn-result" class="learn-result" ${learnCandidate ? '' : 'hidden'}>
+          ${learnCandidate ? renderCandidateResult(learnCandidate, learnConfirming) : ''}
+        </div>
+      </div>
+    `;
+
+    const btnCand = $('#learn-candidate', learnPanelEl);
+    if (btnCand) {
+      btnCand.onclick = () => {
+        learnCandidate = learn.generateCandidate(allSamples);
+        learnConfirming = false;
+        updateLearnPanel();
+      };
+    }
+    const btnRollback = $('#learn-rollback', learnPanelEl);
+    if (btnRollback) {
+      btnRollback.onclick = async () => {
+        await db.rollbackLearnPack();
+        learnCandidate = null;
+        learnConfirming = false;
+        PAGES.list();
+      };
+    }
+    const btnReject = $('#learn-reject', learnPanelEl);
+    if (btnReject) {
+      btnReject.onclick = () => {
+        learnCandidate = null;
+        learnConfirming = false;
+        updateLearnPanel();
+      };
+    }
+    const btnApply = $('#learn-apply', learnPanelEl);
+    if (btnApply) {
+      btnApply.onclick = () => {
+        learnConfirming = true;
+        updateLearnPanel();
+      };
+    }
+    const btnConfirmNo = $('#learn-confirm-no', learnPanelEl);
+    if (btnConfirmNo) {
+      btnConfirmNo.onclick = () => {
+        learnConfirming = false;
+        updateLearnPanel();
+      };
+    }
+    const btnConfirmYes = $('#learn-confirm-yes', learnPanelEl);
+    if (btnConfirmYes) {
+      btnConfirmYes.onclick = async () => {
+        const pack = learn.makePack(learnCandidate, new Date().toISOString());
+        await db.applyLearnPack(pack);
+        learnCandidate = null;
+        learnConfirming = false;
+        PAGES.list();
+      };
+    }
+  };
+
+  await updateLearnPanel();
 };
 
 // ============================================================================
