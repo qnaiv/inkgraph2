@@ -8,8 +8,11 @@ export async function listDevices() {
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
 }
 export class Session {
-  constructor(video, cb = {}) { this.video = video; this.cb = cb; this.canvas = document.createElement('canvas'); 
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }); this.step = 0.2; this.busy = false; this.pendingSnaps = []; this.stats = { frames: 0, ms: 0 }; this.running = false; this.bufs = []; }
+  constructor(video, cb = {}) {
+    this.video = video; this.cb = cb; this.canvas = document.createElement('canvas'); 
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }); this.step = 0.2; this.busy = false; this.pendingSnaps = []; this.stats = { frames: 0, ms: 0 }; this.running = false; this.bufs = [];
+    this._loopGen = 0; this._lastTickAt = 0; this._watchdogId = null; this._onVisibilityChange = null;
+  }
   async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
     this.mode = mode; this.owner = owner || 'self'; this.fast = fast; this.sessionId = new Date().toISOString();
     if (mode === 'stream') {
@@ -30,17 +33,68 @@ export class Session {
     const learnThresholds = activePack?.thresholds || null;
     await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
+
+    // visibilitychange リスナ: visible 復帰時に running なら resume()
+    this._onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && this.running && !this.fast) {
+        this.resume().catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
+
+    // ウォッチドッグタイマー: 2秒間隔でチェック
+    // 注: ブラウザの裏タブではタイマーやrVFC/rAF自体が間引かれる/停止するため保証はできない
+    if (!this.fast) {
+      this._watchdogId = setInterval(() => {
+        if (!this.running || this.fast) return;
+        const now = performance.now();
+        if (this._lastTickAt && (now - this._lastTickAt) > 2500) {
+          this.resume().catch(() => {});
+        }
+      }, 2000);
+    }
+
     if (mode === 'file' && fast) this.fastLoop(); else { if (mode === 'file') await this.video.play(); this.liveLoop(); }
   }
   now() { return (this.mode === 'device' || this.mode === 'stream') ? (performance.now() - this.t0) / 1000 : this.video.currentTime; }
   grab(t) { const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720; if (this.canvas.width !== vw) { this.canvas.width = vw; this.canvas.height = vh; } this.ctx.drawImage(this.video, 0, 0, vw, vh); const d = this.ctx.getImageData(0, 0, vw, vh); this.busy = true; this.stats.frames++;
     this.worker.postMessage({ type: 'frame', t, w: vw, h: vh, buf: d.data.buffer }, [d.data.buffer]); }
-  liveLoop() { let next = 0; const tick = () => { if (!this.running) return; const t = this.now();
+  liveLoop() {
+    const gen = ++this._loopGen;
+    let next = 0;
+    const tick = () => {
+      if (!this.running || this._loopGen !== gen) return;
+      this._lastTickAt = performance.now();
+      const t = this.now();
       if (this.mode === 'file' && this.video.ended) { this.stop(); return; }
       const step = frameStepForState(this.lastState, this.step);
-      if (!this.busy && t >= next) { next = t + step; this.grab(t); } else if (this.busy && t >= next + 1) { this.stats.dropped = (this.stats.dropped || 0) + 1; next = t + step; }
-      (this.video.requestVideoFrameCallback ? this.video.requestVideoFrameCallback(tick) : requestAnimationFrame(tick)); };
-    tick(); }
+      if (!this.busy && t >= next) {
+        next = t + step;
+        this.grab(t);
+      } else if (this.busy && t >= next + 1) {
+        this.stats.dropped = (this.stats.dropped || 0) + 1;
+        next = t + step;
+      }
+      if (this.video.requestVideoFrameCallback) {
+        this.video.requestVideoFrameCallback(tick);
+      } else {
+        requestAnimationFrame(tick);
+      }
+    };
+    tick();
+  }
+  async resume() {
+    if (!this.running || this.fast) return;
+    if (this.video && this.video.paused) {
+      try {
+        await this.video.play();
+      } catch (e) {
+        /* play error ignored */
+      }
+    }
+    if (!this.running) return;
+    this.liveLoop();
+  }
   async fastLoop() { const v = this.video, dur = v.duration; for (let t = 0; t < dur && this.running; t = Math.round((t + this.step) * 1000) / 1000) {
       await new Promise(r => { v.onseeked = r; v.currentTime = t; }); while (this.busy) await new Promise(r => this.ackWait = r); this.grab(t); this.cb.progress?.(t / dur, t); }
     while (this.busy) await new Promise(r => this.ackWait = r); this.stop(); }
@@ -76,6 +130,25 @@ export class Session {
     try { await db.enforceCapacity(); } catch (e) { console.warn('enforceCapacity failed', e); }
     this.cb.match?.(rec);
   }
-  async stop() { if (!this.running) return; this.running = false; if (this.worker) { await new Promise(r => { this.flushed = r; this.worker.postMessage({ type: 'flush' }); }); await new Promise(r => setTimeout(r, 300)); await this.saving; }
-    if (this.stream) this.stream.getTracks().forEach(t => t.stop()); this.worker?.terminate(); this.cb.stopped?.(); }
+  async stop() {
+    if (!this.running) return;
+    this.running = false;
+    this._loopGen++;
+    if (this._watchdogId) {
+      clearInterval(this._watchdogId);
+      this._watchdogId = null;
+    }
+    if (this._onVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
+    if (this.worker) {
+      await new Promise(r => { this.flushed = r; this.worker.postMessage({ type: 'flush' }); });
+      await new Promise(r => setTimeout(r, 300));
+      await this.saving;
+    }
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    this.worker?.terminate();
+    this.cb.stopped?.();
+  }
 }
