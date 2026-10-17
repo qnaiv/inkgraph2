@@ -1645,4 +1645,63 @@ tr.added td {
   color: var(--danger);
 }
 
+/* ---------------- 静止画容量管理 (#32 stage 2) ---------------- */
+.capacity-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 8px 16px;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-md);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  margin-bottom: var(--sp-4);
+}
+.capacity-banner-text {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.capacity-banner-icon {
+  color: var(--warn);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-base);
+  line-height: 1;
+}
+.capacity-cleanup-btn {
+  height: 28px;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.capacity-cleanup-btn:hover {
+  background: var(--surface-hover);
+}
+#start:disabled { opacity: 0.45; cursor: not-allowed; }
+.capacity-status {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.capacity-block-reason {
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
 

@@ -6,7 +6,9 @@ import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
+import * as CP from './capacity.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
+import { getCapBytes, formatCapacityLabel, TARGET_RATIO } from './capacity.js';
 
 const app = document.getElementById('app');
 const $ = (s, r = document) => r.querySelector(s);
@@ -21,6 +23,7 @@ let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自
 window.inkgraph = {
   db,
   learn,
+  capacity: CP,
   feedback: FB,
   backup: BK,
   buildBatchZip: (...a) => buildBatchZip(...a),
@@ -120,6 +123,41 @@ const download = (name, blob) => {
 
 const fmtBytes = b => (b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + 'MB' : Math.max(1, Math.round(b / 1024)) + 'KB');
 
+function renderCapacityBanner(summary) {
+  if (!summary || summary.level === 'ok') return '';
+  const label = formatCapacityLabel(summary);
+  return `
+    <div class="capacity-banner">
+      <div class="capacity-banner-text">
+        <span class="capacity-banner-icon">⚠</span>
+        <span>静止画の容量：${esc(label)}</span>
+      </div>
+      <button class="btn capacity-cleanup-btn" type="button">古い試合を書き出して消す</button>
+    </div>
+  `;
+}
+
+function wireCapacityBanner(page, summary) {
+  const btn = $('.capacity-cleanup-btn', page);
+  if (btn) {
+    btn.onclick = async () => {
+      const ok = window.confirm(
+        '古い試合（お気に入りを除く）の静止画を削除して容量を確保します。\n\n' +
+        '※ 試合の記録・勝敗・正解データはそのまま残ります。\n' +
+        '※ 静止画を手元に残したい場合は、先に試合一覧の「バックアップを書き出す」または「正解データを書き出す」を行ってください。\n\n' +
+        '静止画のクリーンアップを実行しますか？'
+      );
+      if (!ok) return;
+      try {
+        await db.enforceCapacity(getCapBytes(), TARGET_RATIO, { force: true });
+      } catch (e) {
+        console.warn('enforceCapacity failed', e);
+      }
+      nav(currentPage);
+    };
+  }
+}
+
 const PAGES = {};
 
 // ============================================================================
@@ -131,10 +169,17 @@ PAGES.live = async () => {
     return;
   }
   const savedMatches = await db.allMatches();
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
+  const isBlocked = capUsage.level === 'block';
   const page = document.createElement('div');
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">ライブ分析</h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">ライブ分析</h1>
+        <span class="capacity-status muted">${esc(capLabel)}</span>
+      </div>
     </div>
 
     <div class="card live-source-card">
@@ -170,8 +215,9 @@ PAGES.live = async () => {
       </details>
 
       <div class="live-source-actions">
-        <button class="btn btn-primary" id="start" type="button">解析を開始</button>
+        <button class="btn btn-primary" id="start" type="button" ${isBlocked ? 'disabled' : ''}>解析を開始</button>
         <button class="btn btn-stop" id="stop" type="button" disabled style="display:none">停止</button>
+        ${isBlocked ? `<div class="capacity-block-reason">使用量${capUsage.pct}%で上限に近づいているため解析を開始できません。古い試合の静止画を削除するか、上の「古い試合を書き出して消す」を実行してください。</div>` : ''}
       </div>
     </div>
 
@@ -242,6 +288,7 @@ PAGES.live = async () => {
     </div>
   `;
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   $('#to-list', page).onclick = e => { e.preventDefault(); nav('list'); };
 
@@ -316,6 +363,11 @@ PAGES.live = async () => {
   let savedCount = savedMatches.length;
 
   $('#start', page).onclick = async () => {
+    const curUsage = await db.stillsUsage(getCapBytes()).catch(() => null);
+    if (curUsage && curUsage.level === 'block') {
+      alert(`使用量${curUsage.pct}%で上限に近づいているため解析を開始できません。古い試合の静止画を削除してください。`);
+      return;
+    }
     const mode = page.querySelector('input[name="src"]:checked').value;
     const file = $('#file', page).files[0];
     if (mode === 'file' && !file) {
@@ -485,6 +537,8 @@ PAGES.list = async () => {
 
   const summary = BK.summarize(ms, snapsById);
   const expLabel = `バックアップを書き出す（ZIP）・${summary.matches}試合／静止画${summary.stills}枚／約${fmtBytes(summary.bytes)}`;
+  const capUsage = await db.stillsUsage(getCapBytes());
+  const capLabel = formatCapacityLabel(capUsage);
 
   const page = document.createElement('div');
 
@@ -505,8 +559,12 @@ PAGES.list = async () => {
   const recentHist = [...FB.getFeedbackHistory()].slice(-5).reverse();
 
   page.innerHTML = `
+    ${renderCapacityBanner(capUsage)}
     <div class="page-header">
-      <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="page-title">試合一覧 <span class="num muted">（${ms.length}試合）</span></h1>
+        <span class="capacity-status muted">${esc(capLabel)}</span>
+      </div>
       <div class="page-header-actions">
         <label class="btn ${hasMatches ? 'btn-primary' : ''}">
           バックアップを読み込む
@@ -663,6 +721,7 @@ PAGES.list = async () => {
   `;
 
   app.replaceChildren(page);
+  wireCapacityBanner(page, capUsage);
 
   const goLiveBtn = $('#empty-go-live', page);
   if (goLiveBtn) goLiveBtn.onclick = () => nav('live');

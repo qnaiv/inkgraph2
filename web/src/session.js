@@ -59,6 +59,7 @@ export class Session {
       await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob, features: feat });
     }
     try { await db.enforceRetention(30); } catch (e) { console.warn('enforceRetention failed', e); }
+    try { await db.enforceCapacity(); } catch (e) { console.warn('enforceCapacity failed', e); }
     this.cb.match?.(rec);
   }
   async stop() { if (!this.running) return; this.running = false; if (this.worker) { await new Promise(r => { this.flushed = r; this.worker.postMessage({ type: 'flush' }); }); await new Promise(r => setTimeout(r, 300)); await this.saving; }

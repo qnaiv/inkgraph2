@@ -25,6 +25,7 @@
 | 19 | 2026-10-17 | PR #121 Designer必須修正（一覧バー・90pxピル・肯定形チェック・50MB警告N試合計算・前回/履歴表示・詳細ボタン状態文言・テスト追随） | gemini-3.8-flash-medium（sonnet は quota 切れのため切替） | 要件を4項目＋テスト要件を厳密に箇条書き（約40行） | 成功。build通過、feedback_batch_check 37項目 ALL PASS、回帰4種通過（stills_retention, no_video, tower_label, ui_check） | なし | 仕様1回＋差分レビュー・検証（build／batch 37／回帰4種） |
 | 20 | 2026-10-17 | #34 バックアップ範囲の見直し（試合データ＋設定＋保持中静止画、videos除外、backup.js、db.importBackup、一覧UI改名、backup_check、D25） | gemini-3.8-flash-medium | 要件を6項目で箇条書き（純粋関数仕様、db、UI、検証、ドキュメント） | 成功。build通過、backup_check 22項目 ALL PASS、回帰4種通過（feedback_batch 37, stills_retention 13, no_video 12, ui_check 3） | 回帰で再生成された無関係な既存スクショを差し戻し | 仕様1回＋差分レビュー＋検証（build／backup 22／回帰4種／スクショ確認） |
 | 21 | 2026-10-17 | #35 自己学習S0-S1（特徴量保存・候補提示・端末内最小適用・ロールバック、learn.js、db、UI、self_learn_check、D27） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（純粋関数仕様、db VER2、解析反映、UI、self_learn_check、D27） | 成功。build通過、self_learn_check 22項目 ALL PASS、既存回帰4種通過（feedback_batch 37, stills_retention 13, no_video 12, backup 22） | なし | 仕様1回＋差分レビュー・検証（build／self_learn 22／回帰4種／スクショ2枚確認） |
+| 22 | 2026-10-17 | #32第2段階: 静止画の容量ベース管理（250MB制限・80%警告バナー・95%開始ブロック・90%自動削除・stills_capacity_check、D29） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（純粋関数仕様、db、UI、stills_capacity_check、D29） | 成功。build通過、stills_capacity_check 24項目 ALL PASS、既存回帰5種通過（stills_retention 13, no_video 12, feedback_batch 37, backup 22, self_learn 22） | `#start:disabled` の視認性CSS 1行を手直し | 仕様1回＋差分レビュー・検証（build／capacity 24／回帰5種／スクショ3枚確認） |
 
 
 ## 所感

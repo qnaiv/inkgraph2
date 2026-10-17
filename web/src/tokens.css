@@ -36,6 +36,9 @@
   --winrate-down: var(--enemy);
   --unknown: rgba(154, 163, 199, 0.08); /* 判定できない区間 */
   --danger: #F43F5E;
+  --warn: #FACC15;
+  --warn-soft: rgba(250, 204, 21, 0.16);
+  --warn-border: rgba(250, 204, 21, 0.35);
 
   /* フォント */
   --font-sans: "Noto Sans JP", system-ui, sans-serif;
@@ -66,6 +69,9 @@
   --enemy: #E8630A; --enemy-soft: rgba(232,99,10,.10);
   --kill: #16A34A; --death: #121528; --respawn: rgba(18,21,40,.10);
   --special: #CA8A04; --win: #16A34A; --lose: #E11D48;
+  --warn: #CA8A04;
+  --warn-soft: rgba(202, 138, 4, 0.12);
+  --warn-border: rgba(202, 138, 4, 0.28);
   --unknown: rgba(18,21,40,.05);
   --shadow-1: 0 1px 2px rgba(18,21,40,.06);
   --shadow-2: 0 8px 24px rgba(18,21,40,.08);
