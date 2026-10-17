@@ -26,6 +26,7 @@
 | 20 | 2026-10-17 | #34 バックアップ範囲の見直し（試合データ＋設定＋保持中静止画、videos除外、backup.js、db.importBackup、一覧UI改名、backup_check、D25） | gemini-3.8-flash-medium | 要件を6項目で箇条書き（純粋関数仕様、db、UI、検証、ドキュメント） | 成功。build通過、backup_check 22項目 ALL PASS、回帰4種通過（feedback_batch 37, stills_retention 13, no_video 12, ui_check 3） | 回帰で再生成された無関係な既存スクショを差し戻し | 仕様1回＋差分レビュー＋検証（build／backup 22／回帰4種／スクショ確認） |
 | 21 | 2026-10-17 | #35 自己学習S0-S1（特徴量保存・候補提示・端末内最小適用・ロールバック、learn.js、db、UI、self_learn_check、D27） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（純粋関数仕様、db VER2、解析反映、UI、self_learn_check、D27） | 成功。build通過、self_learn_check 22項目 ALL PASS、既存回帰4種通過（feedback_batch 37, stills_retention 13, no_video 12, backup 22） | なし | 仕様1回＋差分レビュー・検証（build／self_learn 22／回帰4種／スクショ2枚確認） |
 
+| 22 | 2026-10-17 | #36 自己学習S2: 学習パック版管理（db.js正規化・版一覧・切替・未適用・確認カード・learn_pack_check、D29） | gemini-3.8-flash-medium | 要件を節ごとに箇条書き（後方互換・dbメソッド・UI確認カード・learn_pack_check・D29） | 成功。build通過、learn_pack_check 20項目 ALL PASS、回帰5種全通過（self_learn 22, feedback_batch 37, stills_retention 13, no_video 12, backup 22） | なし | 仕様1回＋差分レビュー・検証（build／learn_pack 20／回帰5種／スクショ確認） |
 
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
