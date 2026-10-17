@@ -7,7 +7,7 @@ import { runs, medfilt, median, r1 } from './img.js';
 export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240 };
 export class Analyzer {
   constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; }
-  newBattle(t) { this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [] }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  newBattle(t) { this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
     this.lastT = t; const tp = C.timerPresent(this.A, fr);
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
@@ -33,6 +33,8 @@ export class Analyzer {
       m.pend.push([f, crops, mp ? fr : null]);
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
     if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); }
+    if (m.spPrev <= 0.2 && gw > 0.2) this.onEvent({ type: 'special_ready', t });
+    m.spPrev = gw;
     if (sg.dead && !(m.F.length && m.F[m.F.length - 1].sig)) this.onEvent({ type: 'own_death', t });
     if (kill && !(m.F.length && m.F[m.F.length - 1].kill)) this.onEvent({ type: 'own_kill', t });
     m.F.push(f);

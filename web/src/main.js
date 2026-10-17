@@ -152,7 +152,7 @@ PAGES.live = async () => {
         <summary>詳細設定 ▸</summary>
         <div class="details-popover-body">
           <label><input type="checkbox" id="fast" checked> ファイルは早送りで解析（再生しない）</label>
-          <label><input type="checkbox" id="rec" checked> キャプチャー映像を試合ごとにブラウザ内へ録画する（あとで確認・訂正に使う）</label>
+          <p class="muted" id="still-note" style="margin:6px 0 0">映像は保存しません。確認用に、リザルトやキル・デス・スペシャルなどの要所の静止画だけを保存します。</p>
         </div>
       </details>
 
@@ -407,7 +407,6 @@ PAGES.live = async () => {
         mode,
         deviceId: $('#dev', page).value,
         file,
-        record: $('#rec', page).checked,
         fast: $('#fast', page).checked
       });
     } catch (e) {
@@ -582,7 +581,7 @@ PAGES.list = async () => {
   page.querySelectorAll('.del').forEach(b => {
     b.onclick = async e => {
       e.stopPropagation();
-      if (confirm('この試合を削除しますか？（録画も消えます）')) {
+      if (confirm('この試合を削除しますか？（静止画も消えます）')) {
         await db.delMatch(b.dataset.id);
         PAGES.list();
       }
@@ -709,6 +708,7 @@ PAGES.match = async () => {
             <span>最終カウント <b class="num">${fmtCount(r.count)}</b></span>
             ${finalDiff !== null ? `<span class="num ${diffCls(finalDiff)}">（カウント差 ${fmtDiff(finalDiff)}）</span>` : ''}
           </div>
+          ${m.stills ? `<div class="muted" id="stills-info">静止画 ${m.stills.count}枚・合計 ${Math.round((m.stills.bytes || 0) / 1024)} KB（映像は保存されていません）</div>` : ''}
         </div>
       </div>
 
@@ -748,10 +748,13 @@ PAGES.match = async () => {
 
       <aside class="review-panel" id="review-panel">
         <div class="card">
-          <div class="card-title">確認用の映像</div>
-          <div class="review-video-wrap">
-            <video id="rv" controls muted></video>
+          <div class="card-title">確認用の静止画</div>
+          <div class="review-video-wrap" style="position:relative">
+            <img id="still-img" alt="確認用の静止画" style="width:100%;height:100%;object-fit:contain;display:none">
+            <div id="still-empty" class="muted" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:12px">静止画なし（この試合では静止画が保存されていません）</div>
+            <video id="rv" controls muted style="display:none"></video>
           </div>
+          <div id="still-cap" class="muted" style="margin-top:8px;min-height:1.4em"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px">
             <span id="vstat" class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
             <label class="btn btn-sm">録画ファイルを選ぶ<input type="file" id="vf" accept="video/*" hidden></label>
@@ -802,13 +805,33 @@ PAGES.match = async () => {
   video.addEventListener('timeupdate', updatePlayhead);
   video.addEventListener('seeked', updatePlayhead);
 
+  const stills = (await db.snapsOf(m.id)).sort((a, b) => a.t - b.t);
+  const stillImg = $('#still-img', page), stillEmpty = $('#still-empty', page), stillCap = $('#still-cap', page);
+  const KIND_JA = { kill: 'キル', death: 'デス', special: 'スペシャル', celebration: 'リザルト', personal: 'リザルト', board: 'リザルト', event: '見逃し・誤検出' };
+  let stillUrl = null;
+  const showEmpty = msg => { stillImg.style.display = 'none'; stillEmpty.textContent = msg; stillEmpty.style.display = 'flex'; };
+  const showStill = (t, near = 15) => {
+    if (video.src && video.style.display !== 'none') return;
+    if (!stills.length) { stillCap.textContent = ''; showEmpty('静止画なし（この試合では静止画が保存されていません）'); return; }
+    let best = stills[0];
+    for (const s of stills) if (Math.abs(s.t - t) < Math.abs(best.t - t)) best = s;
+    const d = Math.abs(best.t - t);
+    if (d > near) { stillCap.textContent = `最も近い静止画は ${mss(best.t)}（対象から ±${d.toFixed(1)}秒）`; showEmpty(`静止画なし（${mss(t)} の近くには静止画がありません）`); return; }
+    if (stillUrl) URL.revokeObjectURL(stillUrl);
+    stillUrl = URL.createObjectURL(best.blob);
+    stillImg.onerror = () => { stillCap.textContent = ''; showEmpty('静止画なし（静止画を表示できません）'); };
+    stillImg.onload = () => { stillEmpty.style.display = 'none'; stillImg.style.display = 'block'; };
+    stillImg.src = stillUrl;
+    stillCap.textContent = `最も近い静止画 ${mss(best.t)}（対象から ±${d.toFixed(1)}秒） · ${KIND_JA[best.kind] || best.kind || '静止画'}${best.reason ? ' / ' + best.reason : ''}`;
+  };
+
   const seek = t => {
     lastSeekTime = t;
+    showStill(t);
+    if (tlEl && tlEl.setPlayhead && !video.src) tlEl.setPlayhead(t);
     if (video.src) {
       video.currentTime = Math.max(0, t - offset - 2);
       video.play().catch(() => {});
-    } else {
-      $('#vstat', page).textContent = '映像未読込（録画ファイルを選択してください）';
     }
   };
 
@@ -827,19 +850,13 @@ PAGES.match = async () => {
     }
   };
 
-  const vrec = await db.getVideo(m.id);
-  if (vrec) {
-    video.src = URL.createObjectURL(vrec.blob);
-    offset = vrec.offset || 0;
-    $('#vstat', page).textContent = 'ブラウザ内の録画を表示中';
-  } else {
-    $('#vstat', page).textContent = m.source?.name ? `元ファイル: ${m.source.name}` : '録画ファイル未選択';
-  }
+  $('#vstat', page).textContent = '映像は保存されていません（手元の録画ファイルを選ぶと映像でも確認できます）';
 
   $('#vf', page).onchange = e => {
     const f = e.target.files[0];
     if (f) {
       video.src = URL.createObjectURL(f);
+      video.style.display = 'block'; stillImg.style.display = 'none'; stillEmpty.style.display = 'none';
       offset = 0;
       $('#vstat', page).textContent = f.name;
     }
@@ -1018,6 +1035,7 @@ PAGES.match = async () => {
 
   rtab();
   refresh();
+  showStill(lastSeekTime, Infinity);
 
   if (pendingSeek !== null) {
     const t = pendingSeek;
