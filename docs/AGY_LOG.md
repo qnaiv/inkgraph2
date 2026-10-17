@@ -18,6 +18,7 @@
 | 12 | 2026-10-17 | #11 の続き（途中の差分を確認させてから完了） | gemini-3.8-flash-medium（sonnet の quota 切れのため切り替え） | #11 と同じプロンプト＋「中断した作業の続き」の前置き | 成功（約11分）。tower_label_check 28項目 ALL PASS、eval_labels.py で読めることを確認、スクショ02〜05を更新・追加 | なし（スクショ3枚と差分を確認） | 再依頼1回＋確認（約6回） |
 | 13 | 2026-10-17 | PR #29 の小修正（カウントの点を直径6px以上＋ホバーの「味方 N ／ 敵 M」をチェックに追加、ポップオーバー表示時にツールチップを消す）＋スクショ02・04の撮り直し | gemini-3.8-flash-medium | 3項目を1回で依頼（約10行） | 成功（約10分）。tower_label_check ALL PASS（32項目） | なし（スクショ03で点の描画を確認） | 仕様1回＋確認（約5回） |
 | 14 | 2026-10-17 | GitHub Actions `grok-notify`（@grok を Grok webhook へ通知。workflow・ペイロード生成スクリプト・検証スクリプト・README） | claude-sonnet-5-5-medium | 複数ファイル・要件を厳密に箇条書き（約50行） | 成功。`tools/test_grok_notify.sh` PASS、`bash -n` 通過 | テスト内サンプルの repo 名を `qnaiv/inkgraph2` に修正（表記のみ） | 仕様1回＋検証（actionlint/YAML/jq）＋軽微な表記修正1件 |
+| 15 | 2026-10-17 | grok-notify 認証を `GROK_WEBHOOK_AUTH` の Authorization ヘッダ方式へ変更（workflow・テスト・README） | claude-sonnet-5-5-medium | 複数ファイル・要件を箇条書き | 成功（検証は Grok 側で実施） | なし（予定） | 仕様1回＋検証 |
 
 ## 所感
 - 委任前（Web版の検出器移植・UI・検証ツール）は Grok が直接書いた：ツール呼び出し約35回。
