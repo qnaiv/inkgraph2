@@ -1492,3 +1492,157 @@ tr.added td {
 .fb-dialog-empty { padding: var(--sp-3); background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: var(--r-md); color: var(--text-muted); font-size: var(--fs-sm); }
 .fb-dialog-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 
+/* ---------------- 自己学習パネル（S0-S1） ---------------- */
+.learn-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin-bottom: var(--sp-4);
+}
+.learn-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.learn-panel-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.learn-panel-title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--text);
+}
+.learn-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+}
+.learn-badge.badge-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.learn-badge.badge-neutral {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.learn-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.learn-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.learn-meta-item strong {
+  color: var(--accent);
+}
+.learn-note {
+  font-size: var(--fs-xs);
+  margin: 0;
+}
+.learn-active-info {
+  font-size: var(--fs-sm);
+  background: var(--surface-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+}
+.learn-actions-row {
+  display: flex;
+  gap: var(--sp-2);
+}
+.learn-candidate-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+}
+.learn-candidate-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.learn-candidate-title {
+  margin: 0;
+  font-size: var(--fs-base);
+  color: var(--text);
+}
+.learn-candidate-note {
+  font-size: var(--fs-xs);
+}
+.learn-result-table {
+  width: 100%;
+  font-size: var(--fs-sm);
+  border-collapse: collapse;
+}
+.learn-result-table th,
+.learn-result-table td {
+  padding: var(--sp-1) var(--sp-2);
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.learn-insufficient-banner {
+  font-size: var(--fs-xs);
+  padding: var(--sp-2);
+  background: var(--surface);
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border-strong);
+}
+.learn-decision-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.learn-confirm-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+}
+.learn-broken-warning {
+  padding: var(--sp-2) var(--sp-3);
+  background: rgba(244, 63, 94, 0.15);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.learn-confirm-msg {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.learn-confirm-actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+.text-success {
+  color: var(--kill);
+}
+.text-danger {
+  color: var(--danger);
+}
+
+

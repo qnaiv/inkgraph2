@@ -1,5 +1,5 @@
-// Analysis session: video source (capture device or file) -> frames -> worker -> match records saved to IndexedDB.
 import * as db from './db.js';
+import * as learn from './learn.js';
 import AnalyzerWorker from './worker.js?worker';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
@@ -13,7 +13,11 @@ export class Session {
     if (mode === 'device') { this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
       this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0].getSettings().height || 1080; this.t0 = performance.now();
     } else { this.video.srcObject = null; this.video.src = URL.createObjectURL(file); this.video.muted = true; await new Promise(r => this.video.onloadedmetadata = r); this.srcH = this.video.videoHeight; }
-    this.worker = new AnalyzerWorker(); await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH }); });
+    this.worker = new AnalyzerWorker();
+    const learnState = await db.getLearnState().catch(() => null);
+    const activePack = await db.activeLearnPack(learnState).catch(() => null);
+    const learnThresholds = activePack?.thresholds || null;
+    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
     if (mode === 'file' && fast) this.fastLoop(); else { if (mode === 'file') await this.video.play(); this.liveLoop(); }
   }
@@ -42,7 +46,18 @@ export class Session {
     let bytes = 0; for (const s of snaps) bytes += s.blob?.size || 0;
     rec.video = { kind: 'none' }; rec.stills = { count: snaps.length, bytes };
     rec.favorite = rec.favorite ?? false; rec.stillsState = snaps.length ? 'kept' : 'none';
-    await db.putMatch(rec); for (const s of snaps) await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob });
+    const matchLearnFeats = [];
+    const snapFeatPairs = [];
+    for (const s of snaps) {
+      const feat = learn.featureFromHeader(s);
+      if (feat) matchLearnFeats.push(feat);
+      snapFeatPairs.push({ snap: s, feat });
+    }
+    rec.learnFeatures = matchLearnFeats;
+    await db.putMatch(rec);
+    for (const { snap: s, feat } of snapFeatPairs) {
+      await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob, features: feat });
+    }
     try { await db.enforceRetention(30); } catch (e) { console.warn('enforceRetention failed', e); }
     this.cb.match?.(rec);
   }

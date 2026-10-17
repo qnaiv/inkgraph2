@@ -21,11 +21,14 @@ function normText(c) { const b = bin(gray(c), 170); for (let i = 0; i < b.length
 function pearson(a, b) { let ma = 0, mb = 0; const n = a.length; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n; let s = 0, sa = 0, sb = 0;
   for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) + 1e-6); }
 function best(c, lib) { const v = normText(c); let bk = null, bs = -1; for (const [k, t] of Object.entries(lib)) { const s = pearson(v, t); if (s > bs) { bs = s; bk = k; } } return [bk, bs]; }
-export function readHeader(A, fr, dx, dy) {
+export const DEFAULT_HEADER_THR = { mode: 0.5, stage: 0.5 };
+export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR) {
   const bx = b => crop(fr, b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy);
   const mc = bx(MODE_BOX), sc = bx(STAGE_BOX); const [mk, ms] = best(mc, A.lib.mode), [sk, ss] = best(sc, A.lib.stage);
   const strip = k => k ? k.split('__')[0] : null;
-  return { mode: ms > 0.5 ? strip(mk) : null, mode_score: ms, stage: ss > 0.5 ? strip(sk) : null, stage_score: ss };
+  const mThr = (thr && typeof thr.mode === 'number') ? thr.mode : 0.5;
+  const sThr = (thr && typeof thr.stage === 'number') ? thr.stage : 0.5;
+  return { mode: ms > mThr ? strip(mk) : null, mode_score: ms, stage: ss > sThr ? strip(sk) : null, stage_score: ss };
 }
 function white(c) { const h = hsv(c), m = new Uint8Array(h.V.length); for (let i = 0; i < m.length; i++) m[i] = h.V[i] > 165 && h.S[i] < 80 ? 1 : 0; return m; }
 function statGlyphs(fr, y0, y1, x0, x1) {
