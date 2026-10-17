@@ -21,7 +21,7 @@ export function effective(m) { const S = series(m), r = m.review || { added: [] 
 export function resultOf(m) { const rs = m.result_screen || {}, f = (m.review || {}).fix || {}; const own = rs.own || {};
   return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m) }; }
 export function finalCount(m) { const s = m.tower_series; if (!s || !s.length) return null; const l = s[s.length - 1]; return `${l.own}-${l.enemy}`; }
-export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', ka: 'キル+アシスト', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
+export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
 /** accuracy from review marks. per kind: tp=✓, fp=✗, fn=added. result fields: rmarks ok/wrong */
 export function accuracy(ms) { const A = {}; for (const k of Object.keys(KINDS)) A[k] = { tp: 0, fp: 0, fn: 0, unreviewed: 0 };
   const RF = {}; for (const k of Object.keys(RESULT_FIELDS)) RF[k] = { ok: 0, wrong: 0 };
@@ -35,3 +35,63 @@ export function countBucket(d) { if (d === null || d === undefined) return 'カ�
 export const BUCKETS = ['30以上負け', '10〜29負け', '1〜9負け', '同点', '1〜9勝ち', '10〜29勝ち', '30以上勝ち', 'カウント不明'];
 export const mss = t => { t = Math.max(0, Math.round(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 export const pct = v => v === null || v === undefined || isNaN(v) ? '—' : `${Math.round(v * 100)}%`;
+
+// ---------------------------------------------------------------------------
+// ヤグラ保持の人手ラベル（D20: review.tower_holder / review.count_series）
+// 検出の保持区間（同じ保持者が続く区間）を単位に、確認済みの値を review.tower_seg
+// （キー＝区間開始秒 toFixed(1)）に保存し、そこから D20 形式の review.tower_holder を再生成する。
+// 方針: tower_holder には「確認済みの区間だけ」を書き出す（ポップオーバーで値を設定した区間）。
+// 未確認の区間は書かない（隙間になり、eval_labels.py は区間に覆われない秒を採点しない）。
+// 隣り合う確認済み区間が同じ値なら結合する。1区間も確認していなければ tower_holder は書かない
+// （評価側は未ラベル扱い）。
+// ---------------------------------------------------------------------------
+export const HOLDER_JA = { own: '味方', enemy: '敵', neutral: '中立' };
+const holderOf = o => (o === 'own' || o === 'enemy') ? o : 'neutral';
+const r1 = x => Math.round(x * 10) / 10;
+/** detected holder runs over the battle, with review overlay: {key,ta,tb,det,val,confirmed,changed} */
+export function holderSegments(m) {
+  const S = series(m); if (!S.length) return [];
+  const t0 = m.battle[0], t1 = m.battle[1], lab = (m.review && m.review.tower_seg) || {}; const runs = [];
+  for (let i = 0; i < S.length; i++) {
+    const o = holderOf(S[i].owner), ta = i === 0 ? t0 : (S[i - 1].t + S[i].t) / 2, tb = i === S.length - 1 ? t1 : (S[i].t + S[i + 1].t) / 2;
+    if (runs.length && runs[runs.length - 1].det === o) runs[runs.length - 1].tb = tb; else runs.push({ ta, tb, det: o });
+  }
+  return runs.filter(r => r.tb > r.ta).map(r => { const key = r.ta.toFixed(1), v = lab[key];
+    return { ...r, key, val: v || r.det, confirmed: !!v, changed: !!v && v !== r.det }; });
+}
+/** rebuild review.tower_holder ([start,end,value] sorted, adjacent same values merged) from per-segment labels */
+export function syncTowerHolder(m) {
+  const r = m.review; const segs = holderSegments(m);
+  if (!r || !segs.some(s => s.confirmed)) { if (r) delete r.tower_holder; return; }
+  const out = [];
+  for (const s of segs) {
+    if (!s.confirmed) continue;
+    const a = r1(s.ta), b = r1(s.tb), l = out[out.length - 1];
+    if (l && l[2] === s.val && Math.abs(l[1] - a) < 0.05) l[1] = b;
+    else out.push([a, b, s.val]);
+  }
+  r.tower_holder = out;
+}
+export function setHolderLabel(m, key, val) {
+  m.review = m.review || {};
+  m.review.tower_seg = m.review.tower_seg || {};
+  m.review.tower_seg[key] = val;
+  syncTowerHolder(m);
+}
+/** remove the confirmation of one segment (back to unconfirmed) and rebuild tower_holder */
+export function clearHolderLabel(m, key) {
+  if (m.review && m.review.tower_seg) {
+    delete m.review.tower_seg[key];
+    if (!Object.keys(m.review.tower_seg).length) delete m.review.tower_seg;
+  }
+  syncTowerHolder(m);
+}
+export function addCountPoint(m, sec, own, enemy) {
+  const cs = (m.review.count_series = m.review.count_series || []); sec = r1(sec);
+  const i = cs.findIndex(c => Math.abs(c[0] - sec) < 0.05); if (i >= 0) cs[i] = [sec, own, enemy]; else cs.push([sec, own, enemy]);
+  cs.sort((a, b) => a[0] - b[0]);
+}
+export function removeCountPoint(m, sec) {
+  const cs = m.review.count_series || []; const i = cs.findIndex(c => c[0] === sec); if (i >= 0) cs.splice(i, 1);
+  if (!cs.length) delete m.review.count_series;
+}

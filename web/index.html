@@ -1,10 +1,29 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>InkGraph — スプラトゥーン3 試合分析</title><link rel="stylesheet" href="./src/style.css"></head>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>InkGraph — スプラトゥーン3 試合分析</title>
+  <link rel="stylesheet" href="./src/tokens.css">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
 <body>
-<header><h1>InkGraph</h1><nav>
-<button data-page="live" class="on">ライブ分析</button><button data-page="list">試合一覧</button><button data-page="match">試合の詳細・確認</button><button data-page="trend">傾向分析</button>
-</nav></header>
-<main id="app"></main>
-<script type="module" src="./src/main.js"></script>
-</body></html>
+  <div class="app">
+    <aside class="sidenav">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">InkGraph</span>
+      </div>
+      <nav aria-label="メインナビゲーション">
+        <a href="#live" data-page="live" aria-current="page">ライブ分析</a>
+        <a href="#list" data-page="list">試合一覧</a>
+        <a href="#match" data-page="match">試合の詳細・確認</a>
+        <a href="#trend" data-page="trend">傾向分析</a>
+      </nav>
+    </aside>
+    <main class="main" id="app"></main>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
+

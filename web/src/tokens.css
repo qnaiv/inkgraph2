@@ -1,0 +1,111 @@
+/* InkGraph デザイントークン v1（ダーク既定・ライト対応） */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&family=Inter:wght@500;700;800&display=swap');
+
+:root {
+  /* 背景・面 */
+  --bg: #0E1120;
+  --surface: #161A2E;
+  --surface-2: #1E2340;
+  --surface-hover: #252B4D;
+  --border: #2A3052;
+  --border-strong: #3A4170;
+
+  /* 文字 */
+  --text: #E8EAF6;
+  --text-muted: #9AA3C7;
+  --text-faint: #6B7399;
+
+  /* ブランド（インクのライム。主ボタンと選択中のナビだけに使う） */
+  --accent: #C6F432;
+  --accent-text: #0E1120;
+  --accent-soft: rgba(198, 244, 50, 0.14);
+
+  /* 試合の意味色：1色1意味 */
+  --ally: #4C8DFF;              /* 味方 */
+  --ally-soft: rgba(76, 141, 255, 0.16);
+  --enemy: #FF7A1A;             /* 敵 */
+  --enemy-soft: rgba(255, 122, 26, 0.16);
+  --kill: #22C55E;              /* 自分のキル */
+  --death: #F4F5FA;             /* 自分のデス（×、ダークでは白） */
+  --respawn: rgba(244, 245, 250, 0.18); /* 復活待ち */
+  --special: #FACC15;           /* スペシャル */
+  --special-wasted: #8A8FA8;    /* 未使用のまま終了・払い落とし */
+  --win: #22C55E;
+  --lose: #F43F5E;
+  --winrate-up: var(--ally);
+  --winrate-down: var(--enemy);
+  --unknown: rgba(154, 163, 199, 0.08); /* 判定できない区間 */
+  --danger: #F43F5E;
+
+  /* フォント */
+  --font-sans: "Noto Sans JP", system-ui, sans-serif;
+  --font-num: "Inter", "Noto Sans JP", sans-serif;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 14px; --fs-md: 16px;
+  --fs-lg: 20px; --fs-xl: 28px; --fs-2xl: 40px;
+  --fw-normal: 400; --fw-medium: 500; --fw-bold: 700; --fw-black: 800;
+
+  /* 余白（4pxきざみ） */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+
+  /* 角丸・影 */
+  --r-sm: 6px; --r-md: 10px; --r-lg: 16px; --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-2: 0 8px 24px rgba(0,0,0,.35);
+
+  --nav-w: 220px;
+  --content-max: 1440px;
+}
+
+[data-theme="light"] {
+  --bg: #F4F5FA; --surface: #FFFFFF; --surface-2: #F0F2F8; --surface-hover: #E8EBF5;
+  --border: #E2E5F0; --border-strong: #C9CEE0;
+  --text: #121528; --text-muted: #5B6283; --text-faint: #8A90AD;
+  --accent: #5A7A00; --accent-text: #FFFFFF; --accent-soft: rgba(90,122,0,.10);
+  --ally: #2563EB; --ally-soft: rgba(37,99,235,.10);
+  --enemy: #E8630A; --enemy-soft: rgba(232,99,10,.10);
+  --kill: #16A34A; --death: #121528; --respawn: rgba(18,21,40,.10);
+  --special: #CA8A04; --win: #16A34A; --lose: #E11D48;
+  --unknown: rgba(18,21,40,.05);
+  --shadow-1: 0 1px 2px rgba(18,21,40,.06);
+  --shadow-2: 0 8px 24px rgba(18,21,40,.08);
+}
+
+/* 基本部品 */
+body { background: var(--bg); color: var(--text); font: var(--fw-normal) var(--fs-base)/1.6 var(--font-sans); }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.app { display: grid; grid-template-columns: var(--nav-w) 1fr; min-height: 100vh; }
+.sidenav { background: var(--surface); border-right: 1px solid var(--border); padding: var(--sp-4); position: sticky; top: 0; height: 100vh; }
+.sidenav a { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); color: var(--text-muted); font-weight: var(--fw-medium); }
+.sidenav a:hover { background: var(--surface-hover); color: var(--text); }
+.sidenav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+.main { padding: var(--sp-6) var(--sp-8); max-width: var(--content-max); }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-6); }
+.page-title { font-size: var(--fs-lg); font-weight: var(--fw-black); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-5); box-shadow: var(--shadow-1); }
+.card-title { font-size: var(--fs-md); font-weight: var(--fw-bold); margin-bottom: var(--sp-4); }
+
+.stat { background: var(--surface-2); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); }
+.stat-label { font-size: var(--fs-sm); color: var(--text-muted); }
+.stat-value { font: var(--fw-black) var(--fs-xl)/1.1 var(--font-num); font-variant-numeric: tabular-nums; }
+
+.badge { display: inline-flex; align-items: center; padding: 2px var(--sp-3); border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+.badge-win  { background: color-mix(in srgb, var(--win) 18%, transparent);  color: var(--win); }
+.badge-lose { background: color-mix(in srgb, var(--lose) 18%, transparent); color: var(--lose); }
+.result-hero { font-size: var(--fs-lg); font-weight: var(--fw-black); padding: var(--sp-1) var(--sp-4); border-radius: var(--r-md); }
+
+.btn { height: 36px; padding: 0 var(--sp-4); border-radius: var(--r-md); font-weight: var(--fw-bold); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); }
+.btn-primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.btn-stop { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+.btn-stop:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.btn-danger-ghost { background: transparent; color: var(--danger); border-color: transparent; }
+.btn:disabled { opacity: .4; }
+
+.table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.table th { position: sticky; top: 0; background: var(--surface); text-align: left; font-size: var(--fs-sm); color: var(--text-muted); font-weight: var(--fw-medium); padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.table td { padding: var(--sp-3); border-bottom: 1px solid var(--border); }
+.table tr:hover td { background: var(--surface-hover); cursor: pointer; }
+.delta-up { color: var(--winrate-up); } .delta-down { color: var(--winrate-down); } .delta-zero { color: var(--text-faint); }
+.row-big-swing td { background: color-mix(in srgb, var(--enemy) 8%, transparent); }
