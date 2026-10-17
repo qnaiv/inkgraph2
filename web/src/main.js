@@ -422,6 +422,20 @@ PAGES.live = async () => {
 
   $('#to-list', page).onclick = e => { e.preventDefault(); nav('list'); };
 
+  const isStreamReady = () => {
+    const ownerEl = page.querySelector('input[name="stream-owner"]:checked');
+    if (!ownerEl) return false;
+    const streamChecks = Array.from(page.querySelectorAll('.stream-check'));
+    return streamChecks.length > 0 && streamChecks.every(c => c.checked);
+  };
+
+  const syncStartDisabled = () => {
+    if (session && session.running) return;
+    const mode = page.querySelector('input[name="src"]:checked')?.value || 'device';
+    const needStreamReady = mode === 'stream' && !isStreamReady();
+    $('#start', page).disabled = isBlocked || needStreamReady;
+  };
+
   const syncSourceTabs = () => {
     const mode = page.querySelector('input[name="src"]:checked')?.value || 'device';
     page.querySelectorAll('.pill-tab').forEach(lbl => {
@@ -430,8 +444,22 @@ PAGES.live = async () => {
     $('#device-controls', page).style.display = mode === 'device' ? 'flex' : 'none';
     $('#file-controls', page).style.display = mode === 'file' ? 'flex' : 'none';
     $('#stream-controls', page).style.display = mode === 'stream' ? 'flex' : 'none';
+    const emptyP = $('#video-empty p', page);
+    if (emptyP) {
+      emptyP.textContent = mode === 'stream'
+        ? '共有する画面を選んでください'
+        : 'キャプチャーボードを接続するか、録画ファイルを選んで解析を開始してください';
+    }
+    const pickBtn = $('#video-pick-file', page);
+    if (pickBtn) {
+      pickBtn.style.display = mode === 'stream' ? 'none' : '';
+    }
+    syncStartDisabled();
   };
   page.querySelectorAll('input[name="src"]').forEach(r => r.addEventListener('change', syncSourceTabs));
+  page.querySelectorAll('input[name="stream-owner"], .stream-check').forEach(el => {
+    el.addEventListener('change', syncStartDisabled);
+  });
 
   $('#video-pick-file', page).onclick = () => {
     const fileRadio = page.querySelector('input[name="src"][value="file"]');
@@ -601,7 +629,7 @@ PAGES.live = async () => {
         $('#saved', page).innerHTML = `保存した試合：<b class="num">${savedCount}</b>件`;
       },
       stopped: () => {
-        $('#start', page).disabled = false;
+        syncStartDisabled();
         $('#start', page).style.display = 'inline-flex';
         $('#stop', page).disabled = true;
         $('#stop', page).style.display = 'none';
@@ -629,7 +657,7 @@ PAGES.live = async () => {
       });
     } catch (e) {
       alert('開始できませんでした：' + e.message);
-      $('#start', page).disabled = false;
+      syncStartDisabled();
       $('#start', page).style.display = 'inline-flex';
       $('#stop', page).disabled = true;
       $('#stop', page).style.display = 'none';
@@ -838,6 +866,7 @@ PAGES.list = async () => {
               <div class="match-row-col-res">
                 <button class="fav-btn" data-id="${esc(m.id)}" type="button" aria-label="お気に入り" title="お気に入り">${m.favorite === true ? '★' : '☆'}</button>
                 <span class="${badgeCls(r.result)}">${resJa(r.result)}</span>
+                ${isVerificationMatch(m) ? '<span class="verify-badge">検証用</span>' : ''}
                 <span class="match-row-date num">${esc(dtStr)}</span>
               </div>
 
@@ -846,7 +875,6 @@ PAGES.list = async () => {
                 <span class="stills-state">${esc(stillsStateLabel(m))}</span>
                 <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
                 <span class="result-status" data-status="${rsStat.key}">${esc(rsStat.label)}</span>
-                ${isVerificationMatch(m) ? '<span class="verify-badge">検証用</span>' : ''}
                 ${r.count ? `<span class="match-row-count num">${fmtCount(r.count)}</span>` : ''}
               </div>
 

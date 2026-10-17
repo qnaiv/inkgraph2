@@ -150,7 +150,15 @@ try {
     deviceControlsHidden && fileControlsHidden
   );
 
-  // (c) radioとcheckboxの初期未選択状態
+  // (c) stream空状態の文言とファイル選択ボタン非表示
+  const streamEmptyText = await page.$eval('#video-empty p', el => el.textContent.trim());
+  const streamPickBtnHidden = await page.$eval('#video-pick-file', el => getComputedStyle(el).display === 'none');
+  check('Live page: stream empty state shows "共有する画面を選んでください" and hides #video-pick-file',
+    streamEmptyText === '共有する画面を選んでください' && streamPickBtnHidden,
+    `text="${streamEmptyText}", pickBtnHidden=${streamPickBtnHidden}`
+  );
+
+  // (d) radioとcheckboxの初期未選択状態 & #start disabled
   const radios = await page.$$eval('input[name="stream-owner"]', els => els.map(el => ({ value: el.value, checked: el.checked })));
   check('Live page: stream-owner radios exist with "self" and "other", both initially unchecked',
     radios.length === 2 &&
@@ -163,17 +171,52 @@ try {
     checkboxes.length === 3 && checkboxes.every(c => !c.checked)
   );
 
-  // (d) owner未選択で「解析を開始」押下時のガード
+  const startInitialState = await page.$eval('#start', el => {
+    const cs = getComputedStyle(el);
+    const root = getComputedStyle(document.documentElement);
+    const probe = document.createElement('div');
+    probe.style.background = root.getPropertyValue('--surface-2');
+    probe.style.color = root.getPropertyValue('--text-faint');
+    document.body.appendChild(probe);
+    const pcs = getComputedStyle(probe);
+    const bgMatch = cs.backgroundColor === pcs.backgroundColor;
+    const fgMatch = cs.color === pcs.color;
+    probe.remove();
+    return { disabled: el.disabled, bgMatch, fgMatch, bg: cs.backgroundColor, fg: cs.color };
+  });
+  check('Live page: #start is disabled with surface-2/text-faint style when stream conditions unmet',
+    startInitialState.disabled && startInitialState.bgMatch && startInitialState.fgMatch,
+    `disabled=${startInitialState.disabled}, bg=${startInitialState.bg}, fg=${startInitialState.fg}`
+  );
+
+  // スクリーンショット1: ライブ画面（stream選択・条件未達状態）
+  await page.screenshot({ path: path.join(SH, 'live-stream-select.png') });
+
+  // (e) ownerと開始前チェック3つを満たすと #start が有効になり、外すと無効に戻ること
+  await page.check('input[name="stream-owner"][value="other"]');
+  const disabledOnlyOwner = await page.$eval('#start', el => el.disabled);
+  check('Live page: #start remains disabled when only owner is selected', disabledOnlyOwner);
+
+  const checkEls = await page.$$('.stream-check');
+  for (const c of checkEls) await c.check();
+  const enabledWhenAllMet = await page.$eval('#start', el => !el.disabled);
+  check('Live page: #start becomes enabled when owner and all 3 stream-checks are checked', enabledWhenAllMet);
+
+  await checkEls[0].uncheck();
+  const disabledAfterUncheck = await page.$eval('#start', el => el.disabled);
+  check('Live page: #start becomes disabled again when a stream-check is unchecked', disabledAfterUncheck);
+
+  // (f) 二重防御の alert ガード確認
   let alertMessage = null;
   page.once('dialog', async dialog => {
     alertMessage = dialog.message();
     await dialog.accept();
   });
 
-  await page.click('#start');
+  await page.$eval('#start', el => el.onclick());
   await page.waitForTimeout(300);
 
-  check('Live page: clicking start without owner triggers alert dialog',
+  check('Live page: onclick guard triggers alert dialog when conditions unmet',
     !!alertMessage,
     `alert message: "${alertMessage}"`
   );
@@ -184,9 +227,6 @@ try {
     !stopVisible && !liveStateText.includes('解析中'),
     `stopVisible=${stopVisible}, state="${liveStateText}"`
   );
-
-  // スクリーンショット1: ライブ画面（stream選択状態）
-  await page.screenshot({ path: path.join(SH, 'live-stream-select.png') });
 
   // 2. seed投入による試合一覧・傾向分析の検証
   const seedMatches = [
@@ -254,15 +294,45 @@ try {
   check('Match list: 2 matches displayed', rows.length === 2);
 
   const rowSelfBadge = await page.$eval('.match-row[data-id="stream-test-self"]', el => !!el.querySelector('.verify-badge'));
-  const rowOtherBadge = await page.$eval('.match-row[data-id="stream-test-other"]', el => {
+  const rowOtherBadgeInfo = await page.$eval('.match-row[data-id="stream-test-other"]', el => {
     const b = el.querySelector('.verify-badge');
-    return b ? b.textContent.trim() : null;
+    if (!b) return null;
+    const inColRes = !!el.querySelector('.match-row-col-res .verify-badge');
+    const inColStage = !!el.querySelector('.match-row-col-stage .verify-badge');
+    const prevIsResultBadge = b.previousElementSibling?.classList.contains('badge') || false;
+    const cs = getComputedStyle(b);
+    const root = getComputedStyle(document.documentElement);
+    const probe = document.createElement('div');
+    probe.style.background = root.getPropertyValue('--warn-soft');
+    probe.style.border = `1px solid ${root.getPropertyValue('--warn-border')}`;
+    probe.style.color = root.getPropertyValue('--warn');
+    document.body.appendChild(probe);
+    const pcs = getComputedStyle(probe);
+    const colorMatch =
+      cs.backgroundColor === pcs.backgroundColor &&
+      cs.borderTopColor === pcs.borderTopColor &&
+      cs.color === pcs.color;
+    probe.remove();
+    return {
+      text: b.textContent.trim(),
+      inColRes,
+      inColStage,
+      prevIsResultBadge,
+      colorMatch,
+      bg: cs.backgroundColor,
+      border: cs.borderTopColor,
+      fg: cs.color
+    };
   });
 
   check('Match list: verification badge NOT present on self match row', !rowSelfBadge);
   check('Match list: verification badge present with text "検証用" only on other match row',
-    rowOtherBadge === '検証用',
-    `rowOtherBadge="${rowOtherBadge}"`
+    rowOtherBadgeInfo?.text === '検証用',
+    `rowOtherBadge="${rowOtherBadgeInfo?.text}"`
+  );
+  check('Match list: verification badge is inside .match-row-col-res right next to result badge and uses warn colors',
+    !!(rowOtherBadgeInfo && rowOtherBadgeInfo.inColRes && !rowOtherBadgeInfo.inColStage && rowOtherBadgeInfo.prevIsResultBadge && rowOtherBadgeInfo.colorMatch),
+    JSON.stringify(rowOtherBadgeInfo)
   );
 
   // スクリーンショット2: 試合一覧

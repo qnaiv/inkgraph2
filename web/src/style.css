@@ -702,12 +702,18 @@ button, input, select {
 
 .match-row-col-res {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+}
+
+.match-row-col-res .fav-btn {
+  margin-right: 100%;
 }
 
 .match-row-date {
+  flex-basis: 100%;
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
@@ -1443,9 +1449,9 @@ tr.added td {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-2);
-  color: var(--text-muted);
+  border: 1px solid var(--warn-border);
+  background: var(--warn-soft);
+  color: var(--warn);
   font-size: 11px;
   line-height: 1.2;
   padding: 2px 8px;
