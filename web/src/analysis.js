@@ -187,3 +187,243 @@ export function removeCountPoint(m, sec) {
   const cs = m.review.count_series || []; const i = cs.findIndex(c => c[0] === sec); if (i >= 0) cs.splice(i, 1);
   if (!cs.length) delete m.review.count_series;
 }
+
+// ---------------------------------------------------------------------------
+// 傾向画面（エピックC・エピックB土台）フィルタ・集計関数群
+// ---------------------------------------------------------------------------
+
+export const MATCH_TYPE_OPTIONS = [
+  { value: 'all', label: 'すべて' },
+  { value: 'x', label: 'Xマッチ' },
+  { value: 'bankara_open', label: 'バンカラ・オープン' },
+  { value: 'bankara_challenge', label: 'バンカラ・チャレンジ' },
+  { value: 'other', label: 'その他' }
+];
+
+export const RULE_OPTIONS = [
+  { value: 'all', label: 'すべて' },
+  { value: 'area', label: 'ガチエリア' },
+  { value: 'hoko', label: 'ガチホコバトル' },
+  { value: 'yagura', label: 'ガチヤグラ' },
+  { value: 'asari', label: 'ガチアサリ' },
+  { value: 'nawabari', label: 'ナワバリバトル' }
+];
+
+const RULE_VALUE_TO_MODE = {
+  area: 'ガチエリア',
+  hoko: 'ガチホコバトル',
+  yagura: 'ガチヤグラ',
+  asari: 'ガチアサリ',
+  nawabari: 'ナワバリバトル'
+};
+
+export function parseTrendFilter(text) {
+  let s = text || '';
+  const qIdx = s.indexOf('?');
+  if (qIdx >= 0) s = s.slice(qIdx + 1);
+  const params = new URLSearchParams(s);
+  let matchType = params.get('matchType') || 'all';
+  let rule = params.get('rule') || 'all';
+  if (!MATCH_TYPE_OPTIONS.some(o => o.value === matchType)) matchType = 'all';
+  if (!RULE_OPTIONS.some(o => o.value === rule)) rule = 'all';
+  return { matchType, rule };
+}
+
+export function trendFilterToQuery(f) {
+  const matchType = (f && f.matchType) || 'all';
+  const rule = (f && f.rule) || 'all';
+  const p = new URLSearchParams();
+  p.set('matchType', matchType);
+  p.set('rule', rule);
+  return p.toString();
+}
+
+export function filterTrendMatches(matches, f) {
+  if (!Array.isArray(matches)) return [];
+  const filter = typeof f === 'object' && f !== null && ('matchType' in f || 'rule' in f)
+    ? parseTrendFilter(trendFilterToQuery(f))
+    : parseTrendFilter(f);
+  const { matchType, rule } = filter;
+  const targetMode = RULE_VALUE_TO_MODE[rule] || null;
+
+  return matches.filter(m => {
+    const r = resultOf(m);
+    // match_type 判定
+    if (matchType !== 'all') {
+      if (matchType === 'other') {
+        if (r.match_type !== 'other') return false;
+      } else {
+        if (r.match_type !== matchType) return false;
+      }
+    }
+    // mode 判定
+    if (rule !== 'all') {
+      if (!r.mode || r.mode !== targetMode) return false;
+    }
+    return true;
+  });
+}
+
+export function sampleTier(n) {
+  const count = Math.max(0, Math.floor(Number(n) || 0));
+  if (count < 5) return { key: 'insufficient', label: 'データ不足' };
+  if (count <= 9) return { key: 'reference', label: '参考値' };
+  return { key: 'normal', label: '通常' };
+}
+
+export function powerBreakdown(matches) {
+  if (!Array.isArray(matches)) {
+    return { acquired: 0, notApplicable: 0, notAcquired: 0, excluded: 0 };
+  }
+  let acquired = 0;
+  let notApplicable = 0;
+  let notAcquired = 0;
+  for (const m of matches) {
+    const p = powerOf(m);
+    if (p.status === 'acquired' && p.value != null) {
+      acquired++;
+    } else if (p.status === 'not_applicable') {
+      notApplicable++;
+    } else {
+      notAcquired++;
+    }
+  }
+  return {
+    acquired,
+    notApplicable,
+    notAcquired,
+    excluded: notApplicable + notAcquired
+  };
+}
+
+export function stageRuleRows(matches) {
+  if (!Array.isArray(matches)) return [];
+  const map = new Map();
+
+  for (const m of matches) {
+    const r = resultOf(m);
+    const stage = r.stage || '不明';
+    const rule = r.mode || 'ルール不明';
+    const key = `${stage}::${rule}`;
+
+    let entry = map.get(key);
+    if (!entry) {
+      entry = {
+        stage,
+        rule,
+        n: 0,
+        wins: 0,
+        losses: 0,
+        killTotal: 0,
+        deathTotal: 0,
+        specialTotal: 0
+      };
+      map.set(key, entry);
+    }
+
+    entry.n++;
+    if (r.result === 'WIN') entry.wins++;
+    else if (r.result === 'LOSE') entry.losses++;
+
+    const eff = effective(m);
+    for (const e of eff) {
+      if (e.kind === 'kill') entry.killTotal++;
+      else if (e.kind === 'death') entry.deathTotal++;
+      else if (e.kind === 'special') entry.specialTotal++;
+    }
+  }
+
+  const rows = [];
+  for (const entry of map.values()) {
+    const known = entry.wins + entry.losses;
+    const winRate = known > 0 ? entry.wins / known : null;
+    const killsPer = entry.n > 0 ? entry.killTotal / entry.n : 0;
+    const deathsPer = entry.n > 0 ? entry.deathTotal / entry.n : 0;
+    const specialsPer = entry.n > 0 ? entry.specialTotal / entry.n : 0;
+    const kd = entry.deathTotal > 0 ? entry.killTotal / entry.deathTotal : null;
+
+    let badge = null;
+    if (entry.n >= 10 && winRate != null) {
+      if (winRate >= 0.6) badge = '得意';
+      else if (winRate <= 0.4) badge = '苦手';
+    }
+
+    rows.push({
+      stage: entry.stage,
+      rule: entry.rule,
+      n: entry.n,
+      wins: entry.wins,
+      losses: entry.losses,
+      known,
+      winRate,
+      killsPer,
+      deathsPer,
+      specialsPer,
+      kd,
+      killTotal: entry.killTotal,
+      deathTotal: entry.deathTotal,
+      specialTotal: entry.specialTotal,
+      badge
+    });
+  }
+
+  rows.sort((a, b) => b.n - a.n || a.stage.localeCompare(b.stage) || a.rule.localeCompare(b.rule));
+  return rows;
+}
+
+export function sortStageRows(rows, key = 'n', dir = 'desc') {
+  if (!Array.isArray(rows)) return [];
+  const list = [...rows];
+  const mult = dir === 'asc' ? 1 : -1;
+
+  if (key === 'winRate') {
+    const eligible = [];
+    const low = [];
+    for (const r of list) {
+      if (r.n < 5) low.push(r);
+      else eligible.push(r);
+    }
+    eligible.sort((a, b) => {
+      const va = a.winRate ?? -1;
+      const vb = b.winRate ?? -1;
+      if (va !== vb) return (va - vb) * mult;
+      return b.n - a.n || a.stage.localeCompare(b.stage) || a.rule.localeCompare(b.rule);
+    });
+    return [...eligible, ...low];
+  }
+
+  list.sort((a, b) => {
+    let diff = 0;
+    if (key === 'stage') {
+      diff = a.stage.localeCompare(b.stage);
+    } else if (key === 'rule') {
+      diff = a.rule.localeCompare(b.rule);
+    } else if (key === 'n') {
+      diff = a.n - b.n;
+    } else if (key === 'record') {
+      diff = (a.wins - b.wins) || (b.losses - a.losses);
+    } else if (key === 'killsPer') {
+      diff = a.killsPer - b.killsPer;
+    } else if (key === 'deathsPer') {
+      diff = a.deathsPer - b.deathsPer;
+    } else if (key === 'specialsPer') {
+      diff = a.specialsPer - b.specialsPer;
+    } else if (key === 'kd') {
+      const va = a.kd ?? -1;
+      const vb = b.kd ?? -1;
+      diff = va - vb;
+    }
+    if (diff !== 0) return diff * mult;
+    return b.n - a.n || a.stage.localeCompare(b.stage) || a.rule.localeCompare(b.rule);
+  });
+  return list;
+}
+
+export function candidateShortage(totalOwn, filtered) {
+  const t = Math.max(0, Math.floor(Number(totalOwn) || 0));
+  const f = Math.max(0, Math.floor(Number(filtered) || 0));
+  const enough = t >= 30 && f >= 10;
+  const needed = Math.max(30 - t, 10 - f, 0);
+  return { enough, needed, totalOwn: t, filtered: f };
+}
+

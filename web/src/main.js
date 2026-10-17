@@ -2,7 +2,7 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage } from './analysis.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -20,6 +20,8 @@ let currentId = null;
 let pendingSeek = null;
 let reviewMode = false;
 let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自動で開くダイアログのモード
+let lastTrendQuery = '';
+let trendStageSort = { key: 'n', dir: 'desc' };
 
 window.inkgraph = {
   db,
@@ -38,6 +40,16 @@ window.inkgraph = {
 
 let currentPage = 'live';
 
+function parseHash(hashStr) {
+  const raw = (hashStr || '').replace(/^#/, '');
+  const [pathPart, ...rest] = raw.split('/');
+  const qIdx = pathPart.indexOf('?');
+  const page = qIdx >= 0 ? pathPart.slice(0, qIdx) : pathPart;
+  const query = qIdx >= 0 ? pathPart.slice(qIdx + 1) : '';
+  const id = rest.length ? rest.join('/') : null;
+  return { page, query, id };
+}
+
 function updateNavActive(page) {
   document.querySelectorAll('.sidenav a[data-page], nav [data-page]').forEach(a => {
     const active = a.dataset.page === page;
@@ -48,12 +60,28 @@ function updateNavActive(page) {
 }
 
 function nav(page, arg, seekTo = null) {
+  let query = '';
+  if (page.includes('?')) {
+    const parts = page.split('?');
+    page = parts[0];
+    query = parts[1];
+  }
   if (!PAGES[page]) page = 'live';
   currentPage = page;
   if (arg) currentId = arg;
   pendingSeek = seekTo;
   updateNavActive(page);
-  const nextHash = page + (currentId && page === 'match' ? '/' + encodeURIComponent(currentId) : '');
+
+  let nextHash = page + (currentId && page === 'match' ? '/' + encodeURIComponent(currentId) : '');
+  if (page === 'trend') {
+    if (query) {
+      lastTrendQuery = query;
+    }
+    if (lastTrendQuery) {
+      nextHash = 'trend?' + lastTrendQuery;
+    }
+  }
+
   if (location.hash.slice(1) !== nextHash) {
     history.replaceState(null, '', '#' + nextHash);
   }
@@ -68,8 +96,11 @@ document.querySelectorAll('.sidenav a[data-page], nav [data-page]').forEach(a =>
 });
 
 window.addEventListener('hashchange', () => {
-  const [p, id] = location.hash.slice(1).split('/');
+  const { page: p, query: q, id } = parseHash(location.hash);
   if (id) currentId = decodeURIComponent(id);
+  if (p === 'trend' && q) {
+    lastTrendQuery = q;
+  }
   if (PAGES[p]) {
     currentPage = p;
     updateNavActive(p);
@@ -2094,32 +2125,109 @@ PAGES.trend = async () => {
   const allMs = await db.allMatches();
   const verifyCount = allMs.filter(isVerificationMatch).length;
   const ms = ownMatches(allMs);
+
+  const currentFilter = parseTrendFilter(location.hash);
+  lastTrendQuery = trendFilterToQuery(currentFilter);
+  const currentHash = 'trend?' + lastTrendQuery;
+  if (location.hash.slice(1) !== currentHash && currentPage === 'trend') {
+    history.replaceState(null, '', '#' + currentHash);
+  }
+
+  const filtered = filterTrendMatches(ms, currentFilter);
   const page = document.createElement('div');
-  if (!ms.length) {
+
+  const matchTypePills = MATCH_TYPE_OPTIONS.map(opt => `
+    <button type="button" class="trend-pill" data-match-type="${opt.value}" aria-pressed="${currentFilter.matchType === opt.value ? 'true' : 'false'}">${opt.label}</button>
+  `).join('');
+
+  const rulePills = RULE_OPTIONS.map(opt => `
+    <button type="button" class="trend-pill" data-rule="${opt.value}" aria-pressed="${currentFilter.rule === opt.value ? 'true' : 'false'}">${opt.label}</button>
+  `).join('');
+
+  const pb = powerBreakdown(filtered);
+  const powerBreakdownHtml = pb.excluded > 0 ? `
+    <details class="trend-power-breakdown">
+      <summary>パワーの対象外・未取得の内訳</summary>
+      <div>対象外（ナワバリバトルなど）${pb.notApplicable}件／未取得（取得できなかった試合）${pb.notAcquired}件</div>
+    </details>
+  ` : '';
+
+  const filterHeaderHtml = `
+    <section class="trends-filter">
+      <div class="trends-filter-row">
+        <span class="trends-filter-label">マッチタイプ</span>
+        <div class="trends-filter-pills">${matchTypePills}</div>
+      </div>
+      <div class="trends-filter-row">
+        <span class="trends-filter-label">ルール</span>
+        <div class="trends-filter-pills">${rulePills}</div>
+      </div>
+    </section>
+    <div class="trend-target-line">
+      <span>対象 ${filtered.length}試合（全体${ms.length}試合）</span>
+      ${powerBreakdownHtml}
+    </div>
+  `;
+
+  const attachFilterListeners = root => {
+    root.querySelectorAll('.trend-pill[data-match-type]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mt = btn.dataset.matchType;
+        const nextFilter = { ...currentFilter, matchType: mt };
+        lastTrendQuery = trendFilterToQuery(nextFilter);
+        history.replaceState(null, '', '#trend?' + lastTrendQuery);
+        PAGES.trend();
+      });
+    });
+    root.querySelectorAll('.trend-pill[data-rule]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const r = btn.dataset.rule;
+        const nextFilter = { ...currentFilter, rule: r };
+        lastTrendQuery = trendFilterToQuery(nextFilter);
+        history.replaceState(null, '', '#trend?' + lastTrendQuery);
+        PAGES.trend();
+      });
+    });
+    const resetBtn = root.querySelector('#trend-reset-filter');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        lastTrendQuery = trendFilterToQuery({ matchType: 'all', rule: 'all' });
+        history.replaceState(null, '', '#trend?' + lastTrendQuery);
+        PAGES.trend();
+      });
+    }
+  };
+
+  if (!filtered.length) {
     page.innerHTML = `
       <div class="page-header"><h1 class="page-title">傾向分析</h1></div>
-      <div class="card">
+      ${filterHeaderHtml}
+      <div class="card trend-empty-filtered">
         <div class="empty-state">
-          <p>分析できる試合がまだありません。ライブ分析または試合一覧から試合を追加してください。</p>
-          <button class="btn btn-primary" id="trend-empty-btn" type="button">試合一覧へ</button>
+          <p style="font-weight:var(--fw-bold);font-size:var(--fs-md);margin-bottom:var(--sp-2)">この条件の試合はまだありません</p>
+          <p class="muted" style="margin-bottom:var(--sp-4)">マッチタイプとルールを変えると、記録済みの試合から集計します</p>
+          <button class="btn btn-primary" id="trend-reset-filter" type="button">条件をすべてに戻す</button>
+          ${!ms.length ? `<button class="btn" id="trend-empty-btn" type="button" style="margin-left:var(--sp-3)">試合一覧へ</button>` : ''}
         </div>
       </div>`;
     app.replaceChildren(page);
-    $('#trend-empty-btn', page).onclick = () => nav('list');
+    attachFilterListeners(page);
+    const emptyBtn = $('#trend-empty-btn', page);
+    if (emptyBtn) emptyBtn.onclick = () => nav('list');
     return;
   }
 
-  const R = ms.map((m, idx) => ({ m, idx, r: resultOf(m), ev: effective(m) }));
+  const R = filtered.map((m, idx) => ({ m, idx, r: resultOf(m), ev: effective(m) }));
   const known = R.filter(x => x.r.result === 'WIN' || x.r.result === 'LOSE');
   const unknown = R.length - known.length;
   const wins = known.filter(x => x.r.result === 'WIN').length;
   const losses = known.length - wins;
   const cnt = (x, k) => x.ev.filter(e => e.kind === k).length;
   const sum = k => R.reduce((s, x) => s + cnt(x, k), 0);
-  const spStatsList = ms.map(m => specialStats(m));
+  const spStatsList = filtered.map(m => specialStats(m));
   const totActivated = spStatsList.reduce((s, x) => s + x.activated, 0);
   const totReadySec = spStatsList.reduce((s, x) => s + x.readySeconds, 0);
-  const avgReadySec = ms.length ? Math.round(totReadySec / ms.length) : 0;
+  const avgReadySec = filtered.length ? Math.round(totReadySec / filtered.length) : 0;
   const totLost = spStatsList.reduce((s, x) => s + x.lost, 0);
   const unusedEndMatches = spStatsList.filter(x => x.unusedEnd > 0).length;
   const totReadyCount = spStatsList.reduce((s, x) => s + x.readyCount, 0);
@@ -2128,7 +2236,25 @@ PAGES.trend = async () => {
   const deaths = R.flatMap(x => x.ev.filter(e => e.kind === 'death').map(e => ({ ...e, x })));
   const kills = R.flatMap(x => x.ev.filter(e => e.kind === 'kill').map(e => ({ ...e, x })));
 
-  // 2. Winrate progression SVG (height 220px): cumulative solid line + win/lose dots + rolling-10 dashed line
+  // 母数バナーと勝率表示
+  const tier = sampleTier(filtered.length);
+  let bannerHtml = '';
+  if (tier.key === 'insufficient') {
+    bannerHtml = `<div class="trend-sample-banner">対象が ${filtered.length} 件のため、傾向としてはまだ読めません。数字は記録の合計です</div>`;
+  } else if (tier.key === 'reference') {
+    bannerHtml = `<div class="trend-sample-banner">対象 ${filtered.length} 件のため参考値です</div>`;
+  }
+
+  let winrateValHtml = '';
+  if (tier.key === 'insufficient') {
+    winrateValHtml = `<span class="stat-value-2xl num">—</span>`;
+  } else if (tier.key === 'reference') {
+    winrateValHtml = `<span class="stat-value-2xl num trend-winrate-muted">${pct(known.length ? wins / known.length : null)}</span>`;
+  } else {
+    winrateValHtml = `<span class="stat-value-2xl num">${pct(known.length ? wins / known.length : null)}</span>`;
+  }
+
+  // 2. Winrate progression SVG (height 220px)
   const cwW = 1000, cwH = 220, padL = 44, padR = 24, padT = 20, padB = 32;
   const plotW = cwW - padL - padR, plotH = cwH - padT - padB;
   const Xm = i => R.length === 1 ? padL + plotW / 2 : padL + (i / (R.length - 1)) * plotW;
@@ -2177,13 +2303,36 @@ PAGES.trend = async () => {
     </svg>
   `;
 
+  // Xパワーの推移カード（空状態）: matchType が all または x のときのみ表示
+  const showXPower = currentFilter.matchType === 'all' || currentFilter.matchType === 'x';
+  const xPowerCardHtml = showXPower ? `
+    <div class="card trend-xpower-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">Xパワーの推移</div>
+      <div class="empty-state">
+        <p style="font-weight:var(--fw-bold);font-size:var(--fs-md);margin-bottom:var(--sp-2)">Xパワーはまだ記録されていません</p>
+        <p class="muted">Xマッチの試合を記録すると、ここにパワーの推移が出ます</p>
+      </div>
+    </div>
+  ` : '';
+
   // 3. Diverging bars: by phase & by count-diff (7 buckets)
   const kdText = (k, d) => (d === 0 ? '—' : (k / d).toFixed(2));
   const byPhase = ['抑え', '打開', '互角'].map(p => {
     const dList = deaths.filter(e => (e.phase || '互角') === p);
     const kList = kills.filter(e => (e.phase || '互角') === p);
     const loss = dList.reduce((s, e) => s + Math.min(0, e.wp_delta || 0), 0);
-    return { p, d: dList.length, k: kList.length, kd: kdText(kList.length, dList.length), empty: !kList.length && !dList.length, loss };
+    const total = kList.length + dList.length;
+    const insufficient = total < 5;
+    return {
+      p,
+      d: dList.length,
+      k: kList.length,
+      total,
+      insufficient,
+      kd: insufficient ? '—' : kdText(kList.length, dList.length),
+      empty: !kList.length && !dList.length,
+      loss: insufficient ? null : loss
+    };
   });
   const maxPhaseCnt = Math.max(1, ...byPhase.map(x => Math.max(x.d, x.k)));
 
@@ -2194,6 +2343,68 @@ PAGES.trend = async () => {
     return { b, d, k, kd: kdText(k, d), empty: !k && !d };
   });
   const maxBucketCnt = Math.max(1, ...byB.map(x => Math.max(x.d, x.k)));
+
+  // ステージ×ルールの成績
+  const rawStageRows = stageRuleRows(filtered);
+  const sortedStageRows = sortStageRows(rawStageRows, trendStageSort.key, trendStageSort.dir);
+
+  const stageSortArrow = k => trendStageSort.key === k ? (trendStageSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  const sortBtn = (k, label) => `<button type="button" class="trend-stage-sort" data-sort-key="${k}">${label}${stageSortArrow(k)}</button>`;
+
+  const stageRowsHtml = sortedStageRows.map(r => {
+    const isLow = r.n < 5;
+    let winRateCell = '';
+    if (isLow) {
+      winRateCell = `—（${r.n}試合）`;
+    } else {
+      let badgeHtml = '';
+      if (r.badge === '得意') {
+        badgeHtml = ` <span class="trend-stage-badge-ally">得意</span>`;
+      } else if (r.badge === '苦手') {
+        badgeHtml = ` <span class="trend-stage-badge-enemy">苦手</span>`;
+      }
+      winRateCell = `${pct(r.winRate)}${badgeHtml}`;
+    }
+    const kdStr = r.kd != null ? r.kd.toFixed(2) : '—';
+    return `
+      <tr class="${isLow ? 'trend-stage-low' : ''}">
+        <td>${esc(r.stage)}</td>
+        <td>${esc(r.rule)}</td>
+        <td class="num">${r.n}</td>
+        <td class="num">${r.wins}勝${r.losses}敗</td>
+        <td class="num">${winRateCell}</td>
+        <td class="num">${r.killsPer.toFixed(1)}</td>
+        <td class="num">${r.deathsPer.toFixed(1)}</td>
+        <td class="num">${kdStr}</td>
+        <td class="num">${r.specialsPer.toFixed(1)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const stageCardHtml = `
+    <div class="card trend-stage-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">ステージとルールの成績</div>
+      <div style="overflow-x:auto">
+        <table class="table trend-stage-table">
+          <thead>
+            <tr>
+              <th>${sortBtn('stage', 'ステージ')}</th>
+              <th>${sortBtn('rule', 'ルール')}</th>
+              <th>${sortBtn('n', '試合数')}</th>
+              <th>${sortBtn('record', '勝敗')}</th>
+              <th>${sortBtn('winRate', '勝率')}</th>
+              <th>${sortBtn('killsPer', 'キル')}</th>
+              <th>${sortBtn('deathsPer', 'デス')}</th>
+              <th>${sortBtn('kd', 'キル÷デス')}</th>
+              <th>${sortBtn('specialsPer', 'スペシャル発動')}</th>
+            </tr>
+          </thead>
+          <tbody>${stageRowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="trend-stage-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">5試合未満の行は参考になりません。表示は記録の確認用です</div>
+    </div>
+  `;
 
   // 4. Top 8 winrate-lowering deaths & winrate-raising kills
   const topDeaths = deaths.filter(e => e.wp_delta !== undefined).sort((a, b) => a.wp_delta - b.wp_delta).slice(0, 8);
@@ -2246,16 +2457,37 @@ PAGES.trend = async () => {
       </div>`;
   };
 
+  // 候補ランキング
+  const shortage = candidateShortage(ms.length, filtered.length);
+  const candidateCardHtml = `
+    <div class="card trend-candidate-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">勝ちに効いている動き（候補）</div>
+      ${!shortage.enough ? `
+        <div class="empty-state">
+          <p style="font-weight:var(--fw-bold);font-size:var(--fs-md);margin-bottom:var(--sp-2)">まだ順位を付けられるほど試合がありません</p>
+          <p class="muted">あと${shortage.needed}試合記録すると、ここに候補が出ます</p>
+        </div>
+      ` : `
+        <div class="empty-state">
+          <p class="muted">候補の計算は次段階で実装します</p>
+        </div>
+      `}
+    </div>
+  `;
+
   page.innerHTML = `
     <div class="page-header">
       <h1 class="page-title">傾向分析 <span class="num muted">（${ms.length}試合）</span></h1>
     </div>
 
+    ${filterHeaderHtml}
+    ${bannerHtml}
+
     <div class="trends-stat-band">
       <div class="stat">
         <div class="stat-label">勝率</div>
         <div style="display:flex;align-items:baseline;margin-top:2px">
-          <span class="stat-value-2xl num">${pct(known.length ? wins / known.length : null)}</span>
+          ${winrateValHtml}
           <span class="stat-sub num">${wins}勝${losses}敗</span>
         </div>
         ${unknown > 0 ? `<div class="trend-winrate-note">勝敗不明${unknown}試合を除く${known.length}試合で計算</div>` : ''}
@@ -2263,11 +2495,11 @@ PAGES.trend = async () => {
       </div>
       <div class="stat">
         <div class="stat-label">1試合あたりのキル</div>
-        <div class="stat-value num">${(sum('kill') / ms.length).toFixed(1)}</div>
+        <div class="stat-value num">${(sum('kill') / filtered.length).toFixed(1)}</div>
       </div>
       <div class="stat">
         <div class="stat-label">1試合あたりのデス</div>
-        <div class="stat-value num">${(sum('death') / ms.length).toFixed(1)}</div>
+        <div class="stat-value num">${(sum('death') / filtered.length).toFixed(1)}</div>
       </div>
       <div class="stat">
         <div class="stat-label">キル÷デス</div>
@@ -2311,6 +2543,8 @@ PAGES.trend = async () => {
       <div class="winrate-chart-wrap">${winrateSvg}</div>
     </div>
 
+    ${xPowerCardHtml}
+
     <div class="trends-two-col">
       <div class="card">
         <div class="card-title">状況別のキルとデス — 局面別</div>
@@ -2338,8 +2572,13 @@ PAGES.trend = async () => {
                 </div>
               </div>
               <div class="div-meta">
-                <span class="num">${x.kd}</span>
-                <span class="num ${lossFmt.cls}">${lossFmt.text}</span>
+                ${x.insufficient ? `
+                  <span class="num">—</span>
+                  <span class="muted" style="font-size:11px">データ不足</span>
+                ` : `
+                  <span class="num">${x.kd}</span>
+                  <span class="num ${lossFmt.cls}">${lossFmt.text}</span>
+                `}
               </div>
             </div>`;
         }).join('')}
@@ -2377,6 +2616,8 @@ PAGES.trend = async () => {
       </div>
     </div>
 
+    ${stageCardHtml}
+
     <div class="trends-two-col">
       <div class="card">
         <div class="card-title">勝率を大きく下げたデス（上位8件）</div>
@@ -2405,13 +2646,29 @@ PAGES.trend = async () => {
       </div>
     </div>
 
+    ${candidateCardHtml}
+
     <details class="card collapsible-card">
       <summary>検出の精度（確認画面での訂正から集計） <span>▸</span></summary>
-      ${accTable(accuracy(ms))}
+      ${accTable(accuracy(filtered))}
     </details>
   `;
 
   app.replaceChildren(page);
+  attachFilterListeners(page);
+
+  page.querySelectorAll('.trend-stage-sort').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.sortKey;
+      if (trendStageSort.key === key) {
+        trendStageSort.dir = trendStageSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        trendStageSort.key = key;
+        trendStageSort.dir = 'desc';
+      }
+      PAGES.trend();
+    });
+  });
 
   page.querySelectorAll('.wp-dot, .click-match').forEach(el => {
     el.addEventListener('click', () => nav('match', el.dataset.id));
@@ -2422,6 +2679,11 @@ PAGES.trend = async () => {
   });
 };
 
-const [p0, id0] = location.hash.slice(1).split('/');
+
+const { page: p0, query: q0, id: id0 } = parseHash(location.hash);
 if (id0) currentId = decodeURIComponent(id0);
-nav(PAGES[p0] ? p0 : 'live');
+if (p0 === 'trend' && q0) {
+  lastTrendQuery = q0;
+}
+nav(PAGES[p0] ? (p0 === 'trend' && q0 ? `trend?${q0}` : p0) : 'live');
+

@@ -349,11 +349,11 @@ try {
     `title="${trendPageTitle}"`
   );
 
-  // 勝率表示: 1勝0敗、100%
+  // 勝率表示: 1勝0敗（D40母数ルールにより1-4試合は百分率抑制で「—」）
   const winrateVal = await page.$eval('.stat-value-2xl', el => el.textContent.trim());
   const winrateSub = await page.$eval('.stat-sub', el => el.textContent.trim());
-  check('Trend page: winrate is 100% (1勝0敗) calculated only from own match',
-    winrateVal === '100%' && winrateSub === '1勝0敗',
+  check('Trend page: winrate percent suppressed for 1 match (1勝0敗) calculated only from own match',
+    winrateVal === '—' && winrateSub === '1勝0敗',
     `winrateVal="${winrateVal}", winrateSub="${winrateSub}"`
   );
 

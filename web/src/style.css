@@ -1468,6 +1468,192 @@ tr.added td {
   margin-top: var(--sp-1);
 }
 
+/* 傾向分析: フィルター・対象表示・バナー・新カード */
+.trends-filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.trends-filter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.trends-filter-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: var(--fw-bold);
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.trends-filter-pills {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.trend-pill {
+  height: 36px;
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.trend-pill:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.trend-pill[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: var(--fw-bold);
+  border-color: var(--accent);
+}
+
+.trend-target-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--sp-5);
+  flex-wrap: wrap;
+}
+
+.trend-power-breakdown {
+  display: inline-block;
+  font-size: var(--fs-xs);
+}
+
+.trend-power-breakdown summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.trend-power-breakdown summary:hover {
+  color: var(--text);
+}
+
+.trend-power-breakdown div {
+  margin-top: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+}
+
+.trend-sample-banner {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-4);
+  font-weight: var(--fw-medium);
+}
+
+.trend-winrate-muted {
+  color: var(--text-muted) !important;
+}
+
+.trend-empty-filtered {
+  margin-bottom: var(--sp-6);
+}
+
+.trend-xpower-card {
+  margin-bottom: var(--sp-6);
+}
+
+.trend-stage-table {
+  width: 100%;
+}
+
+.trend-stage-table th,
+.trend-stage-table td {
+  padding: var(--sp-2) var(--sp-3);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.trend-stage-table th:first-child,
+.trend-stage-table td:first-child,
+.trend-stage-table th:nth-child(2),
+.trend-stage-table td:nth-child(2) {
+  text-align: left;
+}
+
+.trend-stage-sort {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.trend-stage-sort:hover {
+  color: var(--accent);
+}
+
+.trend-stage-low {
+  opacity: 0.55;
+}
+
+.trend-stage-badge-ally {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--ally-soft);
+  color: var(--ally);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  margin-left: var(--sp-2);
+  vertical-align: middle;
+}
+
+.trend-stage-badge-enemy {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--enemy-soft);
+  color: var(--enemy);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  margin-left: var(--sp-2);
+  vertical-align: middle;
+}
+
+.trend-candidate-card {
+  margin-bottom: var(--sp-6);
+}
+
+
 .fb-bar {
   display: flex;
   align-items: center;
