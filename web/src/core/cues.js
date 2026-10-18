@@ -6,7 +6,24 @@ export function mapOpen(A, fr) { const { c, b } = regBin(fr, 15, 10, 130, 125, 2
 export function ownDeadSignal(A, fr) { const { c, b } = regBin(fr, 15, 590, 100, 624, 215);
   const y = nccBin(b, c.w, c.h, A.tpl.tpl_signal_yarareta).score; if (y <= 0.5) return { dead: false, y };
   const k = nccBin(b, c.w, c.h, A.tpl.tpl_signal_camon).score; return { dead: y > k, y }; }
-export function killNotice(A, fr) { const { c, b } = regBin(fr, 200, 420, 1080, 720, 190); return nccBin(b, c.w, c.h, A.tpl.tpl_wotaoshita, 0.6).score > 0.6; }
+export function killNoticeSlotScores(A, fr) {
+  const scores = [];
+  for (let k = 0; ; k++) {
+    const anchor = 247 - 44 * k;
+    if (anchor < 0) break;
+    const isTop = (anchor - 44 < 0);
+    const topRel = isTop ? 0 : Math.max(0, anchor - 22);
+    const botRel = k === 0 ? 300 : Math.min(300, anchor + 22 + 25);
+    const y0 = 420 + topRel;
+    const y1 = 420 + botRel;
+    const { c, b } = regBin(fr, 200, y0, 1080, y1, 190);
+    const res = nccBin(b, c.w, c.h, A.tpl.tpl_wotaoshita, 0.6);
+    scores.push(res.score);
+  }
+  return scores;
+}
+export function killNoticeSlots(A, fr) { return killNoticeSlotScores(A, fr).map(s => s > 0.6); }
+export function killNotice(A, fr) { return killNoticeSlots(A, fr).some(Boolean); }
 let ANN = null;
 export function gauge(fr) {
   const c = crop(fr, 1115, 10, 1260, 150), h = hsv(c);
