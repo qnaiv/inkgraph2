@@ -4,7 +4,35 @@ import * as C from './cues.js';
 import * as R from './result.js';
 import * as T from './tower.js';
 import { runs, medfilt, median, r1 } from './img.js';
-export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
+export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240, sp_drain_min: 0.15, sp_drain_win: 1.5, sp_end_tol: 0.5 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
+
+export function specialOutcome(a, b, deathStarts, t, go, lastOk = null) {
+  const endTol = P.sp_end_tol ?? 0.5;
+  const drainWin = P.sp_drain_win ?? 1.5;
+  const drainMin = P.sp_drain_min ?? 0.15;
+
+  const endDeath = deathStarts.some(s => s >= Math.max(a, b - endTol) && s <= b + 1.0); // 従来の窓 a〜b+1.0 の内側だけを見る
+  if (endDeath) {
+    return { outcome: 'lost_on_death', mid_death: false, drain: null };
+  }
+
+  const midDeath = deathStarts.some(s => s >= a && s < b - endTol);
+  if (midDeath) {
+    let maxGo = -Infinity;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] > b && t[i] <= b + drainWin) {
+        if (go[i] > maxGo) maxGo = go[i];
+      }
+    }
+    const drain = maxGo === -Infinity ? 0.0 : +maxGo.toFixed(2);
+    const outcome = drain >= drainMin ? 'activated' : 'lost_on_death';
+    return { outcome, mid_death: true, drain };
+  }
+
+  const unused = lastOk != null && b >= lastOk - 1.0;
+  const outcome = unused ? 'unused_at_end' : 'activated';
+  return { outcome, mid_death: false, drain: null };
+}
 
 export class DeathLatch {
   constructor(clearSec = 1.0) {
@@ -187,10 +215,18 @@ export function buildMatch(m, no, srcH) {
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
   const hidden = runs(t, ok.map(v => !v), 1.0, 0.6), maps = runs(t, mp, 0.4, 1.0);
   const owndead = t.map(x => ev.L0.some(e => x >= e.start && x <= e.end));
-  const ready = medfilt(F.map((f, i) => f.gw > 0.2 && !owndead[i] && ok[i] && !mp[i]), 3); const sp = []; const okT = t.filter((_, i) => ok[i]); const lastOk = okT.length ? okT[okT.length - 1] : 0;
-  for (const [a, b] of runs(t, ready, P.sp_min, 3.0)) { const lost = ev.L0.some(e => a <= e.start && e.start <= b + 1.0); const unused = !lost && okT.length && b >= lastOk - 1.0;
-    const outcome = lost ? 'lost_on_death' : (unused ? 'unused_at_end' : 'activated');
-    sp.push({ ready: r1(a), end: r1(b), outcome, activated_at: outcome === 'activated' ? r1(b) : null }); }
+  const ready = medfilt(F.map((f, i) => f.gw > 0.2 && !owndead[i] && ok[i] && !mp[i]), 3); const sp = []; const okT = t.filter((_, i) => ok[i]); const lastOk = okT.length ? okT[okT.length - 1] : null;
+  const deathStarts = ev.L0.map(e => e.start);
+  const go = F.map(f => f.go ?? 0);
+  for (const [a, b] of runs(t, ready, P.sp_min, 3.0)) {
+    const res = specialOutcome(a, b, deathStarts, t, go, lastOk);
+    const item = { ready: r1(a), end: r1(b), outcome: res.outcome, activated_at: res.outcome === 'activated' ? r1(b) : null };
+    if (res.mid_death) {
+      item.mid_death = true;
+      item.drain = +res.drain.toFixed(2);
+    }
+    sp.push(item);
+  }
   const hasKillSlots = F.some(f => f.killSlots && f.killSlots.length);
   const kills = hasKillSlots
     ? killEventsFromSlots(t, F)
