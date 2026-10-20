@@ -7,6 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'src'))
 
 from inkgraph import result
+from inkgraph.detect import is_tower_rule
 from inkgraph.common import frames
 
 STARTS = {
@@ -21,25 +22,42 @@ STARTS = {
     'joined_match03': 330,
 }
 
+LOO_IDS = {
+    'match01_ガチホコバトル': 'xh1',
+    'match02_ガチホコバトル': 'xh2',
+    'match03_ガチホコバトル': 'xh3',
+    'match03_ガチヤグラ': 'xy3',
+    'match04_ガチヤグラ': 'xy4',
+    'match05_ガチヤグラ': 'xy5',
+    'joined_match01': 'm1',
+    'joined_match02': 'm2',
+    'joined_match03': 'm3',
+}
+
 def find_start(filename):
     for k, v in STARTS.items():
         if k in filename:
             return v
     raise ValueError(f"Unknown start time for file: {filename}")
 
+def find_loo_id(filename):
+    for k, v in LOO_IDS.items():
+        if k in filename:
+            return v
+    raise ValueError(f"Unknown LOO ID for file: {filename}")
+
 def load_truth_for_rules(filename):
-    m = re.search(r'(WIN|LOSE)_KA(\d+)_D(\d+)_SP(\d+)', filename)
+    m = re.search(r'match\d+_(ガチヤグラ|ガチホコバトル)_([^_]+)_(WIN|LOSE)_KA(\d+)_D(\d+)_SP(\d+)', filename)
     if not m:
         raise ValueError(f"Cannot parse truth from filename: {filename}")
     return {
-        'result': m.group(1),
-        'ka': int(m.group(2)),
-        'deaths': int(m.group(3)),
-        'specials': int(m.group(4)),
-        'mode': None,
-        'stage': None,
+        'result': m.group(3),
+        'ka': int(m.group(4)),
+        'deaths': int(m.group(5)),
+        'specials': int(m.group(6)),
+        'mode': m.group(1),
+        'stage': m.group(2),
         'match_type': 'x',
-        'withheld': True,
     }
 
 def load_truth_for_joined(filename, truth_json_path):
@@ -59,7 +77,6 @@ def load_truth_for_joined(filename, truth_json_path):
         'mode': 'ガチヤグラ',
         'stage': 'クサヤ温泉',
         'match_type': None,
-        'withheld': False,
     }
 
 def main():
@@ -67,6 +84,7 @@ def main():
     parser.add_argument('--rules-dir', default='/tmp/rules', help="Directory containing X-match mp4s")
     parser.add_argument('--raw-dir', default='/workspace/inkgraph/raw/1080p', help="Directory containing joined_match mp4s")
     parser.add_argument('--dump', default=None, help="Dump frame data to directory for JS verification")
+    parser.add_argument('--loo', action='store_true', help="Run leave-one-out cross validation excluding match-derived templates")
     args = parser.parse_args()
 
     truth_json_path = os.path.join(ROOT, 'out', '1080p', 'result_truth.json')
@@ -85,7 +103,7 @@ def main():
     if args.dump:
         os.makedirs(args.dump, exist_ok=True)
 
-    items = ['result', 'ka', 'deaths', 'specials', 'mode', 'stage', 'match_type', 'withheld']
+    items = ['result', 'ka', 'deaths', 'specials', 'mode', 'stage', 'match_type']
     total_counts = {item: [0, 0] for item in items}  # [match_count, total_count]
 
     rows = []
@@ -95,6 +113,7 @@ def main():
         vid_id = f"v{idx + 1}"
         fname = os.path.basename(path)
         start = find_start(fname)
+        loo_id = find_loo_id(fname)
 
         if vtype == 'x':
             truth = load_truth_for_rules(fname)
@@ -123,7 +142,11 @@ def main():
                 json.dump(info, jf, ensure_ascii=False, indent=2)
 
         # 結果読み取り
-        res, S = result.read_results(path, start)
+        if args.loo:
+            exclude_hdr = f"__{loo_id}"
+            res, S = result.read_results(path, start, exclude_hdr=exclude_hdr)
+        else:
+            res, S = result.read_results(path, start)
 
         # panel 内訳の集計
         panels = [p for _, p, _, _ in S.get('board', [])] + [p for _, p, _, _ in S.get('personal', [])]
@@ -140,12 +163,15 @@ def main():
             'mode': res.get('mode'),
             'stage': res.get('stage'),
             'match_type': res.get('match_type'),
-            'withheld': res.get('match_type') == 'x',
         }
 
         row_eval = {}
         for k in items:
-            ok = detected[k] == truth[k]
+            if args.loo and k in ('mode', 'stage'):
+                # --loo では「不一致」を失敗にせず、mode/stage が None（不明）か正解なら安全
+                ok = (detected[k] == truth[k]) or (detected[k] is None)
+            else:
+                ok = (detected[k] == truth[k])
             row_eval[k] = ok
             total_counts[k][1] += 1
             if ok:
@@ -155,48 +181,73 @@ def main():
 
         rows.append({
             'name': fname,
+            'loo_id': loo_id,
             'panel': panel_breakdown,
             'detected': detected,
             'truth': truth,
             'eval': row_eval,
+            'mode_margin': res.get('mode_margin'),
         })
 
     # 表の出力
-    print("=" * 140)
-    print(f"{'Video':<45} | {'Panel':<14} | {'Result':<10} | {'K+A':<8} | {'D':<8} | {'SP':<8} | {'Mode':<14} | {'Stage':<14} | {'Type':<8} | {'Withheld':<8}")
-    print("-" * 140)
+    print("=" * 145)
+    print(f"{'Video':<40} | {'Panel':<12} | {'Result':<10} | {'K+A':<8} | {'D':<8} | {'SP':<8} | {'Mode':<14} | {'Margin':<8} | {'Stage':<14} | {'Type':<8}")
+    print("-" * 145)
 
     for r in rows:
         d = r['detected']
         t = r['truth']
         ev = r['eval']
-        mark = lambda k: "✓" if ev[k] else f"✗({t[k]})"
+        def mark(k):
+            if ev[k]:
+                if args.loo and k in ('mode', 'stage') and d[k] is None:
+                    return "~(None:safe)"
+                return "✓"
+            return f"✗({t[k]})"
 
         res_str = f"{d['result']}{mark('result')}"
         ka_str = f"{d['ka']}{mark('ka')}"
         d_str = f"{d['deaths']}{mark('deaths')}"
         sp_str = f"{d['specials']}{mark('specials')}"
         mode_str = f"{d['mode']}{mark('mode')}"
+        margin_str = f"{r['mode_margin']:.2f}" if r['mode_margin'] is not None else "None"
         stage_str = f"{d['stage']}{mark('stage')}"
         mt_str = f"{d['match_type']}{mark('match_type')}"
-        wh_str = f"{d['withheld']}{mark('withheld')}"
 
         short_name = r['name']
-        if len(short_name) > 43:
-            short_name = short_name[:20] + "..." + short_name[-20:]
+        if len(short_name) > 38:
+            short_name = short_name[:18] + "..." + short_name[-17:]
 
-        print(f"{short_name:<45} | {r['panel']:<14} | {res_str:<10} | {ka_str:<8} | {d_str:<8} | {sp_str:<8} | {mode_str:<14} | {stage_str:<14} | {mt_str:<8} | {wh_str:<8}")
+        print(f"{short_name:<40} | {r['panel']:<12} | {res_str:<10} | {ka_str:<8} | {d_str:<8} | {sp_str:<8} | {mode_str:<14} | {margin_str:<8} | {stage_str:<14} | {mt_str:<8}")
 
-    print("-" * 140)
+    print("-" * 145)
     summary_parts = [f"{k}: {total_counts[k][0]}/{total_counts[k][1]}" for k in items]
     print("Summary matches: " + ", ".join(summary_parts))
-    print("=" * 140)
+
+    # 明示チェック: ホコと判定された試合で mode=='ガチヤグラ' になっていない／is_tower_rule が False
+    print("-" * 145)
+    print("Hoko guard checks (is_tower_rule == False on Hoko matches):")
+    hoko_guard_failed = False
+    for r in rows:
+        is_hoko = (r['truth']['mode'] == 'ガチホコバトル') or (r['detected']['mode'] == 'ガチホコバトル')
+        if is_hoko:
+            det_mode = r['detected']['mode']
+            tower_flag = is_tower_rule(det_mode)
+            guard_ok = (det_mode != 'ガチヤグラ') and (not tower_flag)
+            status = "PASS" if guard_ok else "FAIL"
+            if not guard_ok:
+                hoko_guard_failed = True
+                has_mismatch = True
+            print(f"  [{status}] {r['name']}: mode={det_mode}, is_tower_rule={tower_flag}")
+
+    print("=" * 145)
 
     if has_mismatch:
-        print("ERROR: Mismatch detected in one or more items.")
+        print("ERROR: Mismatch or guard failure detected.")
         sys.exit(1)
     else:
-        print("SUCCESS: All videos matched truth expectations.")
+        mode_desc = " (LOO safe)" if args.loo else ""
+        print(f"SUCCESS: All videos passed truth expectations{mode_desc}.")
 
 if __name__ == '__main__':
     main()

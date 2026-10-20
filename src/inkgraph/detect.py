@@ -125,6 +125,8 @@ def add_context(m):
     for e in m['special']: a,b=alive_at(m,e['ready']); e['alive_at_ready']=f'{a}v{b}'
     for e in m['own_kills']: a,b=alive_at(m,e['start']-1.0); e['alive_before']=f'{a}v{b}'
     return m
+def is_tower_rule(mode):
+    return mode == 'ガチヤグラ'
 def analyze(path,battles=None,step=0.2):
     if battles is None:
         import autosplit
@@ -137,7 +139,7 @@ def analyze(path,battles=None,step=0.2):
         try:
             r,_=result.read_results(path,b,nxt)
             m['result_screen']={k:r.get(k) for k in ('result','mode','stage','match_type','own')}
-            if r['mode']=='ガチヤグラ':
+            if is_tower_rule(r.get('mode')):
                 from . import tower
                 tower.tag_events(m,tower.series(tower.collect(path,a,b,m['team_hue'])))
         except Exception as e: m['result_screen']={'error':str(e)}
