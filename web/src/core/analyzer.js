@@ -84,10 +84,10 @@ export class Analyzer {
   resultFrame(fr, t) {
     const m = this.cur, c = R.classify(this.A, fr); if (!c) return; m.lastRes = t;
     if (c.kind === 'celebration') m.RS.celebration.push({ t, value: c.value });
-    else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined);
+    else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined, c.panel);
       const e = { t, header }; if (c.kind === 'personal') e.personal = R.readPersonal(this.A, fr, dx, dy); else e.board = R.readBoard(this.A, fr, dx, dy);
       m.RS[c.kind].push(e);
-      const lowConf = !header.mode || !header.stage || (c.kind === 'personal' && !e.personal);
+      const lowConf = (!header.withheld && (!header.mode || !header.stage)) || (c.kind === 'personal' && !e.personal);
       if (m.snaps.length < 6 && (m.snaps.length < 2 || lowConf) && (!m.snaps.length || t - m.snaps[m.snaps.length - 1].t > 1.5)) this.onEvent({ type: 'snapshot', t, reason: lowConf ? 'リザルト画面の読み取りに自信なし' : 'リザルト画面のサンプル', kind: c.kind, header });
       if (lowConf || m.snaps.length < 2) m.snaps.push({ t }); }
   }

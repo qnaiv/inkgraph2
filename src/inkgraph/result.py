@@ -18,17 +18,28 @@ def celebration(img):
     if max(w,l)<0.6: return None
     return 'WIN' if w>l else 'LOSE'
 LOBBY_XY=(550,25)
+LOBBY_TPLS=[('tpl_res_lobby.png','bankara'),('tpl_res_lobby_x.png','x')]
+def panel_match(img):
+    reg=img[0:110,450:800]
+    tb=T('tpl_res_lobby.png')
+    sb,(xb,yb)=_loc(reg,tb,170) if tb is not None else (0.0,(0,0))
+    tx=T('tpl_res_lobby_x.png')
+    if tx is not None:
+        sx,(xx,yx)=_loc(reg,tx,170)
+        if sx>sb:
+            return (sx,xx+450-LOBBY_XY[0],yx-LOBBY_XY[1],'x')
+    return (sb,xb+450-LOBBY_XY[0],yb-LOBBY_XY[1],'bankara')
 def panel_offset(img):
-    s,(x,y)=_loc(img[0:110,450:800],T('tpl_res_lobby.png'),170)
-    return (s, x+450-LOBBY_XY[0], y-LOBBY_XY[1])
+    s,dx,dy,_=panel_match(img)
+    return (s,dx,dy)
 BANNER_XY={'top':(625,215),'bot':(625,455)}
 def classify(img):
     c=celebration(img)
     if c: return ('celebration',c,(0,0))
-    s,dx,dy=panel_offset(img)
+    s,dx,dy,panel=panel_match(img)
     if s<0.6: return (None,None,(0,0))
     bw=_banner_score(img,dx,dy)
-    return ('board' if bw>0.5 else 'personal',None,(dx,dy))
+    return ('board' if bw>0.5 else 'personal',panel,(dx,dy))
 def _banner_score(img,dx,dy):
     def sc(name,x,y):
         reg=img[max(0,y+dy-15):y+dy+45,max(0,x+dx-15):x+dx+125]; t=imread_unicode(os.path.join(TPL,name))
@@ -51,12 +62,14 @@ def _best(c,lib):
         a=v-v.mean(); b=tt-tt.mean(); s=float((a*b).sum()/(np.sqrt((a*a).sum()*(b*b).sum())+1e-6))
         if s>best[1]: best=(k,s)
     return best
-def read_header(img,dx,dy,exclude=None):
+def read_header(img,dx,dy,exclude=None,panel=None):
     m,s=header_crops(img,dx,dy); lm=_lib('mode'); ls=_lib('stage')
     if exclude: lm={k:v for k,v in lm.items() if exclude not in k}; ls={k:v for k,v in ls.items() if exclude not in k}
     mk,ms=_best(m,lm); sk,ss=_best(s,ls)
     strip=lambda k: k.split('__')[0] if k else None
-    return {'mode':strip(mk) if ms>0.5 else None,'mode_score':round(ms,2),'stage':strip(sk) if ss>0.5 else None,'stage_score':round(ss,2)}
+    if panel=='x':
+        return {'mode':None,'mode_score':round(ms,2),'stage':None,'stage_score':round(ss,2),'match_type':'x','withheld':True}
+    return {'mode':strip(mk) if ms>0.5 else None,'mode_score':round(ms,2),'stage':strip(sk) if ss>0.5 else None,'stage_score':round(ss,2),'match_type':None,'withheld':False}
 # ---------- digits ----------
 def _white(img): h=cv2.cvtColor(img,cv2.COLOR_BGR2HSV); return ((h[...,2]>165)&(h[...,1]<80)).astype(np.uint8)
 def stat_glyphs(img,y0,y1,x0,x1):
@@ -136,10 +149,10 @@ def _vote(vals):
     u,c=np.unique(np.array(vals,dtype=object).astype(str),return_counts=True); return vals[[str(v) for v in vals].index(u[np.argmax(c)])]
 def read_results(path,start,end=None,exclude_src=None,exclude_hdr=None,S=None):
     S=S or scan(path,start,end)
-    res={'result':_vote([v for _,v,_,_ in S['celebration']]),'mode':None,'stage':None,'own':None,'board':None,'board_frame_t':None}
+    res={'result':_vote([v for _,v,_,_ in S['celebration']]),'mode':None,'stage':None,'match_type':None,'own':None,'board':None,'board_frame_t':None}
     hdr_src=_pick(S['board'])+_pick(S['personal'])
-    hs=[read_header(img,*off,exclude=exclude_hdr) for _,_,off,img in hdr_src]
-    res['mode']=_vote([h['mode'] for h in hs]); res['stage']=_vote([h['stage'] for h in hs])
+    hs=[read_header(img,*off,exclude=exclude_hdr,panel=panel) for _,panel,off,img in hdr_src]
+    res['mode']=_vote([h['mode'] for h in hs]); res['stage']=_vote([h['stage'] for h in hs]); res['match_type']=_vote([h['match_type'] for h in hs])
     pers=[read_personal(img,*off,exclude_src=exclude_src) for _,_,off,img in _pick(S['personal'])]
     own=None
     if any(pers): own={k:_vote([p[k] for p in pers if p]) for k in ('ka','deaths','specials')}

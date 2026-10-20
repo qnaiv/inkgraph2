@@ -136,7 +136,7 @@ def analyze(path,battles=None,step=0.2):
         nxt=battles[i+1][0] if i+1<len(battles) else None
         try:
             r,_=result.read_results(path,b,nxt)
-            m['result_screen']={k:r[k] for k in ('result','mode','stage','own')}
+            m['result_screen']={k:r.get(k) for k in ('result','mode','stage','match_type','own')}
             if r['mode']=='ガチヤグラ':
                 from . import tower
                 tower.tag_events(m,tower.series(tower.collect(path,a,b,m['team_hue'])))

@@ -6,15 +6,22 @@ export function celebration(A, fr) {
   const w = loc(fr, 0, 0, 260, 130, A.tpl.tpl_res_cel_win, 200).score, l = loc(fr, 0, 0, 260, 130, A.tpl.tpl_res_cel_lose, 200).score;
   if (Math.max(w, l) < 0.6) return null; return w > l ? 'WIN' : 'LOSE';
 }
-export function panelOffset(A, fr) { const r = loc(fr, 450, 0, 800, 110, A.tpl.tpl_res_lobby, 170); return [r.score, r.x + 450 - 550, r.y - 25]; }
+export function panelOffset(A, fr) {
+  const rb = loc(fr, 450, 0, 800, 110, A.tpl.tpl_res_lobby, 170);
+  if (A.tpl.tpl_res_lobby_x) {
+    const rx = loc(fr, 450, 0, 800, 110, A.tpl.tpl_res_lobby_x, 170);
+    if (rx.score > rb.score) return [rx.score, rx.x + 450 - 550, rx.y - 25, 'x'];
+  }
+  return [rb.score, rb.x + 450 - 550, rb.y - 25, 'bankara'];
+}
 function bannerScore(A, fr, dx, dy) {
   const sc = (n, x, y) => { const c = crop(fr, x + dx - 15, y + dy - 15, x + dx + 125, y + dy + 45); const t = A.gray[n]; return nccGray(hsv(c).V, c.w, c.h, t.data, t.w, t.h); };
   return Math.min(sc('tpl_res_board_win', 625, 215), sc('tpl_res_board_lose', 625, 455));
 }
 export function classify(A, fr) {
   const c = celebration(A, fr); if (c) return { kind: 'celebration', value: c, off: [0, 0] };
-  const [s, dx, dy] = panelOffset(A, fr); if (s < 0.6) return null;
-  return { kind: bannerScore(A, fr, dx, dy) > 0.5 ? 'board' : 'personal', value: null, off: [dx, dy] };
+  const [s, dx, dy, panel] = panelOffset(A, fr); if (s < 0.6) return null;
+  return { kind: bannerScore(A, fr, dx, dy) > 0.5 ? 'board' : 'personal', value: null, off: [dx, dy], panel };
 }
 const MODE_BOX = [552, 50, 650, 84], STAGE_BOX = [655, 52, 800, 84];
 export const MATCH_TYPE_BOX = [546, 26, 706, 50];
@@ -30,7 +37,7 @@ function pearson(a, b) { let ma = 0, mb = 0; const n = a.length; for (let i = 0;
   for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) + 1e-6); }
 function best(c, lib) { const v = normText(c); let bk = null, bs = -1; for (const [k, t] of Object.entries(lib)) { const s = pearson(v, t); if (s > bs) { bs = s; bk = k; } } return [bk, bs]; }
 export const DEFAULT_HEADER_THR = { mode: 0.5, stage: 0.5 };
-export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR) {
+export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR, panel = null) {
   const bx = b => crop(fr, b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy);
   const mc = bx(MODE_BOX), sc = bx(STAGE_BOX); const [mk, ms] = best(mc, A.lib.mode), [sk, ss] = best(sc, A.lib.stage);
   const strip = k => k ? k.split('__')[0] : null;
@@ -46,7 +53,10 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR) {
       match_type = (raw && MATCH_TYPE_BY_LABEL[raw]) ? MATCH_TYPE_BY_LABEL[raw] : null;
     }
   }
-  return { mode: ms > mThr ? strip(mk) : null, mode_score: ms, stage: ss > sThr ? strip(sk) : null, stage_score: ss, match_type, match_type_score };
+  if (panel === 'x') {
+    return { mode: null, mode_score: ms, stage: null, stage_score: ss, match_type: 'x', match_type_score, withheld: true };
+  }
+  return { mode: ms > mThr ? strip(mk) : null, mode_score: ms, stage: ss > sThr ? strip(sk) : null, stage_score: ss, match_type, match_type_score, withheld: false };
 }
 function white(c) { const h = hsv(c), m = new Uint8Array(h.V.length); for (let i = 0; i < m.length; i++) m[i] = h.V[i] > 165 && h.S[i] < 80 ? 1 : 0; return m; }
 function statGlyphs(fr, y0, y1, x0, x1) {

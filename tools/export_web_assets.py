@@ -12,6 +12,7 @@ for n,th in [('tpl_colon.png',127),('tpl_signal_yarareta.png',127),('tpl_signal_
 mx=gray('tpl_mapx.png')[15:75,15:75]; out['tpl']['tpl_mapx']=binimg(mx,200)
 for n in ('tpl_res_cel_win','tpl_res_cel_lose'): out['tpl'][n]=binimg(gray(n+'.png'),200)
 out['tpl']['tpl_res_lobby']=binimg(gray('tpl_res_lobby.png'),170)
+out['tpl']['tpl_res_lobby_x']=binimg(gray('tpl_res_lobby_x.png'),170)
 for n in ('tpl_res_board_win','tpl_res_board_lose'):
     v=cv2.cvtColor(imread_unicode(os.path.join(TPL,n+'.png')),cv2.COLOR_BGR2HSV)[...,2]
     out['gray'][n]=dict(w=int(v.shape[1]),h=int(v.shape[0]),data=b64(v))
