@@ -10,6 +10,7 @@ import * as BK from './backup.js';
 import * as CP from './capacity.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
 import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
+import { CLIP_KIND_JA, clipAt } from './clips.js';
 
 const app = document.getElementById('app');
 const liveSlot = document.createElement('div');
@@ -18,7 +19,13 @@ const normalSlot = document.createElement('div');
 normalSlot.id = 'slot-normal';
 app.append(normalSlot, liveSlot);
 
+let pageCleanup = null;
+
 function mountPage(el, isLive = false) {
+  if (pageCleanup) {
+    try { pageCleanup(); } catch (e) {}
+    pageCleanup = null;
+  }
   if (isLive) {
     if (el && liveSlot.firstElementChild !== el) {
       if (!(session && session.running && session.page && liveSlot.contains(session.page))) {
@@ -131,6 +138,13 @@ window.addEventListener('hashchange', () => {
     currentPage = p;
     updateNavActive(p);
     PAGES[p]();
+  }
+});
+
+window.addEventListener('beforeunload', () => {
+  if (pageCleanup) {
+    try { pageCleanup(); } catch (e) {}
+    pageCleanup = null;
   }
 });
 
@@ -626,6 +640,7 @@ PAGES.live = async () => {
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
       event: e => {
+        if (e.type === 'special_end') return;
         const tt = mss(e.t - t0);
         if (e.type === 'battle_start') {
           t0 = e.t; k = d = sp = 0; estWp = 0.5;
@@ -804,6 +819,7 @@ PAGES.list = async () => {
     const snaps = snapsById.get(m.id) || [];
     let updatedAny = false;
     for (const s of snaps) {
+      if (s.kind === 'clip') continue;
       if (!s.features && s.blob) {
         try {
           const feat = await learn.computeStillFeature(s.blob, s);
@@ -816,7 +832,7 @@ PAGES.list = async () => {
       }
     }
     if (updatedAny) {
-      const validFeats = snaps.map(s => s.features).filter(Boolean);
+      const validFeats = snaps.filter(s => s.kind !== 'clip').map(s => s.features).filter(Boolean);
       if (validFeats.length > 0) {
         await db.setMatchLearnFeatures(m.id, validFeats).catch(() => {});
         m.learnFeatures = validFeats;
@@ -1581,7 +1597,7 @@ async function buildBatchZip(matches, { mode = 'diff', batchId = FB.makeBatchId(
   const files = {};
   const snapshotsById = {};
   for (const m of matches) {
-    const snaps = await db.snapsOf(m.id);
+    const snaps = (await db.snapsOf(m.id)).filter(s => s.kind !== 'clip');
     const safe = m.id.replace(/[^0-9A-Za-z]/g, '_');
     const sn = [];
     for (const s of snaps) {
@@ -1603,7 +1619,7 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
   document.querySelector('.fb-dialog-overlay')?.remove();
   const all = await db.allMatches();
   const snapsById = new Map();
-  for (const m of all.filter(FB.hasReview)) snapsById.set(m.id, await db.snapsOf(m.id));
+  for (const m of all.filter(FB.hasReview)) snapsById.set(m.id, (await db.snapsOf(m.id)).filter(s => s.kind !== 'clip'));
   let mode = initialMode === 'full' ? 'full' : 'diff';
   const unchecked = new Set();
   let markExported = true;
@@ -1841,6 +1857,7 @@ PAGES.match = async () => {
             <video id="rv" controls muted style="display:none"></video>
           </div>
           <div id="still-cap" class="muted" style="margin-top:8px;min-height:1.4em"></div>
+          <div id="clip-box" class="clip-box"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px">
             <span id="vstat" class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
             <label class="btn btn-sm">録画ファイルを選ぶ<input type="file" id="vf" accept="video/*" hidden></label>
@@ -1892,18 +1909,188 @@ PAGES.match = async () => {
   video.addEventListener('timeupdate', updatePlayhead);
   video.addEventListener('seeked', updatePlayhead);
 
-  const stills = (await db.snapsOf(m.id)).sort((a, b) => a.t - b.t);
+  const stills = (await db.snapsOf(m.id)).filter(s => s.kind !== 'clip').sort((a, b) => a.t - b.t);
+  const clips = await db.clipsOf(m.id);
   const stillImg = $('#still-img', page), stillEmpty = $('#still-empty', page), stillCap = $('#still-cap', page);
   const KIND_JA = { kill: 'キル', death: 'デス', special: 'スペシャル発動', celebration: 'リザルト', personal: 'リザルト', board: 'リザルト', event: '見逃し・誤検出' };
   let stillUrl = null;
   const showEmpty = msg => { stillImg.style.display = 'none'; stillEmpty.textContent = msg; stillEmpty.style.display = 'flex'; };
+
+  const relT = t => mss(t - m.battle[0]); /* clip labels use the same battle-relative time as the events table */
+  const mss1 = t => {
+    t = Math.max(0, t - m.battle[0]);
+    const min = Math.floor(t / 60);
+    const sec = (t % 60).toFixed(1).padStart(4, '0');
+    return `${min}:${sec}`;
+  };
+
+  const clipBox = $('#clip-box', page);
+  let activeClip = null;
+  let currentFrameIdx = 0;
+  let clipTimer = null;
+  let clipUrl = null;
+
+  const stopClipPlayback = () => {
+    if (clipTimer) {
+      clearInterval(clipTimer);
+      clipTimer = null;
+    }
+    const btn = $('#clip-play', page);
+    if (btn) btn.textContent = '▶ 再生';
+  };
+
+  pageCleanup = () => {
+    stopClipPlayback();
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
+    if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
+  };
+
+  const updateActiveChip = idx => {
+    page.querySelectorAll('.clip-chip').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.idx) === idx);
+    });
+  };
+
+  const showClipFrame = (c, frameIdx) => {
+    if (!c || !c.frames || frameIdx < 0 || frameIdx >= c.frames.length) return;
+    const f = c.frames[frameIdx];
+    if (video.src && video.style.display !== 'none') return;
+    if (clipUrl) URL.revokeObjectURL(clipUrl);
+    if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
+    clipUrl = URL.createObjectURL(f.blob);
+    stillImg.onerror = () => { stillCap.textContent = ''; showEmpty('静止画なし（静止画を表示できません）'); };
+    stillImg.onload = () => { stillEmpty.style.display = 'none'; stillImg.style.display = 'block'; };
+    stillImg.src = clipUrl;
+    stillCap.textContent = `場面クリップ ${relT(c.t)}（${c.kinds.map(k => CLIP_KIND_JA[k] || k).join('・')}）`;
+    const seekEl = $('#clip-seek', page);
+    if (seekEl) {
+      seekEl.max = c.frames.length - 1;
+      seekEl.value = frameIdx;
+    }
+    const statEl = $('#clip-stat', page);
+    if (statEl) {
+      statEl.textContent = `${frameIdx + 1}/${c.frames.length}枚 · ${mss1(f.t)}`;
+    }
+    if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(f.t);
+  };
+
+  const playClip = (c, startIdx = 0) => {
+    if (!c || !c.frames || !c.frames.length) return;
+    stopClipPlayback();
+    activeClip = c;
+    currentFrameIdx = startIdx;
+    updateActiveChip(c.idx);
+    showClipFrame(c, currentFrameIdx);
+    const btn = $('#clip-play', page);
+    if (btn) btn.textContent = '❚❚ 一時停止';
+
+    clipTimer = setInterval(() => {
+      if (!activeClip || activeClip !== c) {
+        stopClipPlayback();
+        return;
+      }
+      if (currentFrameIdx + 1 < c.frames.length) {
+        currentFrameIdx++;
+        showClipFrame(c, currentFrameIdx);
+      } else {
+        stopClipPlayback();
+      }
+    }, 500);
+  };
+
+  if (!clips || clips.length === 0) {
+    if (clipBox) clipBox.innerHTML = '<div class="muted clip-empty">この試合には場面クリップがありません</div>';
+  } else {
+    if (clipBox) {
+      clipBox.innerHTML = `
+        <div class="clip-box-title">場面クリップ（2fps・前後数秒）</div>
+        <div class="clip-chips">
+          ${clips.map(c => `
+            <button type="button" class="clip-chip" data-idx="${c.idx}">
+              ${relT(c.t)} ${CLIP_KIND_JA[c.kind] || c.kind}${c.events && c.events.length > 1 ? ' ほか' : ''}
+            </button>
+          `).join('')}
+        </div>
+        <div class="clip-controls">
+          <button id="clip-play" class="btn btn-sm" type="button">▶ 再生</button>
+          <input type="range" id="clip-seek" class="clip-seek" min="0" max="${clips[0].frames.length - 1}" value="0">
+          <span id="clip-stat" class="clip-stat"></span>
+        </div>
+      `;
+
+      activeClip = clips[0];
+      const initialSeek = $('#clip-seek', page);
+      if (initialSeek) {
+        initialSeek.max = clips[0].frames.length - 1;
+        initialSeek.value = 0;
+      }
+      const initialStat = $('#clip-stat', page);
+      if (initialStat && clips[0].frames.length > 0) {
+        initialStat.textContent = `1/${clips[0].frames.length}枚 · ${mss1(clips[0].frames[0].t)}`;
+      }
+
+      page.querySelectorAll('.clip-chip').forEach(btn => {
+        btn.onclick = () => {
+          const idx = Number(btn.dataset.idx);
+          const c = clips.find(x => x.idx === idx);
+          if (c) playClip(c, 0);
+        };
+      });
+
+      const playBtn = $('#clip-play', page);
+      if (playBtn) {
+        playBtn.onclick = () => {
+          if (!activeClip && clips.length > 0) {
+            activeClip = clips[0];
+            updateActiveChip(activeClip.idx);
+          }
+          if (!activeClip) return;
+          if (clipTimer) {
+            stopClipPlayback();
+          } else {
+            if (currentFrameIdx >= activeClip.frames.length - 1) {
+              playClip(activeClip, 0);
+            } else {
+              playBtn.textContent = '❚❚ 一時停止';
+              clipTimer = setInterval(() => {
+                if (!activeClip) { stopClipPlayback(); return; }
+                if (currentFrameIdx + 1 < activeClip.frames.length) {
+                  currentFrameIdx++;
+                  showClipFrame(activeClip, currentFrameIdx);
+                } else {
+                  stopClipPlayback();
+                }
+              }, 500);
+            }
+          }
+        };
+      }
+
+      const seekSlider = $('#clip-seek', page);
+      if (seekSlider) {
+        seekSlider.oninput = () => {
+          stopClipPlayback();
+          if (!activeClip && clips.length > 0) {
+            activeClip = clips[0];
+            updateActiveChip(activeClip.idx);
+          }
+          if (!activeClip) return;
+          currentFrameIdx = Math.max(0, Math.min(activeClip.frames.length - 1, parseInt(seekSlider.value, 10)));
+          showClipFrame(activeClip, currentFrameIdx);
+        };
+      }
+    }
+  }
+
   const showStill = (t, near = 15) => {
+    stopClipPlayback();
     if (video.src && video.style.display !== 'none') return;
     if (!stills.length) { stillCap.textContent = ''; showEmpty('静止画なし（この試合では静止画が保存されていません）'); return; }
     let best = stills[0];
     for (const s of stills) if (Math.abs(s.t - t) < Math.abs(best.t - t)) best = s;
     const d = Math.abs(best.t - t);
     if (d > near) { stillCap.textContent = `最も近い静止画は ${mss(best.t)}（対象から ±${d.toFixed(1)}秒）`; showEmpty(`静止画なし（${mss(t)} の近くには静止画がありません）`); return; }
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
     if (stillUrl) URL.revokeObjectURL(stillUrl);
     stillUrl = URL.createObjectURL(best.blob);
     stillImg.onerror = () => { stillCap.textContent = ''; showEmpty('静止画なし（静止画を表示できません）'); };
@@ -1914,6 +2101,15 @@ PAGES.match = async () => {
 
   const seek = t => {
     lastSeekTime = t;
+    const hasLocalVideo = video.src && video.style.display !== 'none';
+    if (!hasLocalVideo) {
+      const clip = clipAt(clips, t);
+      if (clip) {
+        playClip(clip, 0);
+        return;
+      }
+    }
+    stopClipPlayback();
     showStill(t);
     if (tlEl && tlEl.setPlayhead && !video.src) tlEl.setPlayhead(t);
     if (video.src) {
