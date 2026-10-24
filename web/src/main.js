@@ -443,6 +443,12 @@ PAGES.live = async () => {
       <div class="card live-match-card">
         <div class="card-title" style="margin-bottom:0">この試合</div>
 
+        <div id="live-capture-warn" class="live-capture-warn" role="status" hidden>
+          <div style="font-weight:var(--fw-bold)">この試合は保存しません</div>
+          <div id="live-capture-warn-reason"></div>
+          <div style="color:var(--text-muted);margin-top:2px">次の試合からは通常どおり記録します。記録中はこの画面を表に出したままにしてください。</div>
+        </div>
+
         <div class="live-stats-row">
           <div class="stat">
             <div class="stat-label">キル</div>
@@ -628,6 +634,8 @@ PAGES.live = async () => {
     $('#k', page).textContent = '0';
     $('#d', page).textContent = '0';
     $('#sp', page).textContent = '0';
+    $('#live-capture-warn', page) && ($('#live-capture-warn', page).hidden = true);
+    $('.live-stats-row', page)?.classList.remove('is-void');
     const vEmpty = $('#video-empty', page);
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
@@ -636,6 +644,8 @@ PAGES.live = async () => {
         const tt = mss(e.t - t0);
         if (e.type === 'battle_start') {
           t0 = e.t; k = d = sp = 0; estWp = 0.5;
+          const warn = $('#live-capture-warn', page); if (warn) warn.hidden = true;
+          $('.live-stats-row', page)?.classList.remove('is-void');
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
           updateSpark(50);
           addEventRow('0:00', '▶', 'バトル開始', null);
@@ -681,7 +691,42 @@ PAGES.live = async () => {
           ? `解析中 · ${mss($('#v', page).currentTime)}${isFinite(dur) ? ' / ' + mss(dur) : ''}`
           : `解析中 · 経過 ${mss(session ? session.now() : 0)}`;
       },
-      
+      interrupted: info => {
+        const warn = $('#live-capture-warn', page);
+        const rEl = $('#live-capture-warn-reason', page);
+        if (rEl) {
+          if (info.reason === 'hidden') {
+            rEl.textContent = '記録中にウィンドウやタブが裏に回り、映像の取り込みが止まったためです。';
+          } else {
+            const n = Math.round(info.gapSec || 0);
+            rEl.textContent = `映像の取り込みが約${n}秒止まったためです。`;
+          }
+        }
+        if (warn) warn.hidden = false;
+        $('.live-stats-row', page)?.classList.add('is-void');
+        const tt = mss(Math.max(0, (session ? session.now() : 0) - t0));
+        const label = info.reason === 'hidden'
+          ? '裏に回ったため、この試合は保存しません'
+          : '取り込みが止まったため、この試合は保存しません';
+        addEventRow(tt, '⚠', label, null);
+      },
+      discarded: ({ rec, interrupted }) => {
+        justSaved = true;
+        const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+        const dot = $('#live-dot', page);
+        if (dot) {
+          dot.className = 'status-dot-idle';
+          dot.style.background = 'var(--warn)';
+        }
+        const stateEl = $('#state', page);
+        if (stateEl) {
+          stateEl.textContent = interrupted?.reason === 'stall'
+            ? '保存しませんでした（映像の取り込みが止まったため）'
+            : '保存しませんでした（記録中に裏に回ったため）';
+        }
+        const tt = mss(Math.max(0, (session ? session.now() : 0) - t0));
+        addEventRow(tt, '■', '試合を保存しませんでした', null);
+      },
       match: rec => {
         savedCount++;
         justSaved = true;

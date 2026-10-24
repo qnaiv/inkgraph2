@@ -4,6 +4,7 @@ import { frameStepForState } from './analysis.js';
 import { powerForMatchType } from './core/result.js';
 import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
+import { CaptureGuard } from './capture_guard.js';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
@@ -12,7 +13,8 @@ export class Session {
   constructor(video, cb = {}) {
     this.video = video; this.cb = cb; this.canvas = document.createElement('canvas'); 
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }); this.step = 0.2; this.busy = false; this.pendingSnaps = []; this.pendingClips = []; this.stats = { frames: 0, ms: 0 }; this.running = false; this.bufs = [];
-    this._loopGen = 0; this._lastTickAt = 0; this._watchdogId = null; this._onVisibilityChange = null;
+    this._loopGen = 0; this._lastTickAt = 0; this._watchdogId = null; this._onVisibilityChange = null; this._onEnded = null;
+    this.guard = new CaptureGuard();
   }
   async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
     this.mode = mode; this.owner = owner || 'self'; this.fast = fast; this.sessionId = new Date().toISOString();
@@ -35,20 +37,39 @@ export class Session {
     await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
 
-    // visibilitychange リスナ: visible 復帰時に running なら resume()
+    // visibilitychange リスナ: hidden 時はガードに通知、visible 復帰時に running なら resume()
     this._onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && this.running && !this.fast) {
+      if (this.fast) return;
+      const now = performance.now();
+      if (document.visibilityState === 'hidden') {
+        const info = this.guard.visibility(true, now);
+        if (info) this._notifyInterrupted(info);
+      } else if (document.visibilityState === 'visible' && this.running) {
         this.resume().catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', this._onVisibilityChange);
+
+    // ended リスナ: ファイル通常再生で動画末尾に達したらセッション停止
+    if (this.mode === 'file' && !this.fast) {
+      this._onEnded = () => {
+        if (this.running) this.stop();
+      };
+      this.video.addEventListener('ended', this._onEnded);
+    }
 
     // ウォッチドッグタイマー: 2秒間隔でチェック
     // 注: ブラウザの裏タブではタイマーやrVFC/rAF自体が間引かれる/停止するため保証はできない
     if (!this.fast) {
       this._watchdogId = setInterval(() => {
         if (!this.running || this.fast) return;
+        if (this.mode === 'file' && this.video.ended) {
+          this.stop();
+          return;
+        }
         const now = performance.now();
+        const info = this.guard.tick(now);
+        if (info) this._notifyInterrupted(info);
         if (this._lastTickAt && (now - this._lastTickAt) > 2500) {
           this.resume().catch(() => {});
         }
@@ -58,7 +79,16 @@ export class Session {
     if (mode === 'file' && fast) this.fastLoop(); else { if (mode === 'file') await this.video.play(); this.liveLoop(); }
   }
   now() { return (this.mode === 'device' || this.mode === 'stream') ? (performance.now() - this.t0) / 1000 : this.video.currentTime; }
-  grab(t) { const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720; if (this.canvas.width !== vw) { this.canvas.width = vw; this.canvas.height = vh; } this.ctx.drawImage(this.video, 0, 0, vw, vh); const d = this.ctx.getImageData(0, 0, vw, vh); this.busy = true; this.stats.frames++;
+  _notifyInterrupted(info) {
+    this.cb.interrupted?.(info);
+  }
+  grab(t) {
+    if (!this.fast) {
+      const now = performance.now();
+      const info = this.guard.frame(now);
+      if (info) this._notifyInterrupted(info);
+    }
+    const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720; if (this.canvas.width !== vw) { this.canvas.width = vw; this.canvas.height = vh; } this.ctx.drawImage(this.video, 0, 0, vw, vh); const d = this.ctx.getImageData(0, 0, vw, vh); this.busy = true; this.stats.frames++;
     this.worker.postMessage({ type: 'frame', t, w: vw, h: vh, buf: d.data.buffer }, [d.data.buffer]); }
   liveLoop() {
     const gen = ++this._loopGen;
@@ -86,6 +116,10 @@ export class Session {
   }
   async resume() {
     if (!this.running || this.fast) return;
+    if (this.mode === 'file' && this.video.ended) {
+      this.stop();
+      return;
+    }
     if (this.video && this.video.paused) {
       try {
         await this.video.play();
@@ -101,13 +135,30 @@ export class Session {
     while (this.busy) await new Promise(r => this.ackWait = r); this.stop(); }
   onMsg(m) {
     if (m.type === 'ack') { this.busy = false; this.stats.ms += m.ms; this.lastState = m.state; this.cb.status?.(m); if (this.ackWait) { const f = this.ackWait; this.ackWait = null; f(); } }
-    else if (m.type === 'event') { this.cb.event?.(m.e); }
+    else if (m.type === 'event') {
+      if (!this.fast && m.e) {
+        if (m.e.type === 'battle_start') this.guard.battleStart(performance.now());
+        else if (m.e.type === 'battle_discard') this.guard.battleDiscard();
+      }
+      this.cb.event?.(m.e);
+    }
     else if (m.type === 'snapshot') this.pendingSnaps.push(m);
     else if (m.type === 'clip') this.pendingClips.push(m);
     else if (m.type === 'match') this.saving = (this.saving || Promise.resolve()).then(() => this.saveMatch(m.rec));
     else if (m.type === 'flushed') this.flushed?.();
   }
   async saveMatch(rec) {
+    if (!this.fast) {
+      const v = this.guard.matchEnd();
+      if (v.save === false) {
+        const battleStart = rec.battle?.[0] ?? 0;
+        this.pendingSnaps = this.pendingSnaps.filter(s => !(s.t >= battleStart - 30));
+        this.pendingClips = this.pendingClips.filter(c => !(c.t >= battleStart - 30));
+        this.stats.discarded = (this.stats.discarded || 0) + 1;
+        this.cb.discarded?.({ rec, interrupted: v.interrupted });
+        return;
+      }
+    }
     if (rec.match_type === undefined) rec.match_type = null;
     if (!rec.power) rec.power = powerForMatchType(rec.match_type);
     const id = `${this.sessionId}#${rec.match}`; rec.id = id; rec.created = new Date().toISOString(); rec.session = this.sessionId; rec.source = { kind: this.mode, name: this.sourceName, height: this.srcH, owner: this.owner || 'self' };
@@ -192,6 +243,10 @@ export class Session {
     if (this._onVisibilityChange) {
       document.removeEventListener('visibilitychange', this._onVisibilityChange);
       this._onVisibilityChange = null;
+    }
+    if (this._onEnded) {
+      this.video.removeEventListener('ended', this._onEnded);
+      this._onEnded = null;
     }
     if (this.worker) {
       await new Promise(r => { this.flushed = r; this.worker.postMessage({ type: 'flush' }); });
