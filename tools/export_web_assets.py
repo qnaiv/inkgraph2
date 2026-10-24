@@ -25,5 +25,8 @@ clf=pickle.load(open(os.path.join(MODELS,'icon_lr.pkl'),'rb'))
 out['icon_lr']=dict(coef=[round(float(x),6) for x in clf.coef_.ravel()],intercept=float(clf.intercept_[0]))
 for key,f in (('digits','digits.npz'),('tc_digits','tc_badge_digits.npz')):
     z=np.load(os.path.join(TPL,'res_digits',f)); out[key]=dict(X=[[round(float(v),4) for v in r] for r in z['X']],y=[int(v) for v in z['y']])
+# D47: デスカメ吹き出しの「やられた!」（720p の 2 値）と、やられた相手のブキ名の見本（web/tools/killer_lib_build.mjs が作る）
+kl=os.path.join(TPL,'killer_lib.json')
+out['killer']=dict(tpl=binimg(gray('tpl_deathcam_yarareta.png'),127),lib=json.load(open(kl,encoding='utf-8'))['lib'] if os.path.exists(kl) else [])
 p=os.path.join(ROOT,'web','public','assets','inkgraph_assets.json'); json.dump(out,open(p,'w'),ensure_ascii=False)
 print('wrote',p,os.path.getsize(p))

@@ -4,6 +4,7 @@ import * as C from './cues.js';
 import * as R from './result.js';
 import * as T from './tower.js';
 import { runs, medfilt, median, r1 } from './img.js';
+import { readKiller, decideKiller, KP } from './killer.js';
 export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240, sp_drain_min: 0.15, sp_drain_win: 1.5, sp_end_tol: 0.5 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
 
 export function specialOutcome(a, b, deathStarts, t, go, lastOk = null) {
@@ -68,7 +69,7 @@ export class DeathLatch {
 
 export class Analyzer {
   constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); }
-  newBattle(t) { this.deathLatch.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  newBattle(t) { this.deathLatch.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
     this.lastT = t; const tp = C.timerPresent(this.A, fr);
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
@@ -98,13 +99,21 @@ export class Analyzer {
     if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); }
     if (m.spPrev <= 0.2 && gw > 0.2) this.onEvent({ type: 'special_ready', t });
     m.spPrev = gw;
-    if (this.deathLatch.update(sg.dead, tp, mp, t)) this.onEvent({ type: 'own_death', t });
+    if (this.deathLatch.update(sg.dead, tp, mp, t)) { this.onEvent({ type: 'own_death', t }); if (A.killer) m.kscan.push({ t0: t, reads: [] }); }
+    this.killerStep(fr, t);
     const prevSlots = (m.F.length && m.F[m.F.length - 1].killSlots) ? m.F[m.F.length - 1].killSlots : [];
     for (let i = 0; i < killSlots.length; i++) {
       const prev = i < prevSlots.length ? !!prevSlots[i] : false;
       if (killSlots[i] && !prev) this.onEvent({ type: 'own_kill', t });
     }
     m.F.push(f);
+  }
+  // D47: デス直後のデスカメ吹き出し「<ブキ名> で / やられた!」を +1〜+8 秒の間だけ読む
+  killerStep(fr, t) {
+    const m = this.cur, A = this.A; if (!A.killer || !m.kscan.length) return; const k = m.kscan[m.kscan.length - 1];
+    if (t < k.t0 + KP.from || t > k.t0 + KP.to || k.done) return;
+    const r = readKiller(A, fr); if (!r) return; k.reads.push(r);
+    if (r.name && r.score >= 0.9) k.done = true; // 十分に似た見本があれば以降は読まない
   }
   fixHue() { const m = this.cur; m.th = m.hist.map(h => { let bi = 0; for (let i = 1; i < 180; i++) if (h[i] > h[bi]) bi = i; return h[bi] ? bi : 0; });
     for (const [f, c, fr] of m.pend) this.iconStep(f, c, fr); m.pend = []; }
@@ -138,6 +147,15 @@ export class Analyzer {
     }
     this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.onMatch(rec);
   }
+}
+/** D47: 読み取り（デス検知時刻 t0 ごと）を、検出したデス区間に付ける。1 回のデスでデス検知が 2 回出ることがある（例: 290.2 と 292.0）ので、
+ *  同じデス区間に対応した読み取りはまとめてから決める。吹き出しが読めなかったデスには付けない */
+export function attachKillers(deaths, kscan) {
+  const byDeath = new Map();
+  for (const k of kscan) { if (!k.reads.length) continue; let best = null, bd = Infinity;
+    for (const e of deaths) { const d = k.t0 < e.start ? e.start - k.t0 : (k.t0 <= e.end ? 0 : k.t0 - e.end); if (d < bd) { bd = d; best = e; } }
+    if (!best || bd > 3) continue; if (!byDeath.has(best)) byDeath.set(best, []); byDeath.get(best).push(...k.reads); }
+  for (const [e, reads] of byDeath) if (!e.killed_by) e.killed_by = decideKiller(reads);
 }
 export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
@@ -242,6 +260,7 @@ export function buildMatch(m, no, srcH) {
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
   for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
+  attachKillers(rec.own_deaths, m.kscan || []);
   for (const e of rec.special) { const [a, b] = aliveAt(rec, e.ready); e.alive_at_ready = `${a}v${b}`; }
   for (const e of rec.own_kills) { const [a, b] = aliveAt(rec, e.start - 1.0); e.alive_before = `${a}v${b}`; }
   return rec;
