@@ -94,6 +94,33 @@ export const putVideo = v => tx('videos', 'readwrite', s => s.put(v));
 export const getVideo = id => tx('videos', 'readonly', s => s.get(id));
 export const putSnap = sn => tx('snaps', 'readwrite', s => s.add(sn));
 export const snapsOf = id => tx('snaps', 'readonly', s => s.index('match').getAll(id));
+export function groupClips(snaps) {
+  const map = new Map();
+  for (const s of snaps) {
+    if (!s.clip || s.clip.idx === undefined) continue;
+    const idx = s.clip.idx;
+    if (!map.has(idx)) {
+      map.set(idx, {
+        idx,
+        t: s.clip.t,
+        from: s.clip.from,
+        to: s.clip.to,
+        kind: s.clip.kind,
+        kinds: s.clip.kinds,
+        events: s.clip.events,
+        frames: []
+      });
+    }
+    map.get(idx).frames.push({ t: s.t, blob: s.blob });
+  }
+  const result = Array.from(map.values());
+  for (const c of result) {
+    c.frames.sort((a, b) => a.t - b.t);
+  }
+  result.sort((a, b) => a.t - b.t);
+  return result;
+}
+export const clipsOf = async id => groupClips((await snapsOf(id)).filter(s => s.kind === 'clip'));
 export async function exportAll() { const ms = await allMatches(); return { app: 'InkGraph', format: 1, exported: new Date().toISOString(), matches: ms }; }
 export async function importAll(j) { let n = 0; for (const m of (j.matches || j)) { if (!m.id) m.id = 'imp-' + Math.random().toString(36).slice(2); await putMatch(m); n++; } return n; }
 export async function importBackup({ matches = [], stills = [] } = {}) {

@@ -2,6 +2,7 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { frameStepForState } from './analysis.js';
 import { powerForMatchType } from './core/result.js';
+import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
@@ -10,7 +11,7 @@ export async function listDevices() {
 export class Session {
   constructor(video, cb = {}) {
     this.video = video; this.cb = cb; this.canvas = document.createElement('canvas'); 
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }); this.step = 0.2; this.busy = false; this.pendingSnaps = []; this.stats = { frames: 0, ms: 0 }; this.running = false; this.bufs = [];
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }); this.step = 0.2; this.busy = false; this.pendingSnaps = []; this.pendingClips = []; this.stats = { frames: 0, ms: 0 }; this.running = false; this.bufs = [];
     this._loopGen = 0; this._lastTickAt = 0; this._watchdogId = null; this._onVisibilityChange = null;
   }
   async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
@@ -102,6 +103,7 @@ export class Session {
     if (m.type === 'ack') { this.busy = false; this.stats.ms += m.ms; this.lastState = m.state; this.cb.status?.(m); if (this.ackWait) { const f = this.ackWait; this.ackWait = null; f(); } }
     else if (m.type === 'event') { this.cb.event?.(m.e); }
     else if (m.type === 'snapshot') this.pendingSnaps.push(m);
+    else if (m.type === 'clip') this.pendingClips.push(m);
     else if (m.type === 'match') this.saving = (this.saving || Promise.resolve()).then(() => this.saveMatch(m.rec));
     else if (m.type === 'flushed') this.flushed?.();
   }
@@ -112,8 +114,29 @@ export class Session {
     rec.review = rec.review || { marks: {}, added: [], fix: {} };
     const cand = this.pendingSnaps.filter(s => s.t >= rec.battle[0] - 30); let snaps = cand; if (snaps.length > 48) { const drop = snaps.length - 48, nulls = snaps.filter(s => !s.kind).slice(0, drop); snaps = snaps.filter(s => !nulls.includes(s)).slice(0, 48); } /* over cap: drop kind-less mid-match samples first */ this.pendingSnaps = this.pendingSnaps.filter(s => !cand.includes(s));
     let bytes = 0; for (const s of snaps) bytes += s.blob?.size || 0;
-    rec.video = { kind: 'none' }; rec.stills = { count: snaps.length, bytes };
-    rec.favorite = rec.favorite ?? false; rec.stillsState = snaps.length ? 'kept' : 'none';
+    const candClips = this.pendingClips.filter(c => c.t >= rec.battle[0] - 30);
+    this.pendingClips = this.pendingClips.filter(c => !candClips.includes(c));
+    const sel = selectClips(candClips, rec);
+
+    let totalClipFrames = 0;
+    let totalClipBytes = 0;
+    const clipKindsCount = { death: 0, special: 0, kill: 0 };
+    for (const c of sel) {
+      totalClipFrames += c.frames?.length || 0;
+      totalClipBytes += c.bytes || 0;
+      if (clipKindsCount[c.kind] !== undefined) {
+        clipKindsCount[c.kind]++;
+      }
+    }
+    rec.clips = {
+      count: sel.length,
+      frames: totalClipFrames,
+      bytes: totalClipBytes,
+      kinds: clipKindsCount
+    };
+
+    rec.video = { kind: 'none' }; rec.stills = { count: snaps.length, bytes: bytes + totalClipBytes };
+    rec.favorite = rec.favorite ?? false; rec.stillsState = (snaps.length || sel.length) ? 'kept' : 'none';
     const matchLearnFeats = [];
     const snapFeatPairs = [];
     for (const s of snaps) {
@@ -125,6 +148,34 @@ export class Session {
     await db.putMatch(rec);
     for (const { snap: s, feat } of snapFeatPairs) {
       await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob, features: feat });
+    }
+    for (let clipIndex = 0; clipIndex < sel.length; clipIndex++) {
+      const c = sel[clipIndex];
+      const frames = c.frames || [];
+      for (let frameIndex = 0; frameIndex < frames.length; frameIndex++) {
+        const f = frames[frameIndex];
+        await db.putSnap({
+          matchId: id,
+          t: f.t,
+          reason: '場面クリップ',
+          kind: 'clip',
+          header: null,
+          event: null,
+          blob: f.blob,
+          features: null,
+          clip: {
+            idx: clipIndex,
+            frame: frameIndex,
+            n: frames.length,
+            t: c.t,
+            from: c.from,
+            to: c.to,
+            kind: c.kind,
+            kinds: c.kinds,
+            events: c.events
+          }
+        });
+      }
     }
     try { await db.enforceRetention(30); } catch (e) { console.warn('enforceRetention failed', e); }
     try { await db.enforceCapacity(); } catch (e) { console.warn('enforceCapacity failed', e); }
