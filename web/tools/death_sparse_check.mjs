@@ -76,16 +76,27 @@ async function runVideo(name, video) {
   return res;
 }
 
-if (videosPath) {
-  const V = JSON.parse(fs.readFileSync(videosPath, 'utf8'));
-  for (const [name, video] of Object.entries(V)) { const r = await runVideo(name, video); out.videos.push(r); if (outPath) fs.writeFileSync(outPath, JSON.stringify(out, null, 1)); }
-  const keys = ['0.2', '0.3', '0.4', 'ばらつき']; let tb = 0; const sum = {};
-  for (const r of out.videos) tb += r.base.length;
-  for (const k of keys) { sum[k] = { old_hit: 0, new_hit: 0, old_n: 0, new_n: 0 }; for (const r of out.videos) { sum[k].old_hit += r[k].old_hit; sum[k].new_hit += r[k].new_hit; sum[k].old_n += r[k].old.length; sum[k].new_n += r[k].new.length; } console.log(`[SUM] 間隔${k}: 基準 ${tb} 件 / 旧 一致 ${sum[k].old_hit}（${sum[k].old_n}件） / 新 一致 ${sum[k].new_hit}（${sum[k].new_n}件）`); }
-  out.summary = { base: tb, ...sum };
-  const base02same = out.videos.every(r => JSON.stringify(r['0.2'].new) === JSON.stringify(r.base));
-  check('5fps（0.2秒）では新しい平滑化でもデスが基準と完全に同じ', base02same, out.videos.filter(r => JSON.stringify(r['0.2'].new) !== JSON.stringify(r.base)).map(r => `${r.name}: base=${r.base} new=${r['0.2'].new}`).join('; ') || '全試合同じ');
-  for (const k of ['0.3', '0.4', 'ばらつき']) check(`間隔${k}で新しい平滑化は旧より落とさない`, sum[k].new_hit >= sum[k].old_hit, `旧 ${sum[k].old_hit} / 新 ${sum[k].new_hit} / 基準 ${tb}`);
+// 判定は正解（labels/killer/killer_truth.json のデスの始まり、±1.0秒）と照らす。
+// 5fps の基準（旧の平滑化）自体が b_match02 68 秒を落とすので、基準との完全一致は求めない
+const fromPath = opt('--from');
+if (videosPath || fromPath) {
+  if (fromPath) out.videos = JSON.parse(fs.readFileSync(fromPath, 'utf8')).videos;
+  else { const V = JSON.parse(fs.readFileSync(videosPath, 'utf8'));
+    for (const [name, video] of Object.entries(V)) { const r = await runVideo(name, video); out.videos.push(r); if (outPath) fs.writeFileSync(outPath, JSON.stringify(out, null, 1)); } }
+  const truthAll = JSON.parse(fs.readFileSync(new URL('../../labels/killer/killer_truth.json', import.meta.url), 'utf8'));
+  const tr = name => truthAll.filter(e => e.video === name).map(e => e.death_start);
+  const hitN = (T, xs) => T.filter(x => xs.some(y => Math.abs(x - y) <= 1.0)).length;
+  const falseOf = (T, xs) => xs.filter(y => !T.some(x => Math.abs(x - y) <= 1.0));
+  const keys = ['0.2', '0.3', '0.4', 'ばらつき']; let tt = 0; const sum = {};
+  for (const r of out.videos) tt += tr(r.name).length;
+  for (const k of keys) { const s = sum[k] = { old_hit: 0, new_hit: 0, old_false: [], new_false: [] };
+    for (const r of out.videos) { const T = tr(r.name);
+      s.old_hit += hitN(T, r[k].old); s.new_hit += hitN(T, r[k].new);
+      s.old_false.push(...falseOf(T, r[k].old).map(y => `${r.name}@${y}`)); s.new_false.push(...falseOf(T, r[k].new).map(y => `${r.name}@${y}`)); }
+    console.log(`[SUM] 間隔${k}: 正解 ${tt} 件 / 旧 一致 ${s.old_hit}・誤検出 ${s.old_false.length} / 新 一致 ${s.new_hit}・誤検出 ${s.new_false.length}${s.new_false.length ? ' ' + s.new_false.join(',') : ''}`); }
+  out.summary = { truth: tt, ...sum };
+  for (const k of keys) check(`間隔${k}で新しい平滑化は旧より正解に多く（同数以上）一致し、誤検出は増えない`, sum[k].new_hit >= sum[k].old_hit && sum[k].new_false.length <= sum[k].old_false.length, `正解 ${tt} / 旧 ${sum[k].old_hit}・誤${sum[k].old_false.length} / 新 ${sum[k].new_hit}・誤${sum[k].new_false.length}`);
+  check('5fps（0.2秒）で基準（旧）のデスを新でも全部拾う', out.videos.every(r => r['0.2'].new_hit === r.base.length), out.videos.filter(r => r['0.2'].new_hit !== r.base.length).map(r => r.name).join(',') || '全試合');
 }
 if (outPath) fs.writeFileSync(outPath, JSON.stringify(out, null, 1));
 console.log(fail ? `FAIL ${fail} / PASS ${pass}` : `ALL ${pass} PASS`); process.exit(fail ? 1 : 0);
