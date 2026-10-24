@@ -1,6 +1,7 @@
-import { chromium } from 'playwright-core'; import { spawn } from 'node:child_process'; import fs from 'node:fs';
+import { chromium } from 'playwright-core'; import fs from 'node:fs';
+import { startPreview } from './lib/preview_server.mjs';
 const W='/workspace/inkgraph/web', SH=W+'/../docs/screenshots/tower-holder';
-const srv = spawn('npx', ['vite','preview','--port','4175','--strictPort'], { cwd: W, stdio: 'ignore' }); await new Promise(r => setTimeout(r, 3000));
+const srv = startPreview('4175', W); await new Promise(r => setTimeout(r, 3000));
 const b = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true }); const p = await (await b.newContext({ viewport:{width:1400,height:1000}, locale:'ja-JP' })).newPage();
 const U='http://127.0.0.1:4175/'; await p.goto(U+'#list'); const ms = JSON.parse(fs.readFileSync(W+'/test-results/web_matches.json'));
 await p.evaluate(async ms => { await window.inkgraph.db.importAll(ms); }, ms);

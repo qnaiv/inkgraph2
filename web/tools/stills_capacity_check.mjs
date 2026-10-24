@@ -1,6 +1,7 @@
 // #32 stage 2 check: stills capacity (250MB). usage: node tools/stills_capacity_check.mjs
 import { chromium } from 'playwright-core';
-import { spawn, execSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -18,7 +19,7 @@ const check = (name, ok, info = '') => {
 
 const ids = Array.from({ length: 12 }, (_, i) => `cap-test-${String(i + 1).padStart(2, '0')}`);
 const PORT = 4193, U = `http://127.0.0.1:${PORT}/`;
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const srv = startPreview(PORT, WEB_DIR);
 await new Promise(r => setTimeout(r, 2500));
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', headless: true });

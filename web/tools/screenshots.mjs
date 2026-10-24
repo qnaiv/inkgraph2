@@ -1,6 +1,6 @@
 // Loads test-results/web_matches.json into the app and captures redesigned UI screenshots + exercises review & feedback export.
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runUiChecks } from './ui_check.mjs';
@@ -11,7 +11,7 @@ const SH = path.resolve(WEB_DIR, '../docs/screenshots/ui-redesign');
 fs.mkdirSync(SH, { recursive: true });
 
 const PORT = Number(process.env.PORT) || 4216;
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const srv = startPreview(PORT, WEB_DIR);
 await new Promise(r => setTimeout(r, 2500));
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
