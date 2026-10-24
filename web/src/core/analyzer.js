@@ -98,6 +98,7 @@ export class Analyzer {
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
     if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); }
     if (m.spPrev <= 0.2 && gw > 0.2) this.onEvent({ type: 'special_ready', t });
+    if (m.spPrev > 0.2 && gw <= 0.2) this.onEvent({ type: 'special_end', t });
     m.spPrev = gw;
     if (this.deathLatch.update(sg.dead, tp, mp, t)) { this.onEvent({ type: 'own_death', t }); if (A.killer) m.kscan.push({ t0: t, reads: [] }); }
     this.killerStep(fr, t);
