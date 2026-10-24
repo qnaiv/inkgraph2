@@ -1,0 +1,583 @@
+{
+ "note": "結果画面ボード（720p）の敵4枠のブキ名。デスカメのアイコンと同試合のボードアイコンの照合（score>=0.68 かつ 2位との差>=0.15）で付けた名前のみ。名前の無い枠は不明。",
+ "matches": {
+  "b_match01": {
+   "result": "LOSE",
+   "own_group": "bot",
+   "enemy_group": "top",
+   "board_t": 359.83,
+   "slots": {
+    "top0": "Rブラスターエリート WNTR",
+    "top1": null,
+    "top2": "ヒーローシューター レプリカ",
+    "top3": "PETシューター レプリカ"
+   }
+  },
+  "b_match02": {
+   "result": "WIN",
+   "own_group": "top",
+   "enemy_group": "bot",
+   "board_t": 362.83,
+   "slots": {
+    "bot0": "ホクサイ",
+    "bot1": null,
+    "bot2": ".52ガロン",
+    "bot3": "4Kスコープ"
+   }
+  },
+  "b_match03": {
+   "result": "LOSE",
+   "own_group": "bot",
+   "enemy_group": "top",
+   "board_t": 368.83,
+   "slots": {
+    "top0": "スパッタリーOWL",
+    "top1": null,
+    "top2": null,
+    "top3": "バケットスロッシャー"
+   }
+  },
+  "22-15-50_match03": {
+   "result": "WIN",
+   "own_group": "top",
+   "enemy_group": "bot",
+   "board_t": 145.83,
+   "slots": {
+    "bot0": null,
+    "bot1": null,
+    "bot2": null,
+    "bot3": null
+   }
+  },
+  "22-15-50_match04": {
+   "result": "WIN",
+   "own_group": "top",
+   "enemy_group": "bot",
+   "board_t": 380.6,
+   "slots": {
+    "bot0": "シャープマーカー",
+    "bot1": "わかばシューター",
+    "bot2": "ハイドラント",
+    "bot3": null
+   }
+  },
+  "22-15-50_match05": {
+   "result": "LOSE",
+   "own_group": "bot",
+   "enemy_group": "top",
+   "board_t": 169.83,
+   "slots": {
+    "top0": "ホットブラスター",
+    "top1": "わかばシューター",
+    "top2": null,
+    "top3": null
+   }
+  },
+  "23-23-22_match01": {
+   "result": "WIN",
+   "own_group": "top",
+   "enemy_group": "bot",
+   "board_t": 370.6,
+   "slots": {
+    "bot0": "ホットブラスター",
+    "bot1": null,
+    "bot2": null,
+    "bot3": null
+   }
+  },
+  "23-23-22_match03": {
+   "result": "WIN",
+   "own_group": "top",
+   "enemy_group": "bot",
+   "board_t": 185.1,
+   "slots": {
+    "bot0": null,
+    "bot1": null,
+    "bot2": null,
+    "bot3": null
+   }
+  },
+  "23-23-22_match02": {
+   "result": "LOSE",
+   "own_group": "bot",
+   "enemy_group": "top",
+   "board_t": 362.33,
+   "slots": {
+    "top0": "ダイナモローラー",
+    "top1": "ハイドラント",
+    "top2": "スパッタリー・ヒュー",
+    "top3": null
+   }
+  },
+  "x_match01": {
+   "result": "LOSE",
+   "own_group": "bot",
+   "enemy_group": "top",
+   "board_t": 245.33,
+   "slots": {
+    "top0": "リッター4K",
+    "top1": "クーゲルシュライバー",
+    "top2": null,
+    "top3": "スパッタリー・ヒュー"
+   }
+  },
+  "x_match02": {
+   "result": "WIN",
+   "own_group": "top",
+   "enemy_group": "bot",
+   "board_t": 232.6,
+   "slots": {
+    "bot0": null,
+    "bot1": "フルイドVカスタム",
+    "bot2": null,
+    "bot3": null
+   }
+  },
+  "x_match03": {
+   "result": "WIN",
+   "own_group": "top",
+   "enemy_group": "bot",
+   "board_t": 349.33,
+   "slots": {
+    "bot0": "フィンセント",
+    "bot1": null,
+    "bot2": null,
+    "bot3": "ボトルガイザー"
+   }
+  }
+ },
+ "links": [
+  {
+   "idx": 0,
+   "video": "b_match01",
+   "killer": "ヒーローシューター レプリカ",
+   "slot": "top2",
+   "score": 0.9130566120147705,
+   "margin": 0.31214791536331177
+  },
+  {
+   "idx": 1,
+   "video": "b_match01",
+   "killer": "ヒーローシューター レプリカ",
+   "slot": "top2",
+   "score": 0.918874979019165,
+   "margin": 0.31624388694763184
+  },
+  {
+   "idx": 2,
+   "video": "b_match01",
+   "killer": "PETシューター レプリカ",
+   "slot": "top3",
+   "score": 0.9138243794441223,
+   "margin": 0.29211366176605225
+  },
+  {
+   "idx": 3,
+   "video": "b_match01",
+   "killer": "ウルトラハンコ",
+   "slot": "top3",
+   "score": 0.584936261177063,
+   "margin": 0.11719852685928345
+  },
+  {
+   "idx": 4,
+   "video": "b_match01",
+   "killer": "Rブラスターエリート WNTR",
+   "slot": "top0",
+   "score": 0.7968771457672119,
+   "margin": 0.30302733182907104
+  },
+  {
+   "idx": 5,
+   "video": "b_match01",
+   "killer": "フルイドV",
+   "slot": "top2",
+   "score": 0.43512827157974243,
+   "margin": 0.009889364242553711
+  },
+  {
+   "idx": 6,
+   "video": "b_match01",
+   "killer": "ウルトラハンコ",
+   "slot": "top3",
+   "score": 0.5465664863586426,
+   "margin": 0.104851633310318
+  },
+  {
+   "idx": 7,
+   "video": "b_match01",
+   "killer": "ウルトラハンコ",
+   "slot": "top3",
+   "score": 0.5312358736991882,
+   "margin": 0.08393335342407227
+  },
+  {
+   "idx": 8,
+   "video": "b_match02",
+   "killer": ".52ガロン",
+   "slot": "bot2",
+   "score": 0.9104342460632324,
+   "margin": 0.18386268615722656
+  },
+  {
+   "idx": 9,
+   "video": "b_match02",
+   "killer": "ホクサイ",
+   "slot": "bot0",
+   "score": 0.8818773031234741,
+   "margin": 0.44499385356903076
+  },
+  {
+   "idx": 10,
+   "video": "b_match02",
+   "killer": "4Kスコープ",
+   "slot": "bot2",
+   "score": 0.37045449018478394,
+   "margin": 0.003644287586212158
+  },
+  {
+   "idx": 11,
+   "video": "b_match02",
+   "killer": "4Kスコープ",
+   "slot": "bot3",
+   "score": 0.8572262525558472,
+   "margin": 0.29144400358200073
+  },
+  {
+   "idx": 12,
+   "video": "b_match02",
+   "killer": "ホクサイ",
+   "slot": "bot0",
+   "score": 0.8923153877258301,
+   "margin": 0.2215726375579834
+  },
+  {
+   "idx": 13,
+   "video": "b_match02",
+   "killer": "ホクサイ",
+   "slot": "bot2",
+   "score": 0.4111192226409912,
+   "margin": 1.5556812286376953e-05
+  },
+  {
+   "idx": 14,
+   "video": "b_match03",
+   "killer": "スパッタリーOWL",
+   "slot": "top0",
+   "score": 0.7525309324264526,
+   "margin": 0.3030460476875305
+  },
+  {
+   "idx": 15,
+   "video": "b_match03",
+   "killer": "バケットスロッシャー",
+   "slot": "top3",
+   "score": 0.8712555170059204,
+   "margin": 0.43430811166763306
+  },
+  {
+   "idx": 16,
+   "video": "b_match03",
+   "killer": "バケットスロッシャー",
+   "slot": "top3",
+   "score": 0.8931834101676941,
+   "margin": 0.4782894253730774
+  },
+  {
+   "idx": 17,
+   "video": "b_match03",
+   "killer": "バケットスロッシャー",
+   "slot": "top3",
+   "score": 0.8894091248512268,
+   "margin": 0.46912509202957153
+  },
+  {
+   "idx": 18,
+   "video": "b_match03",
+   "killer": "スパッタリーOWL",
+   "slot": "top0",
+   "score": 0.7209981679916382,
+   "margin": 0.3169885277748108
+  },
+  {
+   "idx": 19,
+   "video": "b_match03",
+   "killer": "バケットスロッシャー",
+   "slot": "top3",
+   "score": 0.8179416060447693,
+   "margin": 0.33525776863098145
+  },
+  {
+   "idx": 20,
+   "video": "22-15-50_match04",
+   "killer": "カニタンク",
+   "slot": "bot1",
+   "score": 0.5382617115974426,
+   "margin": 0.07803517580032349
+  },
+  {
+   "idx": 21,
+   "video": "22-15-50_match04",
+   "killer": "シャープマーカー",
+   "slot": "bot0",
+   "score": 0.8147096037864685,
+   "margin": 0.18060612678527832
+  },
+  {
+   "idx": 22,
+   "video": "22-15-50_match04",
+   "killer": "シャープマーカー",
+   "slot": "bot0",
+   "score": 0.8052494525909424,
+   "margin": 0.24896162748336792
+  },
+  {
+   "idx": 23,
+   "video": "22-15-50_match04",
+   "killer": "シャープマーカー",
+   "slot": "bot1",
+   "score": 0.4030904471874237,
+   "margin": 0.0012474358081817627
+  },
+  {
+   "idx": 24,
+   "video": "22-15-50_match04",
+   "killer": "シャープマーカー",
+   "slot": "bot0",
+   "score": 0.7755943536758423,
+   "margin": 0.25324851274490356
+  },
+  {
+   "idx": 25,
+   "video": "22-15-50_match04",
+   "killer": "ハイドラント",
+   "slot": "bot2",
+   "score": 0.7924467921257019,
+   "margin": 0.19588685035705566
+  },
+  {
+   "idx": 26,
+   "video": "22-15-50_match04",
+   "killer": "わかばシューター",
+   "slot": "bot1",
+   "score": 0.9126706719398499,
+   "margin": 0.31189244985580444
+  },
+  {
+   "idx": 27,
+   "video": "22-15-50_match04",
+   "killer": "シャープマーカー",
+   "slot": "bot0",
+   "score": 0.8306272029876709,
+   "margin": 0.24156975746154785
+  },
+  {
+   "idx": 28,
+   "video": "22-15-50_match05",
+   "killer": "わかばシューター",
+   "slot": "top1",
+   "score": 0.9222943186759949,
+   "margin": 0.2887929081916809
+  },
+  {
+   "idx": 29,
+   "video": "22-15-50_match05",
+   "killer": "ホットブラスター",
+   "slot": "top0",
+   "score": 0.8218145966529846,
+   "margin": 0.2614758610725403
+  },
+  {
+   "idx": 30,
+   "video": "23-23-22_match01",
+   "killer": "ホットブラスター",
+   "slot": "bot0",
+   "score": 0.8411222100257874,
+   "margin": 0.3992117643356323
+  },
+  {
+   "idx": 31,
+   "video": "23-23-22_match01",
+   "killer": "ホットブラスター",
+   "slot": "bot0",
+   "score": 0.8174803853034973,
+   "margin": 0.3904664218425751
+  },
+  {
+   "idx": 32,
+   "video": "23-23-22_match01",
+   "killer": "ホットブラスター",
+   "slot": "bot0",
+   "score": 0.861816942691803,
+   "margin": 0.4170164465904236
+  },
+  {
+   "idx": 33,
+   "video": "23-23-22_match01",
+   "killer": "ホットブラスター",
+   "slot": "bot0",
+   "score": 0.8474476337432861,
+   "margin": 0.41779789328575134
+  },
+  {
+   "idx": 34,
+   "video": "23-23-22_match03",
+   "killer": "サメライド",
+   "slot": "bot3",
+   "score": 0.4638429880142212,
+   "margin": 0.01203775405883789
+  },
+  {
+   "idx": 35,
+   "video": "23-23-22_match03",
+   "killer": "ナイスダマ",
+   "slot": "bot2",
+   "score": 0.5562435388565063,
+   "margin": 0.2006455957889557
+  },
+  {
+   "idx": 36,
+   "video": "23-23-22_match02",
+   "killer": "カニタンク",
+   "slot": "top0",
+   "score": 0.5332449674606323,
+   "margin": 0.06572318077087402
+  },
+  {
+   "idx": 37,
+   "video": "23-23-22_match02",
+   "killer": "ハイドラント",
+   "slot": "top1",
+   "score": 0.8600841760635376,
+   "margin": 0.44127440452575684
+  },
+  {
+   "idx": 38,
+   "video": "23-23-22_match02",
+   "killer": "スパッタリー・ヒュー",
+   "slot": "top2",
+   "score": 0.8357741832733154,
+   "margin": 0.34027472138404846
+  },
+  {
+   "idx": 39,
+   "video": "23-23-22_match02",
+   "killer": "サメライド",
+   "slot": "top0",
+   "score": 0.576697826385498,
+   "margin": 0.19597986340522766
+  },
+  {
+   "idx": 40,
+   "video": "23-23-22_match02",
+   "killer": "ダイナモローラー",
+   "slot": "top0",
+   "score": 0.8685171008110046,
+   "margin": 0.45921534299850464
+  },
+  {
+   "idx": 41,
+   "video": "23-23-22_match02",
+   "killer": "ダイナモローラー",
+   "slot": "top0",
+   "score": 0.849811315536499,
+   "margin": 0.3416970372200012
+  },
+  {
+   "idx": 42,
+   "video": "x_match01",
+   "killer": "クーゲルシュライバー",
+   "slot": "top1",
+   "score": 0.8317893743515015,
+   "margin": 0.31941884756088257
+  },
+  {
+   "idx": 43,
+   "video": "x_match01",
+   "killer": "リッター4K",
+   "slot": "top0",
+   "score": 0.8007407784461975,
+   "margin": 0.2930402159690857
+  },
+  {
+   "idx": 44,
+   "video": "x_match01",
+   "killer": "スパッタリー・ヒュー",
+   "slot": "top3",
+   "score": 0.7766633033752441,
+   "margin": 0.3622496426105499
+  },
+  {
+   "idx": 45,
+   "video": "x_match01",
+   "killer": "リッター4K",
+   "slot": "top1",
+   "score": 0.4142957627773285,
+   "margin": 0.037914276123046875
+  },
+  {
+   "idx": 46,
+   "video": "x_match01",
+   "killer": "リッター4K",
+   "slot": "top0",
+   "score": 0.7894319295883179,
+   "margin": 0.2330862283706665
+  },
+  {
+   "idx": 47,
+   "video": "x_match01",
+   "killer": "ジェットパック",
+   "slot": "top1",
+   "score": 0.3873525559902191,
+   "margin": 0.03775149583816528
+  },
+  {
+   "idx": 48,
+   "video": "x_match02",
+   "killer": "フルイドVカスタム",
+   "slot": "bot1",
+   "score": 0.6884231567382812,
+   "margin": 0.25962701439857483
+  },
+  {
+   "idx": 49,
+   "video": "x_match02",
+   "killer": "ジェットパック",
+   "slot": "bot0",
+   "score": 0.47518739104270935,
+   "margin": 0.011238902807235718
+  },
+  {
+   "idx": 50,
+   "video": "x_match02",
+   "killer": "フルイドVカスタム",
+   "slot": "bot0",
+   "score": 0.4692845046520233,
+   "margin": 0.015448838472366333
+  },
+  {
+   "idx": 51,
+   "video": "x_match03",
+   "killer": "フィンセント",
+   "slot": "bot0",
+   "score": 0.8904056549072266,
+   "margin": 0.3754536509513855
+  },
+  {
+   "idx": 53,
+   "video": "x_match03",
+   "killer": "ボトルガイザー",
+   "slot": "bot3",
+   "score": 0.8110591769218445,
+   "margin": 0.35654714703559875
+  },
+  {
+   "idx": 54,
+   "video": "x_match03",
+   "killer": "フィンセント",
+   "slot": "bot0",
+   "score": 0.48647627234458923,
+   "margin": 0.06213301420211792
+  }
+ ]
+}
