@@ -163,6 +163,17 @@ export function attachKillers(deaths, kscan) {
 export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
+// デス信号（「やられた」）の平滑化。マップを開いている間や HUD が消えている間は信号が見えないので、
+// その間のフレームを「信号なし」として中央値フィルタに入れると、マップの開け閉めの合間に見えた短い信号
+// （ブラウザではフレームが間引かれて 1〜2 枚になりやすい）が消えてデスを丸ごと落とす（D52）。
+// 見えるフレーム（ok かつマップなし）だけを並べて中央値をとり、見えないフレームは false にする。
+// 見えないフレームをはさんだ信号の切れ目は mergeDeathRuns がつなぐ（間に生存 1.0 秒がなければ同じデス）。
+export function deathSignal(F, size = 5) {
+  const idx = []; for (let i = 0; i < F.length; i++) if (F[i].ok && !F[i].map) idx.push(i);
+  const sm = medfilt(idx.map(i => F[i].sig), size);
+  const out = new Array(F.length).fill(0); idx.forEach((i, k) => { out[i] = sm[k]; });
+  return out;
+}
 export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
   const raw = runs(t, sig, 0, 0);
   if (!raw.length) return [];
@@ -237,7 +248,7 @@ export function buildMatch(m, no, srcH) {
   slots.forEach((k, i) => { const col = medfilt(d.map(r => r[i]), P.med);
     const keep = (a, b) => { if (!P.dead_max_sat || srcH < 1000) return true; const w = F.filter(f => f.t >= a && f.t <= b && f.ok && f.s); return !w.length || median(w.map(f => f.s[i])) < P.dead_max_sat; };
     ev[k] = runs(t, col, P.minlen, P.gap).filter(([a, b]) => keep(a, b)).map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'hud' })); });
-  const sig = medfilt(F.map(f => f.sig), 5); const sr = mergeDeathRuns(t, sig, ok, mp);
+  const sig = deathSignal(F); const sr = mergeDeathRuns(t, sig, ok, mp);
   let own = sr.map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'signal' }));
   if (!sr.length) own = own.concat(ev.L0); ev.L0 = own.sort((x, y) => x.start - y.start);
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
