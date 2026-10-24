@@ -3,6 +3,7 @@ import { aliveAt } from './core/analyzer.js';
 import * as T from './core/tower.js';
 import { powerForMatchType } from './core/result.js';
 import { decodeFeat, featSim, KP, killerKind } from './core/killer.js';
+import { decodeIcon, prepIcon, matchIcon, iconSimSym, BI } from './core/board_icons.js';
 
 export const MATCH_TYPE_LABEL = {
   x: 'Xマッチ',
@@ -438,6 +439,16 @@ function getUnknownWeaponName(index) {
   return `未登録のブキ${s}`;
 }
 
+function getUnknownIconName(index) {
+  let s = '';
+  let n = index;
+  while (n >= 0) {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  }
+  return `未登録のアイコン${s}`;
+}
+
 export function enemyWeaponRows(matches) {
   if (!Array.isArray(matches)) {
     return {
@@ -565,6 +576,111 @@ export function enemyWeaponRows(matches) {
     readDeaths,
     unreadDeaths,
     nMatches,
+    overallWinRate
+  };
+}
+
+export function enemyPresenceRows(matches, lib) {
+  if (!Array.isArray(matches)) {
+    return { rows: [], nMatches: 0, withIcons: 0, namedSlots: 0, totalSlots: 0, overallWinRate: null };
+  }
+
+  const iconLib = Array.isArray(lib) ? lib : (lib && Array.isArray(lib.lib) ? lib.lib : []);
+  let totalSlots = 0, namedSlots = 0, withIcons = 0;
+  let overallWins = 0, overallLosses = 0;
+
+  const unknownGroups = [];
+  const weaponMap = new Map();
+
+  for (const m of matches) {
+    const res = resultOf(m).result;
+    const isWin = res === 'WIN';
+    const isLose = res === 'LOSE';
+    if (isWin) overallWins++;
+    else if (isLose) overallLosses++;
+
+    const hasIcons = Array.isArray(m.enemy_icons) && m.enemy_icons.length > 0;
+    if (hasIcons) withIcons++;
+    if (!hasIcons) continue;
+
+    const matchWeapons = new Map();
+
+    for (const item of m.enemy_icons) {
+      if (!item || !item.icon) continue;
+      totalSlots++;
+      const mr = matchIcon(iconLib, item.icon);
+
+      let key = null, name = null, kind = null;
+      if (mr.name) {
+        namedSlots++;
+        key = mr.name;
+        name = mr.name;
+        kind = 'main';
+      } else if (mr.ambiguous && mr.ambiguous.length > 0) {
+        key = 'ambiguous:リッター4K／4Kスコープ';
+        name = 'リッター4K／4Kスコープ';
+        kind = 'ambiguous';
+      } else {
+        const pg = prepIcon(item.icon);
+        let ug = unknownGroups.find(g0 => iconSimSym(pg, g0.rep) >= BI.group_th);
+        if (!ug) {
+          const groupName = getUnknownIconName(unknownGroups.length);
+          ug = { name: groupName, rep: pg };
+          unknownGroups.push(ug);
+        }
+        key = ug.name;
+        name = ug.name;
+        kind = 'unknown';
+      }
+
+      if (!matchWeapons.has(key)) {
+        matchWeapons.set(key, { name, kind });
+      }
+    }
+
+    if (!isWin && !isLose) continue;
+
+    for (const [k, mw] of matchWeapons.entries()) {
+      let wep = weaponMap.get(k);
+      if (!wep) {
+        wep = { name: mw.name, kind: mw.kind, matches: 0, wins: 0, losses: 0 };
+        weaponMap.set(k, wep);
+      }
+      wep.matches++;
+      if (isWin) wep.wins++;
+      else if (isLose) wep.losses++;
+    }
+  }
+
+  const rows = [];
+  for (const wep of weaponMap.values()) {
+    const known = wep.wins + wep.losses;
+    const winRate = known > 0 ? wep.wins / known : null;
+    rows.push({
+      name: wep.name,
+      kind: wep.kind,
+      matches: wep.matches,
+      wins: wep.wins,
+      losses: wep.losses,
+      winRate,
+      low: wep.matches < 5
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (b.matches !== a.matches) return b.matches - a.matches;
+    return a.name.localeCompare(b.name, 'ja');
+  });
+
+  const nMatches = overallWins + overallLosses;
+  const overallWinRate = nMatches > 0 ? overallWins / nMatches : null;
+
+  return {
+    rows,
+    nMatches,
+    withIcons,
+    namedSlots,
+    totalSlots,
     overallWinRate
   };
 }
