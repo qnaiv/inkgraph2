@@ -545,3 +545,15 @@
 - 今後：
   - 敵 4 人のブキアイコン（HUD 上部・結果画面）を照合できれば、「そのブキがいた試合の勝率」を正しい母数で出せる（今回の試行では試合をまたいだ照合が分離せず未達。チーム色の影響を受けにくい特徴か、結果画面ボードのアイコンが候補）。
   - 見本の追加（未登録のブキに名前を付ける UI）。
+
+## D50 (2026-10-24) チェックツールの vite preview はプロセスグループごと止める
+- 背景：
+  - 各チェックは `spawn('npx', ['vite','preview',...])` でサーバーを立て、最後に `srv.kill()` で止めていた。kill は npx だけを止め、子の node（vite preview 本体）が残ってポートを握り続ける。
+  - 次に同じポートを使うチェックが古いビルドを見て失敗していた（前回の 4 件失敗の原因。session_keepalive 4207・stills_capacity 4193 で確認）。チェックの間に `pkill -f "vite preview"` を挟めば避けられるが、並行して走らせている validate のサーバーまで止めてしまう。
+- 決定：
+  - 新規 `web/tools/lib/preview_server.mjs` の `startPreview(port, cwd)` で起動を一本化する。`detached:true` でプロセスグループを作り、返す ChildProcess の `kill()` を `process.kill(-pid)`（グループごと）に差し替える。既存の `srv.kill()` 呼び出しはそのまま使える。
+  - 止め忘れや途中終了に備え、`exit`／`SIGINT`／`SIGTERM` のときにも起動したグループを止める。
+  - 置き換えたのは vite preview を立てる 23 ツール。チェックの中身は変えていない。
+- 検証：
+  - `web/tools/preview_server_check.mjs`：対照として、従来の spawn と kill の組み合わせでは 1 件残ることを再現する。startPreview の kill・親の process.exit・親への SIGTERM の3通りで、vite が残らずポートが空くことを確かめる（8 PASS）。
+  - 全チェック（killer_app_check を除く）を、チェックの間に pkill を挟まず連続で実行した。全部 rc 0 で、各チェック後に残った vite preview は 0 件だった。

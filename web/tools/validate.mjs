@@ -1,11 +1,11 @@
 // Headless Chrome validation: feeds the recorded matches through the web app (file source, fast mode)
 // and compares with the Python outputs. usage: node tools/validate.mjs [1 2 3]
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs'; import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '../..'); const OUT = path.join(ROOT, 'web/test-results'); fs.mkdirSync(OUT, { recursive: true });
 const ids = process.argv.slice(2).length ? process.argv.slice(2) : ['1', '2', '3'];
-const srv = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { cwd: path.join(ROOT, 'web'), stdio: 'ignore' });
+const srv = startPreview('4173', path.join(ROOT, 'web'));
 await new Promise(r => setTimeout(r, 2500));
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } }); page.on('console', m => { if (m.type() === 'error') console.log('console:', m.text()); }); page.on('pageerror', e => console.log('pageerror', e.message));

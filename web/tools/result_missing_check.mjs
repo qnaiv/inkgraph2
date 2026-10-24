@@ -1,6 +1,7 @@
 // Verification of result missing / partial / read status and result_source
 import { chromium } from 'playwright-core';
-import { spawn, execSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -217,7 +218,7 @@ const PORT = 4194;
 const U = `http://127.0.0.1:${PORT}/`;
 try { execSync(`fuser -k ${PORT}/tcp 2>/dev/null`); } catch {}
 
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const srv = startPreview(PORT, WEB_DIR);
 await new Promise(r => setTimeout(r, 2500));
 
 const browser = await chromium.launch({

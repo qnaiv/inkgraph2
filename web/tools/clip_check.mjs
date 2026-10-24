@@ -1,7 +1,7 @@
 // clip_check.mjs: Browser verification of scene clips on video file.
 // Usage: node tools/clip_check.mjs <video.mp4>
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -25,10 +25,7 @@ const check = (name, ok, info = '') => {
 
 const PORT = 4232;
 const U = `http://127.0.0.1:${PORT}/`;
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], {
-  cwd: WEB_DIR,
-  stdio: 'ignore'
-});
+const srv = startPreview(PORT, WEB_DIR);
 
 await new Promise(r => setTimeout(r, 2500));
 
