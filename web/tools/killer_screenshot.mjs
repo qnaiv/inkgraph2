@@ -1,13 +1,13 @@
 // D47: killer_app_check.mjs で得たアプリの試合データを入れて、傾向画面の「やられた相手のブキ」カードを撮る
 // 使い方: npm run build && node tools/killer_screenshot.mjs [test-results/killer_app_matches.json]
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs'; import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const src = process.argv[2] || path.join(ROOT, 'web/test-results/killer_app_matches.json');
 const ms = Object.values(JSON.parse(fs.readFileSync(src, 'utf8'))).flat();
 const SH = path.join(ROOT, 'docs/screenshots/enemy-weapon'); fs.mkdirSync(SH, { recursive: true });
-const srv = spawn('npx', ['vite', 'preview', '--port', '4174', '--strictPort'], { cwd: path.join(ROOT, 'web'), stdio: 'ignore' });
+const srv = startPreview('4174', path.join(ROOT, 'web'));
 await new Promise(r => setTimeout(r, 2500));
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', headless: true });
 try {
