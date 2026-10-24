@@ -112,7 +112,7 @@ export class Analyzer {
   resultFrame(fr, t) {
     const m = this.cur, c = R.classify(this.A, fr); if (!c) return; m.lastRes = t;
     if (c.kind === 'celebration') m.RS.celebration.push({ t, value: c.value });
-    else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined);
+    else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined, c.panel);
       const e = { t, header }; if (c.kind === 'personal') e.personal = R.readPersonal(this.A, fr, dx, dy); else e.board = R.readBoard(this.A, fr, dx, dy);
       m.RS[c.kind].push(e);
       const lowConf = !header.mode || !header.stage || (c.kind === 'personal' && !e.personal);
@@ -128,11 +128,18 @@ export class Analyzer {
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
-    if (rs.mode === 'ガチヤグラ' && m.tower.length) tagEvents(rec, T.series(m.tower));
-    rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
-    rec.tower_raw = m.tower.length; this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.onMatch(rec);
+    if (isTowerRule(rs.mode) && m.tower.length) tagEvents(rec, T.series(m.tower));
+    if (isTowerRule(rs.mode)) {
+      rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
+      rec.tower_raw = m.tower.length;
+    } else {
+      rec.tower_rows = [];
+      rec.tower_raw = 0;
+    }
+    this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.onMatch(rec);
   }
 }
+export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
 export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
