@@ -1,4 +1,4 @@
-// D47: アプリ本体（ファイル入力・高速モード）に動画を流し、やられた相手のブキ名を正解（labels/killer_truth.json）と照合する
+// D47: アプリ本体（ファイル入力・高速モード）に動画を流し、やられた相手のブキ名を正解（labels/killer/killer_truth.json）と照合する
 // 使い方: npm run build && node tools/killer_app_check.mjs --videos videos.json
 //   videos.json: {"<labels の video 名>": "<動画ファイルのパス>"}（1 動画 = 1 試合）
 import { chromium } from 'playwright-core';
@@ -7,7 +7,7 @@ import fs from 'node:fs'; import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '../..'); const OUT = path.join(ROOT, 'web/test-results'); fs.mkdirSync(OUT, { recursive: true });
 const arg = k => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
 const videos = JSON.parse(fs.readFileSync(arg('--videos'), 'utf8'));
-const truth = JSON.parse(fs.readFileSync(path.join(ROOT, 'labels', 'killer_truth.json'), 'utf8'));
+const truth = JSON.parse(fs.readFileSync(path.join(ROOT, 'labels', 'killer', 'killer_truth.json'), 'utf8'));
 const srv = spawn('npx', ['vite', 'preview', '--port', '4173', '--strictPort'], { cwd: path.join(ROOT, 'web'), stdio: 'ignore' });
 await new Promise(r => setTimeout(r, 2500));
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });

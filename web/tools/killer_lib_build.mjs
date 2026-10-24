@@ -1,6 +1,6 @@
 // D47: やられた相手のブキ名の見本を作る／精度を測る
 // 使い方: node tools/killer_lib_build.mjs --videos videos.json [--out ../templates/killer_lib.json] [--eval]
-//   videos.json: {"<labels の video 名>": "<動画ファイルのパス>"}。正解は labels/killer_truth.json（目視）。
+//   videos.json: {"<labels の video 名>": "<動画ファイルのパス>"}。正解は labels/killer/killer_truth.json（目視）。
 //   各デスの +1.0〜+8.0 秒を 5fps で読み、アプリと同じ readKiller で 1 フレームずつ読む。
 //   --eval: 試合ごとに見本から外して当てる（その試合の見本を使わない）精度と、デスごとに外す精度を表示。
 import fs from 'fs'; import path from 'path'; import { spawnSync } from 'child_process'; import { fileURLToPath } from 'url';
@@ -9,7 +9,7 @@ import { readKiller, matchName, decideKiller, encodeFeat, prepKiller, killerKind
 const here = path.dirname(fileURLToPath(import.meta.url)), root = path.resolve(here, '..', '..');
 const arg = k => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
 const videos = JSON.parse(fs.readFileSync(arg('--videos'), 'utf8'));
-const truth = JSON.parse(fs.readFileSync(path.join(root, 'labels', 'killer_truth.json'), 'utf8'));
+const truth = JSON.parse(fs.readFileSync(path.join(root, 'labels', 'killer', 'killer_truth.json'), 'utf8'));
 const assets = JSON.parse(fs.readFileSync(path.join(root, 'web', 'public', 'assets', 'inkgraph_assets.json'), 'utf8'));
 const K = prepKiller({ tpl: assets.killer.tpl, lib: [] }, b64bytes), A = { killer: K };
 const FS = 1280 * 720 * 4, scans = [];
@@ -32,4 +32,4 @@ if (process.argv.includes('--eval')) {
     console.log(`${mode}: 正しい ${ok}/${n}（取り違え ${wrong}・見本にあるのに未登録 ${unk}・読めず ${noread}）`); bad.forEach(b => console.log('  ', b.join(' '))); }
 }
 const out = arg('--out'); if (out) { const lib = libFrom(scans).map(e => ({ name: e.name, kind: e.kind, ar: +e.ar.toFixed(3), f: encodeFeat(e.f) }));
-  fs.writeFileSync(out, JSON.stringify({ note: 'D47 やられた相手のブキ名の見本（labels/killer_truth.json から web/tools/killer_lib_build.mjs で生成）', lib }, null, 0) + '\n'); console.log('wrote', out, lib.length); }
+  fs.writeFileSync(out, JSON.stringify({ note: 'D47 やられた相手のブキ名の見本（labels/killer/killer_truth.json から web/tools/killer_lib_build.mjs で生成）', lib }, null, 0) + '\n'); console.log('wrote', out, lib.length); }

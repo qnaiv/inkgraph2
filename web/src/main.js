@@ -2483,7 +2483,7 @@ PAGES.trend = async () => {
               <th>種類</th>
               <th>やられた試合</th>
               <th>勝敗</th>
-              <th>その試合の勝率</th>
+              <th>やられた試合の勝率</th>
               <th>やられた回数</th>
             </tr>
           </thead>
@@ -2493,6 +2493,7 @@ PAGES.trend = async () => {
       <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
         <div>デスしたときの吹き出し（「〇〇 で やられた!」）から読んだ名前です。読めたデス ${weaponStats.readDeaths}/${weaponStats.totalDeaths} 件</div>
         <div>母数は“そのブキにやられた試合”です。試合にいても自分を倒していないブキは数えていません。スペシャル・サブの名前からは相手のメインブキは分かりません</div>
+        <div>やられた試合は負けに偏りやすいため、この勝率は“そのブキがいた試合全体の勝率”より低めに出ます</div>
         <div>5試合未満の行は参考になりません。全体の勝率は ${pct(weaponStats.overallWinRate)} です</div>
       </div>
     `;
