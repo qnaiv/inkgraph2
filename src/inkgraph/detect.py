@@ -3,7 +3,26 @@ import numpy as np, pickle, os, cv2
 from scipy.ndimage import median_filter
 from .common import frames, runs, MODELS
 from . import cues
-P=dict(icon_th=0.7,med=5,minlen=2.0,gap=2.5,cover=3.0,sig_gap=4.0,enemy_fill=False,sp_min=0.3,l0_hud_fallback=False,dead_max_sat=55) # sig_gap kept for backwards compatibility (unused in merge_death_runs)
+P=dict(icon_th=0.7,med=5,minlen=2.0,gap=2.5,cover=3.0,sig_gap=4.0,enemy_fill=False,sp_min=0.3,l0_hud_fallback=False,dead_max_sat=55,sp_drain_min=0.15,sp_drain_win=1.5,sp_end_tol=0.5) # sig_gap kept for backwards compatibility (unused in merge_death_runs)
+def special_outcome(a, b, death_starts, t, go, last_ok=None):
+    """Determine outcome of a special-ready interval [a, b]."""
+    end_tol = P.get('sp_end_tol', 0.5)
+    drain_win = P.get('sp_drain_win', 1.5)
+    drain_min = P.get('sp_drain_min', 0.15)
+    end_death = any(max(a, b - end_tol) <= s <= b + 1.0 for s in death_starts)   # 従来の窓 a〜b+1.0 の内側だけを見る
+    if end_death:
+        return {'outcome': 'lost_on_death', 'mid_death': False, 'drain': None}
+    mid_death = any(a <= s < b - end_tol for s in death_starts)
+    if mid_death:
+        t_arr = np.asarray(t)
+        go_arr = np.asarray(go)
+        mask = (t_arr > b) & (t_arr <= b + drain_win)
+        drain = round(float(np.max(go_arr[mask])), 2) if mask.any() else 0.0
+        outcome = 'activated' if drain >= drain_min else 'lost_on_death'
+        return {'outcome': outcome, 'mid_death': True, 'drain': drain}
+    unused = (last_ok is not None) and (b >= last_ok - 1.0)
+    outcome = 'unused_at_end' if unused else 'activated'
+    return {'outcome': outcome, 'mid_death': False, 'drain': None}
 def merge_death_runs(t,sig,ok,mp,minlen=1.5):
     raw=runs(t,sig,0.0,0.0)
     if not raw: return []
@@ -100,11 +119,15 @@ def build(R,clf=None):
     for e in ev['L0']: owndead|=(t>=e['start'])&(t<=e['end'])
     gw=np.array(R['gw']); go=np.array(R['go'])
     ready=median_filter(((gw>0.2)&~owndead&ok&~mp).astype(int),3)>0; sp=[]
+    death_starts=[e['start'] for e in ev['L0']]
+    last_ok=float(t[ok][-1]) if ok.any() else None
     for a,b in runs(t,ready,P['sp_min'],3.0):
-        lost=any(a<=e['start']<=b+1.0 for e in ev['L0'])   # ready ended by own death -> gauge lost
-        unused=(not lost) and b>=t[ok][-1]-1.0 if ok.any() else False   # still full when battle ends
-        outcome='lost_on_death' if lost else ('unused_at_end' if unused else 'activated')
-        sp.append({'ready':round(a,1),'end':round(b,1),'outcome':outcome,'activated_at':round(b,1) if outcome=='activated' else None})
+        res=special_outcome(a,b,death_starts,t,go,last_ok)
+        item={'ready':round(a,1),'end':round(b,1),'outcome':res['outcome'],'activated_at':round(b,1) if res['outcome']=='activated' else None}
+        if res['mid_death']:
+            item['mid_death']=True
+            item['drain']=round(float(res['drain']),2)
+        sp.append(item)
     if R.get('kill_slots') and any(R['kill_slots']):
         kills=kill_events_from_slots(t,R['kill_slots'])
     else:

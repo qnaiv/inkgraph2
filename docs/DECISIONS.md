@@ -432,3 +432,32 @@
   - ヤグラ用処理: ホコ3試合では Python 実走で tower_series なし、JS 実走で tower_series 0 件・tower_rows 0 件・デスの局面タグ 0 件。ヤグラ3試合は tower_series が付く（Python 77/283/97 点、JS 67/276/88 点）。
   - 既存回帰: バンカラマッチ3試合の勝敗・K+A・デス・SP・ルール・ステージは不変（Python/JS）。JS 実走の最終カウントも 36-67 / 62-83（正解どおり）。`src/eval_results.py` は修正前と同一（result 5/5, mode 5/5, stage 3/5, K+A/デス/SP 5/5）。
   - `web/public/assets/inkgraph_assets.json` は mode/stage テンプレートの追加のみ（既存の値は変えていない）。
+
+## D44 (2026-10-20) スペシャルの「デスで消失」判定の見直し（区間途中のデス）
+- 背景・課題:
+  - 現行のスペシャル満タン区間判定（Python `detect.py` build / JS `analyzer.js` buildMatch）では、満タン区間 `[a, b]` 内（`a <= death <= b+1.0`）に自身のデス開始が1件でもあると一律に `lost_on_death`（デスで消失）と判定していた。
+  - ヤグラmatch04（ヤガラ市場、正解SP4、検出activated 2）の区間 `t=274.8〜297.6` において、途中 `285.8〜288.2` にデス（2.4秒、gap=3.0 で満タン区間が継続）が存在するが、復帰後もスペシャルゲージは満タン（白）を維持し、区間終了 `297.6` の直後に橙色率が `0.28` まで急増して減少していく（発動の消費表示）ことが確認された。現行ロジックはこの区間途中のデスを理由に `lost_on_death` と誤分類していた。
+  - 9試合（Xマッチ6＋既存3）の全スペシャル区間における区間終了直後 `(b, b+1.5]` の橙色率 `go` の最大値実測:
+    - 発動（activated）: 0.23〜0.34
+    - デスで消失（区間終端直後にデス）: 0.00〜0.04
+    - 上記の途中デス区間: 0.28（発動パターンと完全に合致。途中デスがある区間はこの1件のみ）。
+- 規則設計（Python `special_outcome` / JS `specialOutcome` の対称な純粋関数）:
+  - `end_death`: `max(a, b - 0.5) <= s <= b + 1.0` のデス開始 `s` がある → `'lost_on_death'`（満タンがデスによって終了したケース）。
+  - `mid_death`: `a <= s < b - 0.5` のデス開始がある（`end_death` なし） → 区間終了直後 `(b, b + 1.5]` の `go` の最大値 `drain` を確認。
+    - `drain >= 0.15`（`SP_DRAIN_MIN`）: 発動の消費表示による裏付けがあるため `'activated'` と判定。
+    - `drain < 0.15`: 従来どおり保守的に `'lost_on_death'` と判定。
+  - デスなし（`end_death` も `mid_death` もなし）:
+    - 従来どおり `b >= last_ok - 1.0` なら `'unused_at_end'`、そうでなければ `'activated'`（`drain` は判定に使わず、既存挙動を完全に維持）。
+- パラメータの根拠:
+  - `sp_drain_min = 0.15`: 発動時の実測（0.23〜0.34）と消失時の実測（0.00〜0.04）の間に位置し、ノイズを排除しつつ発動を確実に拾う閾値。
+  - `sp_drain_win = 1.5`（秒）: 発動直後の橙色ゲージ消費表示が現れる時間窓。
+  - `sp_end_tol = 0.5`（秒）: 終端デスと途中デスの境界許容値。満タン終了直前 0.5秒以内のデスは終端デスとして扱う。
+- データ構造と互換性:
+  - `special` の各レコード `{ready, end, outcome, activated_at}` に対し、`mid_death` が True の場合のみ `'mid_death': true` と `'drain'`（小数2桁）を付与。途中デスのない区間は従来と同じ要素形状を維持。
+- 検証結果:
+  - 単体テスト `tools/test_special_outcome.py`（Python）・`web/tools/special_outcome_check.mjs`（JS）で境界ケース（終端デス・途中デス＋drainあり/なし・デスなし・区間開始前のデス）を確認。終端デス判定は `max(a, b-0.5)` とし、0.5秒未満の短い区間で区間開始前のデスを拾わないよう Grok が手直し（Python/JS とも）。
+  - Python・JS 実走（Xマッチ6＋バンカラ3）で outcome が変わったのはヤグラ match04 の 274.8〜297.6 区間（drain 0.28）のみ。`lost_on_death` → `activated`、match04 の発動数 2→3（正解SP4）。
+  - その他の発動数は不変: ヤグラ match03 2/2・match05 1/1、ホコ match01 2/2・match02 3/3・match03 2/2、バンカラ joined 4/3/5（正解5/3/5、残差は本変更の対象外）。バンカラ3試合は Python 出力が main と完全一致、JS の special も main 相当と完全一致。
+  - 既存チェック special_states 26・result_missing 36・kill_slot 8・death_dedup PASS、test_eval_ci OK。
+- 未特定:
+  - match04 の正解SP4に対する残り1件は未特定。103.2s・217.8s はデスカメラ中も白で復帰後に橙が部分的に出る真の消失、t=25 の gw=1.0 はスーパージャンプの白フラッシュ、白区間を伴わない橙の減少も無し。
