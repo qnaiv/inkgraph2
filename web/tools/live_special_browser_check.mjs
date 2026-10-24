@@ -1,7 +1,7 @@
 // D51: ライブ画面のスペシャル発動が試合中に増えること、確定時に速報と同じ数なら注記が「同じ数でした」になることをブラウザで確かめる。
 // usage: node tools/live_special_browser_check.mjs [--video <mp4>]（既定 22-15-50_match03.mp4、確定のスペシャル発動 2）
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -15,10 +15,9 @@ if (!fs.existsSync(videoPath)) { console.error(`Video file not found at ${videoP
 
 const PORT = 4238;
 const U = `http://127.0.0.1:${PORT}/`;
-// detached でプロセスグループを作り、終了時にグループごと止める（npx の子の vite を残さない）
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore', detached: true });
-const stopSrv = () => { try { process.kill(-srv.pid); } catch {} };
-process.on('exit', stopSrv);
+// D50 の startPreview：プロセスグループごと止める（npx の子の vite を残さない）
+const srv = startPreview(PORT, WEB_DIR);
+const stopSrv = () => srv.kill();
 await new Promise(r => setTimeout(r, 2500));
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });

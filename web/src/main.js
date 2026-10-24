@@ -2,7 +2,9 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows } from './analysis.js';
+import { b64bytes } from './core/img.js';
+import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -54,6 +56,22 @@ let reviewMode = false;
 let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自動で開くダイアログのモード
 let lastTrendQuery = '';
 let trendStageSort = { key: 'n', dir: 'desc' };
+let enemyIconLibPromise = null;
+function getEnemyIconLib() {
+  if (!enemyIconLibPromise) enemyIconLibPromise = (async () => {
+    try {
+      const res = await fetch(new URL('assets/inkgraph_assets.json', document.baseURI).href);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      return prepEnemyIconLib(j.enemy_icon, b64bytes);
+    } catch (e) {
+      return { lib: [] };
+    }
+  })();
+  return enemyIconLibPromise;
+}
+// 傾向画面の描画を見本の読み込みで待たせないよう、起動時に先読みする
+getEnemyIconLib();
 
 window.inkgraph = {
   db,
@@ -2712,6 +2730,73 @@ PAGES.trend = async () => {
     </div>
   `;
 
+  const PRESENCE_KIND_LABEL = {
+    main: 'メイン',
+    unknown: '未登録',
+    ambiguous: '区別不可'
+  };
+
+  const enemyIconLib = await getEnemyIconLib();
+  const presenceStats = enemyPresenceRows(filtered, enemyIconLib);
+  let presenceBodyHtml = '';
+  if (presenceStats.withIcons === 0) {
+    presenceBodyHtml = `
+      <div class="empty-state">
+        <p class="muted">まだ結果画面のアイコンを保存した試合がありません</p>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
+        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
+        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
+      </div>
+    `;
+  } else {
+    const presenceRowsHtml = presenceStats.rows.map(r => {
+      const kindLabel = PRESENCE_KIND_LABEL[r.kind] || r.kind || '—';
+      const winRateCell = r.low
+        ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>`
+        : pct(r.winRate);
+      return `
+        <tr class="${r.low ? 'trend-stage-low' : ''}">
+          <td>${esc(r.name)}</td>
+          <td>${esc(kindLabel)}</td>
+          <td class="num">${r.matches}</td>
+          <td class="num">${r.wins}勝${r.losses}敗</td>
+          <td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td>
+        </tr>
+      `;
+    }).join('');
+
+    presenceBodyHtml = `
+      <div style="overflow-x:auto">
+        <table class="table trend-stage-table trend-weapon-table">
+          <thead>
+            <tr>
+              <th>ブキ</th>
+              <th>種類</th>
+              <th>いた試合</th>
+              <th>勝敗</th>
+              <th>いた試合の勝率</th>
+            </tr>
+          </thead>
+          <tbody>${presenceRowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
+        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
+        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
+      </div>
+    `;
+  }
+
+  const enemyPresenceCardHtml = `
+    <div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">いた敵ブキ（結果画面のアイコン）</div>
+      ${presenceBodyHtml}
+    </div>
+  `;
+
   const WEAPON_KIND_LABEL = {
     main: 'メイン',
     special: 'スペシャル',
@@ -2991,6 +3076,7 @@ PAGES.trend = async () => {
     </div>
 
     ${stageCardHtml}
+    ${enemyPresenceCardHtml}
     ${weaponCardHtml}
 
     <div class="trends-two-col">

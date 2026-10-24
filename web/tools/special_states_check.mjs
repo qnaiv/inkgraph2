@@ -1,6 +1,6 @@
 // Special states check (D34): special intervals vs activation, stats, timeline rendering, trend cards.
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -19,7 +19,7 @@ const check = (ok, name, extra = '') => {
 
 const PORT = 4197;
 const U = `http://127.0.0.1:${PORT}/`;
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const srv = startPreview(PORT, WEB_DIR);
 await new Promise(r => setTimeout(r, 2500));
 
 let browser;

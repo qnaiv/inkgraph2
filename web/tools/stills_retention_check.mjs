@@ -1,6 +1,6 @@
 // #32 stage 1 check: count-based still-frame retention. usage: node tools/stills_retention_check.mjs
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -14,7 +14,7 @@ const N = 35, KEEP = 30;
 const ids = Array.from({ length: N }, (_, i) => `retain-test-${String(i + 1).padStart(2, '0')}`);
 
 const PORT = 4192, U = `http://127.0.0.1:${PORT}/`;
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const srv = startPreview(PORT, WEB_DIR);
 await new Promise(r => setTimeout(r, 2500));
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', headless: true });
 let page = null;
