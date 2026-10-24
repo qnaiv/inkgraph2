@@ -165,6 +165,24 @@ export function attachKillers(deaths, kscan) {
 export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
+// デス信号（「やられた」）の平滑化（D52）。マップを開いている間や HUD が消えている間は信号が見えないが、
+// そのフレームを「信号なし」として 5 枚の中央値に入れると、マップの開け閉めの合間に短く見えた信号
+// （ブラウザのシークでは ffmpeg より約 1 フレーム遅い絵になり 2 枚だけになることがある）が消えて、デスを丸ごと落とす。
+// そこで、見えないフレームの並びの前後がどちらも「見えて信号あり」が 2 枚以上続いていて、間が maxGap 秒以内なら、
+// その並びを「信号あり」で埋めてから中央値をとる。そうでなければ埋めない（1 枚だけの誤検出は今まで通り消える）。
+export function deathSignal(F, size = 5, maxGap = 3.0) {
+  const n = F.length, s = F.map(f => (f.sig ? 1 : 0)), obs = F.map(f => !!f.ok && !f.map);
+  for (let i = 0; i < n; i++) {
+    if (obs[i]) continue;
+    let j = i; while (j + 1 < n && !obs[j + 1]) j++;
+    const L = i - 1, R = j + 1;
+    // 前後とも「見えて信号あり」が 2 枚続くときだけ埋める（生存中の 1 枚の誤検出からマップをはさんで本物のデスへつなげないため）
+    const solid = (a, b) => a >= 0 && b >= 0 && a < n && b < n && obs[a] && obs[b] && s[a] && s[b];
+    if (solid(L - 1, L) && solid(R, R + 1) && F[R].t - F[L].t <= maxGap + 1e-6) for (let k = i; k <= j; k++) s[k] = 1;
+    i = j;
+  }
+  return medfilt(s, size);
+}
 export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
   const raw = runs(t, sig, 0, 0);
   if (!raw.length) return [];
@@ -239,7 +257,7 @@ export function buildMatch(m, no, srcH) {
   slots.forEach((k, i) => { const col = medfilt(d.map(r => r[i]), P.med);
     const keep = (a, b) => { if (!P.dead_max_sat || srcH < 1000) return true; const w = F.filter(f => f.t >= a && f.t <= b && f.ok && f.s); return !w.length || median(w.map(f => f.s[i])) < P.dead_max_sat; };
     ev[k] = runs(t, col, P.minlen, P.gap).filter(([a, b]) => keep(a, b)).map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'hud' })); });
-  const sig = medfilt(F.map(f => f.sig), 5); const sr = mergeDeathRuns(t, sig, ok, mp);
+  const sig = deathSignal(F); const sr = mergeDeathRuns(t, sig, ok, mp);
   let own = sr.map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'signal' }));
   if (!sr.length) own = own.concat(ev.L0); ev.L0 = own.sort((x, y) => x.start - y.start);
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
