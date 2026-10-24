@@ -38,6 +38,11 @@ const mk = (t0, step, spec) => spec.split('').map((c, i) => ({ t: +(t0 + i * ste
 // (f) 生存 1.0 秒以上をはさむ 2 回のデスは 2 件のまま
 { const F = mk(10, 0.2, 'S'.repeat(10) + 'A'.repeat(6) + 'S'.repeat(10));
   const n = deathsNew(F); check('(f) 生存1秒以上をはさむ2回のデスは2件', n.length === 2, `new=${JSON.stringify(n)}`); }
+// (g) Chrome の <video> でシークしたフレーム列そのもの（joined_match02 63.6〜71.0 秒、ok/map/sig を tools/death_browser_cues.mjs で取得）。
+//     ffmpeg より約 1 フレーム遅い絵になり、信号が 2 枚＋4 枚になる。旧は 0 件、新は 1 件。
+{ const spec = '100 100 101 101 100 000 010 010 010 010 010 010 010 010 010 010 010 010 010 010 010 010 010 101 101 010 010 010 010 101 101 101 101 010 010 010 010 010'.split(' ');
+  const F = spec.map((c, i) => ({ t: +(63.6 + i * 0.2).toFixed(1), ok: c[0] === '1', map: c[1] === '1', sig: c[2] === '1' }));
+  const o = deathsOld(F), n = deathsNew(F); check('(g) ブラウザのシーク結果（b_match02 68秒付近）→ 新は 68.2 秒の 1 件（旧は落とす）', o.length === 0 && n.length === 1 && Math.abs(n[0][0] - 68.2) < 0.3, `old=${JSON.stringify(o)} new=${JSON.stringify(n)}`); }
 
 async function runVideo(name, video) {
   const srcH = +execSync(`ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "${video}"`).toString().trim() || 1080;

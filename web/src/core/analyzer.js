@@ -163,16 +163,21 @@ export function attachKillers(deaths, kscan) {
 export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
-// デス信号（「やられた」）の平滑化。マップを開いている間や HUD が消えている間は信号が見えないので、
-// その間のフレームを「信号なし」として中央値フィルタに入れると、マップの開け閉めの合間に見えた短い信号
-// （ブラウザではフレームが間引かれて 1〜2 枚になりやすい）が消えてデスを丸ごと落とす（D52）。
-// 見えるフレーム（ok かつマップなし）だけを並べて中央値をとり、見えないフレームは false にする。
-// 見えないフレームをはさんだ信号の切れ目は mergeDeathRuns がつなぐ（間に生存 1.0 秒がなければ同じデス）。
-export function deathSignal(F, size = 5) {
-  const idx = []; for (let i = 0; i < F.length; i++) if (F[i].ok && !F[i].map) idx.push(i);
-  const sm = medfilt(idx.map(i => F[i].sig), size);
-  const out = new Array(F.length).fill(0); idx.forEach((i, k) => { out[i] = sm[k]; });
-  return out;
+// デス信号（「やられた」）の平滑化（D52）。マップを開いている間や HUD が消えている間は信号が見えないが、
+// そのフレームを「信号なし」として 5 枚の中央値に入れると、マップの開け閉めの合間に短く見えた信号
+// （ブラウザのシークでは ffmpeg より約 1 フレーム遅い絵になり 2 枚だけになることがある）が消えて、デスを丸ごと落とす。
+// そこで、見えないフレームの並びの前後がどちらも「信号あり」の見えるフレームで、間が maxGap 秒以内なら、
+// その並びを「信号あり」で埋めてから中央値をとる。前後どちらかが信号なしなら埋めない（1 枚だけの誤検出は今まで通り消える）。
+export function deathSignal(F, size = 5, maxGap = 3.0) {
+  const n = F.length, s = F.map(f => (f.sig ? 1 : 0)), obs = F.map(f => !!f.ok && !f.map);
+  for (let i = 0; i < n; i++) {
+    if (obs[i]) continue;
+    let j = i; while (j + 1 < n && !obs[j + 1]) j++;
+    const L = i - 1, R = j + 1;
+    if (L >= 0 && R < n && s[L] && s[R] && F[R].t - F[L].t <= maxGap + 1e-6) for (let k = i; k <= j; k++) s[k] = 1;
+    i = j;
+  }
+  return medfilt(s, size);
 }
 export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
   const raw = runs(t, sig, 0, 0);
