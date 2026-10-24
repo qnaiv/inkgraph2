@@ -2,7 +2,7 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows } from './analysis.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -2679,6 +2679,74 @@ PAGES.trend = async () => {
     </div>
   `;
 
+  const WEAPON_KIND_LABEL = {
+    main: 'メイン',
+    special: 'スペシャル',
+    sub: 'サブ',
+    unknown: '未登録'
+  };
+
+  const weaponStats = enemyWeaponRows(filtered);
+  let weaponBodyHtml = '';
+  if (weaponStats.rows.length === 0) {
+    weaponBodyHtml = `
+      <div class="empty-state">
+        <p class="muted">まだやられた相手のブキを読めたデスがありません</p>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>デスしたときの吹き出し（「〇〇 で やられた!」）から読んだ名前です。読めたデス ${weaponStats.readDeaths}/${weaponStats.totalDeaths} 件</div>
+      </div>
+    `;
+  } else {
+    const weaponRowsHtml = weaponStats.rows.map(r => {
+      const kindLabel = WEAPON_KIND_LABEL[r.kind] || r.kind || '—';
+      const winRateCell = r.low
+        ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>`
+        : pct(r.winRate);
+      return `
+        <tr class="${r.low ? 'trend-stage-low' : ''}">
+          <td>${esc(r.name)}</td>
+          <td>${esc(kindLabel)}</td>
+          <td class="num">${r.matches}</td>
+          <td class="num">${r.wins}勝${r.losses}敗</td>
+          <td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td>
+          <td class="num">${r.killed}</td>
+        </tr>
+      `;
+    }).join('');
+
+    weaponBodyHtml = `
+      <div style="overflow-x:auto">
+        <table class="table trend-stage-table trend-weapon-table">
+          <thead>
+            <tr>
+              <th>ブキ</th>
+              <th>種類</th>
+              <th>やられた試合</th>
+              <th>勝敗</th>
+              <th>やられた試合の勝率</th>
+              <th>やられた回数</th>
+            </tr>
+          </thead>
+          <tbody>${weaponRowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>デスしたときの吹き出し（「〇〇 で やられた!」）から読んだ名前です。読めたデス ${weaponStats.readDeaths}/${weaponStats.totalDeaths} 件</div>
+        <div>母数は“そのブキにやられた試合”です。試合にいても自分を倒していないブキは数えていません。スペシャル・サブの名前からは相手のメインブキは分かりません</div>
+        <div>やられた試合は負けに偏りやすいため、この勝率は“そのブキがいた試合全体の勝率”より低めに出ます</div>
+        <div>5試合未満の行は参考になりません。全体の勝率は ${pct(weaponStats.overallWinRate)} です</div>
+      </div>
+    `;
+  }
+
+  const weaponCardHtml = `
+    <div class="card trend-weapon-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">やられた相手のブキ</div>
+      ${weaponBodyHtml}
+    </div>
+  `;
+
   // 4. Top 8 winrate-lowering deaths & winrate-raising kills
   const topDeaths = deaths.filter(e => e.wp_delta !== undefined).sort((a, b) => a.wp_delta - b.wp_delta).slice(0, 8);
   const topKills = kills.filter(e => e.wp_delta !== undefined && e.wp_delta >= 0.005).sort((a, b) => b.wp_delta - a.wp_delta).slice(0, 8);
@@ -2890,6 +2958,7 @@ PAGES.trend = async () => {
     </div>
 
     ${stageCardHtml}
+    ${weaponCardHtml}
 
     <div class="trends-two-col">
       <div class="card">
