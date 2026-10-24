@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { prepAssets } from '../src/core/assets.js';
 import { classify, readHeader, readPersonal, readBoard, finalizeResult } from '../src/core/result.js';
+import { isTowerRule } from '../src/core/analyzer.js';
 
 const D = path.resolve(import.meta.dirname, '..');
 const assetFile = fs.readdirSync(path.join(D, 'public/assets')).find(f => f.endsWith('.json'));
@@ -30,7 +31,34 @@ if (!jsonFiles.length) {
   process.exit(1);
 }
 
-const items = ['result', 'ka', 'deaths', 'specials', 'mode', 'stage', 'match_type', 'withheld'];
+function parseTruth(name, truthInJson) {
+  const m = name.match(/match\d+_(ガチヤグラ|ガチホコバトル)_([^_]+)_(WIN|LOSE)_KA(\d+)_D(\d+)_SP(\d+)/);
+  if (m) {
+    return {
+      result: m[3],
+      ka: parseInt(m[4], 10),
+      deaths: parseInt(m[5], 10),
+      specials: parseInt(m[6], 10),
+      mode: m[1],
+      stage: m[2],
+      match_type: 'x'
+    };
+  }
+  if (name.includes('joined_match')) {
+    return {
+      result: truthInJson?.result ?? null,
+      ka: truthInJson?.ka ?? null,
+      deaths: truthInJson?.deaths ?? null,
+      specials: truthInJson?.specials ?? null,
+      mode: 'ガチヤグラ',
+      stage: 'クサヤ温泉',
+      match_type: null
+    };
+  }
+  return truthInJson;
+}
+
+const items = ['result', 'ka', 'deaths', 'specials', 'mode', 'stage', 'match_type'];
 const totalCounts = Object.fromEntries(items.map(k => [k, [0, 0]]));
 const rows = [];
 let hasMismatch = false;
@@ -39,7 +67,8 @@ for (const jfile of jsonFiles) {
   const J = JSON.parse(fs.readFileSync(path.join(xmDir, jfile), 'utf8'));
   const rawPath = path.join(xmDir, jfile.replace(/\.json$/, '.raw'));
   const rawBuf = fs.readFileSync(rawPath);
-  const { w, h, frames, truth, name } = J;
+  const { w, h, frames, name } = J;
+  const truth = parseTruth(name, J.truth);
 
   const RS = { celebration: [], personal: [], board: [] };
   const panelCounts = {};
@@ -81,8 +110,7 @@ for (const jfile of jsonFiles) {
     specials: res.own ? res.own.specials : null,
     mode: res.mode || null,
     stage: res.stage || null,
-    match_type: res.match_type || null,
-    withheld: res.match_type === 'x'
+    match_type: res.match_type || null
   };
 
   const rowEval = {};
@@ -98,6 +126,12 @@ for (const jfile of jsonFiles) {
     else hasMismatch = true;
   }
 
+  const towerRule = isTowerRule(res.mode);
+  const isHoko = truth.mode === 'ガチホコバトル' || res.mode === 'ガチホコバトル';
+  if (isHoko && towerRule) {
+    hasMismatch = true;
+  }
+
   const panelBreakdown = Object.entries(panelCounts)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}:${v}`)
@@ -108,14 +142,15 @@ for (const jfile of jsonFiles) {
     panel: panelBreakdown,
     detected,
     truth,
-    eval: rowEval
+    eval: rowEval,
+    towerRule
   });
 }
 
 // 表の出力
 console.log('='.repeat(140));
 console.log(
-  `${'Video'.padEnd(45)} | ${'Panel'.padEnd(14)} | ${'Result'.padEnd(10)} | ${'K+A'.padEnd(8)} | ${'D'.padEnd(8)} | ${'SP'.padEnd(8)} | ${'Mode'.padEnd(14)} | ${'Stage'.padEnd(14)} | ${'Type'.padEnd(8)} | ${'Withheld'.padEnd(8)}`
+  `${'Video'.padEnd(45)} | ${'Panel'.padEnd(14)} | ${'Result'.padEnd(10)} | ${'K+A'.padEnd(8)} | ${'D'.padEnd(8)} | ${'SP'.padEnd(8)} | ${'Mode'.padEnd(14)} | ${'Stage'.padEnd(14)} | ${'Type'.padEnd(8)} | ${'TowerRule'.padEnd(10)}`
 );
 console.log('-'.repeat(140));
 
@@ -132,7 +167,7 @@ for (const r of rows) {
   const modeStr = `${d.mode}${mark('mode')}`;
   const stageStr = `${d.stage}${mark('stage')}`;
   const mtStr = `${d.match_type}${mark('match_type')}`;
-  const whStr = `${d.withheld}${mark('withheld')}`;
+  const trStr = `${r.towerRule}`;
 
   let shortName = r.name;
   if (shortName.length > 43) {
@@ -140,17 +175,27 @@ for (const r of rows) {
   }
 
   console.log(
-    `${shortName.padEnd(45)} | ${r.panel.padEnd(14)} | ${resStr.padEnd(10)} | ${kaStr.padEnd(8)} | ${dStr.padEnd(8)} | ${spStr.padEnd(8)} | ${modeStr.padEnd(14)} | ${stageStr.padEnd(14)} | ${mtStr.padEnd(8)} | ${whStr.padEnd(8)}`
+    `${shortName.padEnd(45)} | ${r.panel.padEnd(14)} | ${resStr.padEnd(10)} | ${kaStr.padEnd(8)} | ${dStr.padEnd(8)} | ${spStr.padEnd(8)} | ${modeStr.padEnd(14)} | ${stageStr.padEnd(14)} | ${mtStr.padEnd(8)} | ${trStr.padEnd(10)}`
   );
 }
 
 console.log('-'.repeat(140));
 const summaryParts = items.map(k => `${k}: ${totalCounts[k][0]}/${totalCounts[k][1]}`);
 console.log('Summary matches: ' + summaryParts.join(', '));
+
+console.log('-'.repeat(140));
+console.log('Hoko guard checks (isTowerRule(mode) === false on Hoko matches):');
+for (const r of rows) {
+  const isHoko = r.truth.mode === 'ガチホコバトル' || r.detected.mode === 'ガチホコバトル';
+  if (isHoko) {
+    const status = !r.towerRule ? 'PASS' : 'FAIL';
+    console.log(`  [${status}] ${r.name}: mode=${r.detected.mode}, isTowerRule=${r.towerRule}`);
+  }
+}
 console.log('='.repeat(140));
 
 if (hasMismatch) {
-  console.log('ERROR: Mismatch detected in one or more items.');
+  console.log('ERROR: Mismatch or guard failure detected in one or more items.');
   process.exit(1);
 } else {
   console.log('SUCCESS: All videos matched truth expectations (JS).');
