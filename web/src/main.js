@@ -705,6 +705,9 @@ PAGES.live = async () => {
           sp++;
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
           addEventRow(tt, '<b style="color:var(--special)">◆</b>', 'スペシャル発動', 0);
+        } else if (e.type === 'special_lost') {
+          const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+          addEventRow(tt, '<b style="color:var(--special)">◇</b>', 'スペシャルを使う前にやられた', null);
         }
         $('#k', page).textContent = k;
         $('#d', page).textContent = d;
