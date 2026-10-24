@@ -1,6 +1,7 @@
 // Result-screen reading (port of src/inkgraph/result.py)
 import { crop, gray, bin, hsv, nccBin, nccGray, resizeArea, components } from './img.js';
 import { nn } from './assets.js';
+import { boardIconGray, encodeIcon } from './board_icons.js';
 const loc = (fr, x0, y0, x1, y1, t, th) => { const c = crop(fr, x0, y0, x1, y1); return nccBin(bin(gray(c), th), c.w, c.h, t); };
 export function celebration(A, fr) {
   const w = loc(fr, 0, 0, 260, 130, A.tpl.tpl_res_cel_win, 200).score, l = loc(fr, 0, 0, 260, 130, A.tpl.tpl_res_cel_lose, 200).score;
@@ -113,7 +114,7 @@ const ROW_Y = { top: [262, 306, 350, 394], bot: [499, 543, 587, 631] };
 export function readBoard(A, fr, dx, dy) { const out = [];
   for (const grp of ['top', 'bot']) ROW_Y[grp].forEach((y0, i) => { const y = y0 + dy; const h = hsv(crop(fr, 612 + dx, y, 650 + dx, y + 34)); let c = 0; for (let j = 0; j < h.H.length; j++) if (h.H[j] > 22 && h.H[j] < 38 && h.S[j] > 150 && h.V[j] > 180) c++;
     const gs = statGlyphs(fr, y + 2, y + 34, 965 + dx, 1160 + dx); const v = gs.length === 3 ? gs.map(g => readNumber(A, g)) : [null, null, null];
-    out.push({ group: grp, idx: i, own: c / h.H.length > 0.08, ka: v[0], deaths: v[1], specials: v[2] }); });
+    out.push({ group: grp, idx: i, own: c / h.H.length > 0.08, ka: v[0], deaths: v[1], specials: v[2], icon: encodeIcon(boardIconGray(fr, dx, dy, grp, i)) }); });
   return out; }
 // ---- voting over collected result frames (streaming version of read_results) ----
 function pick(lst, k = 5) { if (!lst.length) return []; const rs = [[0]]; for (let i = 1; i < lst.length; i++) { if (lst[i].t - lst[i - 1].t <= 0.6) rs[rs.length - 1].push(i); else rs.push([i]); }
