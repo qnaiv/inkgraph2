@@ -535,10 +535,23 @@ button, input, select {
   gap: var(--sp-4);
 }
 
+.live-capture-warn {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-3);
+}
+
 .live-stats-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--sp-3);
+}
+
+.live-stats-row.is-void {
+  opacity: .45;
 }
 
 .live-stats-row .stat-label {
