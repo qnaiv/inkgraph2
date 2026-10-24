@@ -615,4 +615,4 @@
 - 検証：
   - `web/tools/live_special_check.mjs`：純関数 10 件（区間の終わりで出す・gap 内の切れ目・短すぎる区間・終わりの前後のデス・試合終了間際・マップ表示中・区間より前のデス）。`--videos <json>` で実映像をライブと同じ Analyzer に 5fps で流し、試合中に出た special の数と試合後の数え直し（outcome が activated）を比べる。12 本（raw/1080p 3 本・ルール別 6 本・Xマッチ 3 本）で 12/12 一致、最大差 0。
   - `web/tools/live_special_browser_check.mjs`：22-15-50_match03 をブラウザのライブ画面で流し、保存前にスペシャル発動が 1 以上になること、確定時に表示＝effective（2）で、注記が「試合後の数え直しでも同じ数でした」になることを確かめる（8 PASS、スクショ docs/screenshots/live-special/）。
-  - 既存チェック一式（validate を含む）と Python のテストも通ることを確認（PR 本文に記載）。
+  - 既存チェック一式（build・validate 3/3・チェック 30 本すべて rc 0、残った vite 0）と Python のテスト 5 本（test_death_dedup・test_kill_slot・test_special_outcome・test_eval_ci・test_repro_s3）が通ることを確認。
