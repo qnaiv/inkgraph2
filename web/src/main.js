@@ -2755,7 +2755,7 @@ PAGES.trend = async () => {
   }
 
   const enemyPresenceCardHtml = `
-    <div class="card trend-weapon-card" style="margin-bottom:var(--sp-6)">
+    <div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)">
       <div class="card-title">いた敵ブキ（結果画面のアイコン）</div>
       ${presenceBodyHtml}
     </div>
