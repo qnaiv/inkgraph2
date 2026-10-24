@@ -55,19 +55,22 @@ let reviewMode = false;
 let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自動で開くダイアログのモード
 let lastTrendQuery = '';
 let trendStageSort = { key: 'n', dir: 'desc' };
-let enemyIconLibCache = null;
-async function getEnemyIconLib() {
-  if (enemyIconLibCache) return enemyIconLibCache;
-  try {
-    const res = await fetch(new URL('assets/inkgraph_assets.json', document.baseURI).href);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const j = await res.json();
-    enemyIconLibCache = prepEnemyIconLib(j.enemy_icon, b64bytes);
-  } catch (e) {
-    enemyIconLibCache = { lib: [] };
-  }
-  return enemyIconLibCache;
+let enemyIconLibPromise = null;
+function getEnemyIconLib() {
+  if (!enemyIconLibPromise) enemyIconLibPromise = (async () => {
+    try {
+      const res = await fetch(new URL('assets/inkgraph_assets.json', document.baseURI).href);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      return prepEnemyIconLib(j.enemy_icon, b64bytes);
+    } catch (e) {
+      return { lib: [] };
+    }
+  })();
+  return enemyIconLibPromise;
 }
+// 傾向画面の描画を見本の読み込みで待たせないよう、起動時に先読みする
+getEnemyIconLib();
 
 window.inkgraph = {
   db,
