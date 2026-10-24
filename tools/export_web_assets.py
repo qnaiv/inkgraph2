@@ -28,5 +28,8 @@ for key,f in (('digits','digits.npz'),('tc_digits','tc_badge_digits.npz')):
 # D47: デスカメ吹き出しの「やられた!」（720p の 2 値）と、やられた相手のブキ名の見本（web/tools/killer_lib_build.mjs が作る）
 kl=os.path.join(TPL,'killer_lib.json')
 out['killer']=dict(tpl=binimg(gray('tpl_deathcam_yarareta.png'),127),lib=json.load(open(kl,encoding='utf-8'))['lib'] if os.path.exists(kl) else [])
+# D48: 結果画面ボードの敵ブキアイコン見本（web/tools/enemy_icon_lib_build.mjs が作る）
+eil=os.path.join(TPL,'enemy_icon_lib.json')
+out['enemy_icon']=json.load(open(eil,encoding='utf-8')) if os.path.exists(eil) else {'lib':[]}
 p=os.path.join(ROOT,'web','public','assets','inkgraph_assets.json'); json.dump(out,open(p,'w'),ensure_ascii=False)
 print('wrote',p,os.path.getsize(p))

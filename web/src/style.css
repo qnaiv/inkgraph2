@@ -600,6 +600,53 @@ button, input, select {
   gap: var(--sp-4);
 }
 
+.live-match-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.live-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.live-count-badge.is-provisional {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.live-count-badge.is-final {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font-weight: var(--fw-bold);
+}
+
+.live-count-badge.is-discarded {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+}
+
+.live-recount-note {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: calc(-1 * var(--sp-1));
+  margin-bottom: var(--sp-2);
+  line-height: 1.4;
+}
+
 .live-capture-warn {
   background: var(--warn-soft);
   border: 1px solid var(--warn);

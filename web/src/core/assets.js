@@ -1,5 +1,6 @@
 import { b64bytes } from './img.js';
 import { prepKiller } from './killer.js';
+import { prepEnemyIconLib } from './board_icons.js';
 export function prepAssets(j) {
   const A = { tpl: {}, gray: {}, lib: { mode: {}, stage: {}, match_type: {} } };
   for (const [k, v] of Object.entries(j.tpl)) A.tpl[k] = { w: v.w, h: v.h, bits: b64bytes(v.data) };
@@ -8,6 +9,7 @@ export function prepAssets(j) {
   A.icon = { coef: Float32Array.from(j.icon_lr.coef), b: j.icon_lr.intercept };
   for (const key of ['digits', 'tc_digits']) A[key] = { X: j[key].X.map(r => Float32Array.from(r)), y: j[key].y };
   A.killer = prepKiller(j.killer, b64bytes); // D47: やられた相手のブキ名
+  A.enemyIcon = prepEnemyIconLib(j.enemy_icon, b64bytes);
   return A;
 }
 export function nn(D, f) { let bi = 0, bd = Infinity; for (let i = 0; i < D.X.length; i++) { const x = D.X[i]; let d = 0; for (let j = 0; j < f.length; j++) { const e = x[j] - f[j]; d += e * e; } if (d < bd) { bd = d; bi = i; } } return { y: D.y[bi], d: bd }; }

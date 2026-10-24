@@ -2,7 +2,9 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows } from './analysis.js';
+import { b64bytes } from './core/img.js';
+import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -11,6 +13,7 @@ import * as CP from './capacity.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
 import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
 import { CLIP_KIND_JA, clipAt } from './clips.js';
+import { recountDiff } from './core/live_counts.js';
 
 const app = document.getElementById('app');
 const liveSlot = document.createElement('div');
@@ -53,6 +56,22 @@ let reviewMode = false;
 let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自動で開くダイアログのモード
 let lastTrendQuery = '';
 let trendStageSort = { key: 'n', dir: 'desc' };
+let enemyIconLibPromise = null;
+function getEnemyIconLib() {
+  if (!enemyIconLibPromise) enemyIconLibPromise = (async () => {
+    try {
+      const res = await fetch(new URL('assets/inkgraph_assets.json', document.baseURI).href);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      return prepEnemyIconLib(j.enemy_icon, b64bytes);
+    } catch (e) {
+      return { lib: [] };
+    }
+  })();
+  return enemyIconLibPromise;
+}
+// 傾向画面の描画を見本の読み込みで待たせないよう、起動時に先読みする
+getEnemyIconLib();
 
 window.inkgraph = {
   db,
@@ -62,6 +81,7 @@ window.inkgraph = {
   feedback: FB,
   backup: BK,
   AN,
+  recountDiff,
   buildBatchZip: (...a) => buildBatchZip(...a),
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
@@ -441,7 +461,11 @@ PAGES.live = async () => {
       </div>
 
       <div class="card live-match-card">
-        <div class="card-title" style="margin-bottom:0">この試合</div>
+        <div class="live-match-header">
+          <div class="card-title" style="margin-bottom:0">この試合</div>
+          <span id="live-count-badge" class="live-count-badge is-provisional" title="試合中の数字は速報です。試合後に映像全体を数え直して確定します">速報</span>
+        </div>
+        <div id="live-recount-note" class="live-recount-note" hidden></div>
 
         <div id="live-capture-warn" class="live-capture-warn" role="status" hidden>
           <div style="font-weight:var(--fw-bold)">この試合は保存しません</div>
@@ -636,6 +660,15 @@ PAGES.live = async () => {
     $('#sp', page).textContent = '0';
     $('#live-capture-warn', page) && ($('#live-capture-warn', page).hidden = true);
     $('.live-stats-row', page)?.classList.remove('is-void');
+    // D49: ライブの数字の状態（速報／確定／保存なし）と、数え直しの注記
+    const COUNT_BADGE = { provisional: ['速報', '試合中の数字は速報です。試合後に映像全体を数え直して確定します'], final: ['確定', ''], discarded: ['保存なし', ''] };
+    const setCountBadge = (state, note = '') => {
+      const b = $('#live-count-badge', page);
+      if (b) { b.textContent = COUNT_BADGE[state][0]; b.className = `live-count-badge is-${state}`; b.title = COUNT_BADGE[state][1]; }
+      const n = $('#live-recount-note', page);
+      if (n) { n.textContent = note; n.hidden = !note; }
+    };
+    setCountBadge('provisional');
     const vEmpty = $('#video-empty', page);
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
@@ -647,6 +680,7 @@ PAGES.live = async () => {
           const warn = $('#live-capture-warn', page); if (warn) warn.hidden = true;
           $('.live-stats-row', page)?.classList.remove('is-void');
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+          setCountBadge('provisional');
           updateSpark(50);
           addEventRow('0:00', '▶', 'バトル開始', null);
         } else if (e.type === 'battle_end') {
@@ -713,6 +747,7 @@ PAGES.live = async () => {
       discarded: ({ rec, interrupted }) => {
         justSaved = true;
         const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+        setCountBadge('discarded');
         const dot = $('#live-dot', page);
         if (dot) {
           dot.className = 'status-dot-idle';
@@ -735,9 +770,22 @@ PAGES.live = async () => {
         $('#live-dot', page).style.background = 'var(--kill)';
         $('#state', page).textContent = '保存しました';
         const ev = effective(rec);
-        $('#k', page).textContent = ev.filter(x => x.kind === 'kill').length;
-        $('#d', page).textContent = ev.filter(x => x.kind === 'death').length;
-        $('#sp', page).textContent = ev.filter(x => x.kind === 'special').length;
+        const finK = ev.filter(x => x.kind === 'kill').length;
+        const finD = ev.filter(x => x.kind === 'death').length;
+        const finSp = ev.filter(x => x.kind === 'special').length;
+        const diff = recountDiff({ k, d, sp }, { k: finK, d: finD, sp: finSp });
+        k = finK;
+        d = finD;
+        sp = finSp;
+        $('#k', page).textContent = k;
+        $('#d', page).textContent = d;
+        $('#sp', page).textContent = sp;
+        setCountBadge('final', diff.text);
+        if (diff.changed.length > 0) {
+          const tt = mss(Math.max(0, (session ? session.now() : 0) - t0));
+          const summary = diff.changed.map(c => `${c.label} ${c.from}→${c.to}`).join('、');
+          addEventRow(tt, '↺', `数え直し：${summary}`, null);
+        }
         if (rec.tower_series?.length) {
           const last = rec.tower_series[rec.tower_series.length - 1];
           const diff = last.own - last.enemy;
@@ -2679,6 +2727,73 @@ PAGES.trend = async () => {
     </div>
   `;
 
+  const PRESENCE_KIND_LABEL = {
+    main: 'メイン',
+    unknown: '未登録',
+    ambiguous: '区別不可'
+  };
+
+  const enemyIconLib = await getEnemyIconLib();
+  const presenceStats = enemyPresenceRows(filtered, enemyIconLib);
+  let presenceBodyHtml = '';
+  if (presenceStats.withIcons === 0) {
+    presenceBodyHtml = `
+      <div class="empty-state">
+        <p class="muted">まだ結果画面のアイコンを保存した試合がありません</p>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
+        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
+        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
+      </div>
+    `;
+  } else {
+    const presenceRowsHtml = presenceStats.rows.map(r => {
+      const kindLabel = PRESENCE_KIND_LABEL[r.kind] || r.kind || '—';
+      const winRateCell = r.low
+        ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>`
+        : pct(r.winRate);
+      return `
+        <tr class="${r.low ? 'trend-stage-low' : ''}">
+          <td>${esc(r.name)}</td>
+          <td>${esc(kindLabel)}</td>
+          <td class="num">${r.matches}</td>
+          <td class="num">${r.wins}勝${r.losses}敗</td>
+          <td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td>
+        </tr>
+      `;
+    }).join('');
+
+    presenceBodyHtml = `
+      <div style="overflow-x:auto">
+        <table class="table trend-stage-table trend-weapon-table">
+          <thead>
+            <tr>
+              <th>ブキ</th>
+              <th>種類</th>
+              <th>いた試合</th>
+              <th>勝敗</th>
+              <th>いた試合の勝率</th>
+            </tr>
+          </thead>
+          <tbody>${presenceRowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
+        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
+        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
+      </div>
+    `;
+  }
+
+  const enemyPresenceCardHtml = `
+    <div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">いた敵ブキ（結果画面のアイコン）</div>
+      ${presenceBodyHtml}
+    </div>
+  `;
+
   const WEAPON_KIND_LABEL = {
     main: 'メイン',
     special: 'スペシャル',
@@ -2958,6 +3073,7 @@ PAGES.trend = async () => {
     </div>
 
     ${stageCardHtml}
+    ${enemyPresenceCardHtml}
     ${weaponCardHtml}
 
     <div class="trends-two-col">
