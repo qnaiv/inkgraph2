@@ -113,7 +113,7 @@ function check(name, ok, detail = '') {
   const tr = new LiveSpecialTracker();
   const events = [];
   for (let t = 0; t <= 8.0; t = +(t + 0.2).toFixed(1)) {
-    if (t === 6.0) tr.death(6.0); // 3.0s after b=3.0 (outside [3.0-0.5, 3.0+1.5])
+    if (t === 6.0) tr.death(6.0); // 3.0s after b=3.0 (outside [3.0-1.0, 3.0+1.5])
     const raw = t >= 1.0 && t <= 3.0;
     const evs = tr.frame({ t, gw: raw ? 1 : 0, ok: true, map: false, dead: false });
     events.push(...evs);
@@ -176,6 +176,30 @@ function check(name, ok, detail = '') {
     events[0].ready === 1.0;
   check('(h) map 表示中に一瞬 ready が切れても gap 内なら1件', ok,
     `events=${JSON.stringify(events)}`);
+}
+
+// (i) ライブのデスが区間の終わりの 0.8秒前（試合後の数え方ではデスの始まりが終わりの直後）→special_lost
+{
+  const tr = new LiveSpecialTracker();
+  const events = [];
+  for (let t = 0; t <= 8.0; t = +(t + 0.2).toFixed(1)) {
+    if (t === 2.2) tr.death(2.2);
+    events.push(...tr.frame({ t, gw: t >= 1.0 && t <= 3.0 ? 1 : 0, ok: true, map: false, dead: false }));
+  }
+  const ok = events.length === 1 && events[0].type === 'special_lost' && events[0].t === 3.0;
+  check('(i) 区間の終わりの 0.8秒前にライブのデス→special_lost', ok, `events=${JSON.stringify(events)}`);
+}
+
+// (j) 区間の始まりより前のデスは数えない（生き返ってからゲージが溜まった）
+{
+  const tr = new LiveSpecialTracker();
+  const events = [];
+  for (let t = 0; t <= 8.0; t = +(t + 0.2).toFixed(1)) {
+    if (t === 0.6) tr.death(0.6);
+    events.push(...tr.frame({ t, gw: t >= 1.0 && t <= 1.4 ? 1 : 0, ok: true, map: false, dead: false }));
+  }
+  const ok = events.length === 1 && events[0].type === 'special';
+  check('(j) 区間の始まりより前のデスは数えない', ok, `events=${JSON.stringify(events)}`);
 }
 
 // ==========================================

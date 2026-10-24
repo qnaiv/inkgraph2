@@ -5,7 +5,10 @@ export class LiveSpecialTracker {
   constructor(opts = {}) {
     this.gap = opts.gap ?? 3.0;
     this.minLen = opts.minLen ?? 0.3;
-    this.deathBefore = opts.deathBefore ?? 0.5;
+    // ライブのデス（DeathLatch）は最初のデス信号のフレームで出るため、試合後の数え方のデスの始まり（信号の区間の始まり）より
+    // 最大 1 秒ほど早いことがある（23-23-22_match02 の 219.0 秒：ライブ 219.0／試合後 220.0、ゲージの区間の終わり 219.8）。
+    // そのため区間の終わりの 1.0 秒前（ただし区間の始まりより後）からのデスを「使う前にやられた」とみなす（D51）。
+    this.deathBefore = opts.deathBefore ?? 1.0;
     this.deathAfter = opts.deathAfter ?? 1.5;
     this.endTol = opts.endTol ?? 1.0;
     this.reset();
@@ -28,7 +31,7 @@ export class LiveSpecialTracker {
       return null;
     }
     const hasDeath = this.deaths.some(
-      dt => dt >= b - this.deathBefore - 1e-6 && dt <= b + this.deathAfter + 1e-6
+      dt => dt >= Math.max(a, b - this.deathBefore) - 1e-6 && dt <= b + this.deathAfter + 1e-6
     );
     if (hasDeath) {
       return { type: 'special_lost', t: r1(b), ready: r1(a) };
