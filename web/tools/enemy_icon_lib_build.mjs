@@ -1,5 +1,6 @@
 // D48: 結果画面ボードの敵ブキアイコン見本を作る／精度を測る
-// 使い方: node tools/enemy_icon_lib_build.mjs [--out <path>] [--eval]
+// 使い方: node tools/enemy_icon_lib_build.mjs [--out <path>] [--eval] [--dump <json>]
+//   --dump: 全敵枠の結果（デスカメ由来の名前・その試合を外した見本照合）を json に書く（スクショ作成用）
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
@@ -68,6 +69,7 @@ if (process.argv.includes('--eval')) {
   }
 
   let namedCount = 0;
+  const dump = {};
   for (const [v, m] of Object.entries(truth.matches)) {
     const eg = m.enemy_group;
     const looLib = labeled.filter(x => x.video !== v);
@@ -76,10 +78,12 @@ if (process.argv.includes('--eval')) {
       const truthName = m.slots[slot];
       const res = matchIcon(looLib, icons[`${v}_${slot}`]);
       const finalName = truthName || res.name;
+      (dump[v] ||= {})[slot] = { truth: truthName, loo: res.name, score: res.score, ambiguous: res.ambiguous };
       if (finalName) namedCount++;
     }
   }
 
+  if (arg('--dump')) fs.writeFileSync(arg('--dump'), JSON.stringify(dump, null, 1));
   console.log(`試合ごとに外す照合 (名前付き枠 ${labeled.length} 件): 正しい ${ok}・取り違え ${wrong}・不明 ${unk} (ambiguous 含む)`);
   console.log(`全 48 敵枠で名前が付く枠数: ${namedCount}/48`);
   if (bad.length > 0) {
