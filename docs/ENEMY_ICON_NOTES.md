@@ -36,4 +36,6 @@
 - 済：アプリ側（JS、D48）。web/src/core/board_icons.js（切り出し・照合・4K の区別不可）、結果画面ボードの敵 4 枠を rec.enemy_icons に保存、見本 templates/enemy_icon_lib.json（web/tools/enemy_icon_lib_build.mjs で生成・--eval で精度）、analysis.js の enemyPresenceRows、傾向画面「いた敵ブキ（結果画面のアイコン）」カード、web/tools/enemy_icon_check.mjs（9 項目）。
 - 済：照合の高速化（合成 200 試合 42.6 秒 → 約 0.27 秒、結果は旧実装と一致）。
 - 済：スクショ docs/screenshots/enemy-icon/（02 は 48 枠の名前付けの一覧）。
-- 次：アプリ本体に動画を流しての確認（enemy_icons が保存され、オフラインと同じ名前になるか）。デスカメ→ボード枠の名前付けを JS に移し、アプリ内で見本を増やす。
+- 済：アプリと同じ解析コードを node で 12 本に流しての確認（保存 12/12、名前はオフラインと一致、D48）。カードのスクショ 01。
+- 実施中：ブラウザでの 12 本実走（killer_app_check、/tmp/e2e_icon2.log）。結果が出たら enemy_icon_app_compare.mjs で同じ比較をする。
+- 次：デスカメ→ボード枠の名前付けを JS に移し、アプリ内で見本を自動で増やす。未登録アイコンに名前を付ける UI。
