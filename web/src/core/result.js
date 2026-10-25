@@ -282,19 +282,24 @@ export function finalizeSeries(reads) {
   const stable = runs.filter(r => r.count >= 3).map(r => ({ win: r.win, lose: r.lose }));
   if (!stable.length) return null;
 
-  const before = stable[0];
+  // 計測の箱は「前の状態 → 今回の結果」と動く。前の状態が3フレーム以上
+  // 安定して映らなかった（今回の結果だけ読めた）場合、before は不明（null）とし、
+  // 一瞬だけのフレームから推測しない（D53）。
   const after = stable[stable.length - 1];
+  const before = stable.length >= 2 ? stable[0] : null;
 
-  const diff = (after.win + after.lose) - (before.win + before.lose);
-  if ((diff !== 0 && diff !== 1) || after.win < before.win || after.lose < before.lose) {
-    return {
-      state: 'unknown',
-      win: null,
-      lose: null,
-      before: { win: before.win, lose: before.lose },
-      after: { win: after.win, lose: after.lose },
-      frames: reads.length
-    };
+  if (before) {
+    const diff = (after.win + after.lose) - (before.win + before.lose);
+    if ((diff !== 0 && diff !== 1) || after.win < before.win || after.lose < before.lose) {
+      return {
+        state: 'unknown',
+        win: null,
+        lose: null,
+        before: { win: before.win, lose: before.lose },
+        after: { win: after.win, lose: after.lose },
+        frames: reads.length
+      };
+    }
   }
 
   const state = (after.win >= 3 || after.lose >= 3) ? 'finished' : 'in_progress';
@@ -302,7 +307,7 @@ export function finalizeSeries(reads) {
     state,
     win: after.win,
     lose: after.lose,
-    before: { win: before.win, lose: before.lose },
+    before: before ? { win: before.win, lose: before.lose } : null,
     frames: reads.length
   };
 }

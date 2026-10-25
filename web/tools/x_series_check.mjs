@@ -151,6 +151,27 @@ check(
   JSON.stringify(res_gap)
 );
 
+// 9. 前の状態が一瞬（2フレーム）しか映らず、結果だけ安定 → before は null（不明）、結果は採用
+const reads_flash = [
+  { t: 0.0, win: 1, lose: 1 },
+  { t: 0.2, win: 1, lose: 1 },
+  ...Array.from({ length: 6 }, (_, i) => ({ t: 0.4 + i * 0.2, win: 2, lose: 1 }))
+];
+const res_flash = finalizeSeries(reads_flash);
+check(
+  'finalizeSeries: before only 2 frames -> before null, in_progress 2-1',
+  res_flash && res_flash.state === 'in_progress' && res_flash.win === 2 && res_flash.lose === 1 && res_flash.before === null,
+  JSON.stringify(res_flash)
+);
+
+// 10. 結果だけ安定 3-0 → finished、before null
+const res_only30 = finalizeSeries(Array.from({ length: 5 }, (_, i) => ({ t: i * 0.2, win: 3, lose: 0 })));
+check(
+  'finalizeSeries: only 3-0 stable -> finished, before null',
+  res_only30 && res_only30.state === 'finished' && res_only30.win === 3 && res_only30.before === null,
+  JSON.stringify(res_only30)
+);
+
 // --- powerForSeries ---
 // 1. bankara_open -> not_applicable (no reason)
 const ps_open = powerForSeries('bankara_open', { state: 'in_progress' }, null);
@@ -344,8 +365,10 @@ if (!pureOnly) {
         xSeries?.state === 'in_progress' &&
         xSeries?.win === target.truth.win &&
         xSeries?.lose === target.truth.lose &&
-        xSeries?.before?.win === target.truth.beforeWin &&
-        xSeries?.before?.lose === target.truth.beforeLose &&
+        // before は参考値：読めた場合だけ正解と一致すること。読めなければ null（不明）でよい（D53）
+        (xSeries?.before === null ||
+          (xSeries?.before?.win === target.truth.beforeWin &&
+            xSeries?.before?.lose === target.truth.beforeLose)) &&
         power?.status === 'not_shown' &&
         power?.reason === 'series_in_progress' &&
         power?.value === null;
