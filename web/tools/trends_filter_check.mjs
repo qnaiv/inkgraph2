@@ -145,7 +145,7 @@ console.log('--- Pure Function Tests ---');
   ];
   const pb = powerBreakdown(powerMatches);
   check('pure: powerBreakdown counts match spec',
-    pb.acquired === 1 && pb.notApplicable === 3 && pb.notAcquired === 4 && pb.excluded === 7,
+    pb.acquired === 1 && pb.notApplicable === 3 && pb.notShown === 1 && pb.readFailed === 3 && pb.notAcquired === 4 && pb.excluded === 7,
     JSON.stringify(pb)
   );
 }
@@ -392,10 +392,11 @@ try {
   // パワー内訳 details の確認
   const breakdownSummary = await page.textContent('.trend-power-breakdown summary');
   const breakdownDiv = await page.textContent('.trend-power-breakdown div');
-  check('browser: power breakdown details has correct labels and counts (9 notApplicable, 3 notAcquired)',
-    breakdownSummary.includes('パワーの対象外・未取得の内訳') &&
+  check('browser: power breakdown details has correct labels and counts (9 notApplicable, 3 notShown, 0 readFailed)',
+    breakdownSummary.includes('パワーの対象外・表示なしの内訳') &&
     breakdownDiv.includes('対象外（ナワバリバトルなど）9件') &&
-    breakdownDiv.includes('未取得（取得できなかった試合）3件'),
+    breakdownDiv.includes('表示なし（計測が終わっていないXマッチ）3件') &&
+    breakdownDiv.includes('読めず 0件'),
     breakdownDiv
   );
 

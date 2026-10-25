@@ -15,19 +15,23 @@ export const MATCH_TYPE_LABEL = {
 export const POWER_STATUS_LABEL = {
   acquired: '取得済み',
   not_applicable: '対象外',
-  not_shown: '未表示',
-  read_failed: '読取失敗',
+  not_shown: '表示なし',
+  read_failed: '読めず',
   unknown_type: 'タイプ不明'
 };
 
 export function powerOf(m) {
   if (!m) return powerForMatchType(null);
   if (m.power && typeof m.power.status === 'string') {
-    return {
+    const res = {
       value: m.power.value ?? null,
       status: m.power.status,
       confidence: m.power.confidence ?? 0
     };
+    if (m.power.reason !== undefined) {
+      res.reason = m.power.reason;
+    }
+    return res;
   }
   const mt = (m.review && m.review.fix && m.review.fix.match_type) ?? m.match_type ?? (m.result_screen && m.result_screen.match_type) ?? null;
   return powerForMatchType(mt);
@@ -275,27 +279,63 @@ export function sampleTier(n) {
 
 export function powerBreakdown(matches) {
   if (!Array.isArray(matches)) {
-    return { acquired: 0, notApplicable: 0, notAcquired: 0, excluded: 0 };
+    return { acquired: 0, notApplicable: 0, notShown: 0, readFailed: 0, notAcquired: 0, excluded: 0 };
   }
   let acquired = 0;
   let notApplicable = 0;
-  let notAcquired = 0;
+  let notShown = 0;
+  let readFailed = 0;
   for (const m of matches) {
     const p = powerOf(m);
     if (p.status === 'acquired' && p.value != null) {
       acquired++;
     } else if (p.status === 'not_applicable') {
       notApplicable++;
+    } else if (p.status === 'not_shown') {
+      notShown++;
     } else {
-      notAcquired++;
+      readFailed++;
     }
   }
+  const notAcquired = notShown + readFailed;
   return {
     acquired,
     notApplicable,
+    notShown,
+    readFailed,
     notAcquired,
     excluded: notApplicable + notAcquired
   };
+}
+
+/**
+ * Detailed note for power status in match detail view (D53).
+ * Examples:
+ * - not_shown + series_in_progress (+ x_series) -> '計測中 2勝1敗' (or '計測中' without win/lose)
+ * - not_shown + series_unknown -> '計測の進み不明'
+ * - read_failed + series_finished (+ x_series) -> '計測終了 3勝1敗・画面から読めず' (or '計測終了・画面から読めず')
+ * - otherwise -> ''
+ */
+export function powerDetailText(m) {
+  if (!m) return '';
+  const p = powerOf(m);
+  const xs = m.x_series;
+  const hasRecord = xs != null && typeof xs.win === 'number' && typeof xs.lose === 'number';
+  const recordStr = hasRecord ? `${xs.win}勝${xs.lose}敗` : '';
+
+  if (p.status === 'not_shown') {
+    if (p.reason === 'series_in_progress') {
+      return recordStr ? `計測中 ${recordStr}` : '計測中';
+    }
+    if (p.reason === 'series_unknown') {
+      return '計測の進み不明';
+    }
+  } else if (p.status === 'read_failed') {
+    if (p.reason === 'series_finished') {
+      return recordStr ? `計測終了 ${recordStr}・画面から読めず` : '計測終了・画面から読めず';
+    }
+  }
+  return '';
 }
 
 export function stageRuleRows(matches) {

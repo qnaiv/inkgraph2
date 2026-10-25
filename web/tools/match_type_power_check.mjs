@@ -6,10 +6,13 @@ import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { finalizeResult, powerForMatchType } from '../src/core/result.js';
+import { powerDetailText } from '../src/analysis.js';
 
 const WEB_DIR = path.resolve(import.meta.dirname, '..');
 const SH = path.resolve(WEB_DIR, '../docs/screenshots/match-type-power');
 fs.mkdirSync(SH, { recursive: true });
+const XP_SH = path.resolve(WEB_DIR, '../docs/screenshots/x_power');
+fs.mkdirSync(XP_SH, { recursive: true });
 
 const results = [];
 const check = (name, ok, info = '') => {
@@ -97,6 +100,57 @@ check(
   `result=${res_legacy.result}, mode=${res_legacy.mode}, stage=${res_legacy.stage}`
 );
 
+// (e) powerDetailText (D53)
+check(
+  'pure: (e1) powerDetailText not_shown + series_in_progress with x_series -> "計測中 2勝1敗"',
+  powerDetailText({
+    match_type: 'x',
+    power: { status: 'not_shown', reason: 'series_in_progress', value: null },
+    x_series: { state: 'in_progress', win: 2, lose: 1 }
+  }) === '計測中 2勝1敗'
+);
+check(
+  'pure: (e2) powerDetailText not_shown + series_in_progress without win/lose -> "計測中"',
+  powerDetailText({
+    match_type: 'x',
+    power: { status: 'not_shown', reason: 'series_in_progress', value: null }
+  }) === '計測中'
+);
+check(
+  'pure: (e3) powerDetailText not_shown + series_unknown -> "計測の進み不明"',
+  powerDetailText({
+    match_type: 'x',
+    power: { status: 'not_shown', reason: 'series_unknown', value: null }
+  }) === '計測の進み不明'
+);
+check(
+  'pure: (e4) powerDetailText read_failed + series_finished with x_series -> "計測終了 3勝1敗・画面から読めず"',
+  powerDetailText({
+    match_type: 'x',
+    power: { status: 'read_failed', reason: 'series_finished', value: null },
+    x_series: { state: 'finished', win: 3, lose: 1 }
+  }) === '計測終了 3勝1敗・画面から読めず'
+);
+check(
+  'pure: (e5) powerDetailText read_failed + series_finished without win/lose -> "計測終了・画面から読めず"',
+  powerDetailText({
+    match_type: 'x',
+    power: { status: 'read_failed', reason: 'series_finished', value: null }
+  }) === '計測終了・画面から読めず'
+);
+check(
+  'pure: (e6) powerDetailText other status/reason -> ""',
+  powerDetailText({
+    match_type: 'x',
+    power: { status: 'acquired', reason: 'series_finished', value: 2150 }
+  }) === '' &&
+  powerDetailText({
+    match_type: 'bankara_open',
+    power: { status: 'not_applicable', value: null }
+  }) === '' &&
+  powerDetailText(null) === ''
+);
+
 // ---------------------------------------------------------------------------
 // 2. Browser tests via Playwright
 // ---------------------------------------------------------------------------
@@ -116,7 +170,7 @@ const browser = await chromium.launch({
 });
 
 let page = null;
-const testIds = ['mt-test-legacy', 'mt-test-bankara', 'mt-test-x'];
+const testIds = ['mt-test-legacy', 'mt-test-bankara', 'mt-test-x', 'mt-test-x-progress'];
 
 const cleanup = async () => {
   if (page) {
@@ -210,6 +264,28 @@ try {
       favorite: false,
       video: { kind: 'none' }
     });
+
+    // 4) X match with series progress (D53): not_shown + series_in_progress
+    await db.putMatch({
+      id: 'mt-test-x-progress',
+      match: 4,
+      created: new Date(baseTime + 180000).toISOString(),
+      battle: [0, 300],
+      squid_down: {},
+      own_deaths: [{ start: 10, end: 15 }],
+      own_kills: [{ start: 20, end: 21 }],
+      special: [],
+      tower_series: [{ t: 0, own: 0, enemy: 0, owner: 'neutral' }, { t: 300, own: 30, enemy: 80, owner: 'neutral' }],
+      result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'ヤガラ市場', own: { ka: 5, deaths: 2, specials: 1 } },
+      match_type: 'x',
+      power: { value: null, status: 'not_shown', reason: 'series_in_progress', confidence: 0 },
+      x_series: { state: 'in_progress', win: 2, lose: 1 },
+      review: { marks: {}, added: [], fix: {} },
+      stills: { count: 0, bytes: 0 },
+      stillsState: 'none',
+      favorite: false,
+      video: { kind: 'none' }
+    });
   });
 
   // Verify list page loads properly
@@ -251,10 +327,27 @@ try {
   const xMatchType = (await page.textContent('#match-type')).trim();
   const xPowerStatus = (await page.textContent('#power-status')).trim();
   check(
-    'browser: x match detail shows "Xマッチ" / "未表示"',
-    xMatchType === 'Xマッチ' && xPowerStatus === '未表示',
+    'browser: x match detail shows "Xマッチ" / "表示なし"',
+    xMatchType === 'Xマッチ' && xPowerStatus === '表示なし',
     `type="${xMatchType}", power="${xPowerStatus}"`
   );
+
+  // Verify match detail: x match with series progress (D53)
+  await page.goto(U + '#match/' + encodeURIComponent('mt-test-x-progress'));
+  await page.waitForSelector('#match-type');
+  await page.waitForSelector('#power-note');
+  const xProgStatus = (await page.textContent('#power-status')).trim();
+  const xProgNote = (await page.textContent('#power-note')).trim();
+  check(
+    'browser: x match with series in progress shows "表示なし" and "（計測中 2勝1敗）"',
+    xProgStatus === '表示なし' && xProgNote === '（計測中 2勝1敗）',
+    `power="${xProgStatus}", note="${xProgNote}"`
+  );
+
+  // Take screenshot of x match with series in progress
+  const xssPath = path.join(XP_SH, '03_detail_not_shown.png');
+  await page.screenshot({ path: xssPath, fullPage: false });
+  check('browser: screenshot saved to ' + xssPath, fs.existsSync(xssPath));
 
   // Verify trend page opens cleanly
   await page.goto(U + '#trend');
