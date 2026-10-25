@@ -70,7 +70,7 @@ export class DeathLatch {
 
 export class Analyzer {
   constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); this.liveSp = new LiveSpecialTracker(); }
-  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, series: [], xp: [], lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
     this.lastT = t; const tp = C.timerPresent(this.A, fr);
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
@@ -81,7 +81,7 @@ export class Analyzer {
         if (m.b - m.a < P.battle_min) { this.liveSp.reset(); this.cur = null; this.state = 'idle'; this.onEvent({ type: 'battle_discard', t }); }
         else { this.state = 'result'; m.resultFrom = m.b; for (const e of this.liveSp.end(m.b)) this.onEvent(e); this.onEvent({ type: 'battle_end', t: m.b }); }
       } else { this.battleFrame(fr, t, tp);
-        if (tp) { if (m.RS.celebration.length + m.RS.personal.length + m.RS.board.length) m.RS = { celebration: [], personal: [], board: [] }; }
+        if (tp) { if (m.RS.celebration.length + m.RS.personal.length + m.RS.board.length) m.RS = { celebration: [], personal: [], board: [] }; m.series = []; m.xp = []; }
         else if (t - m.lastTp > 2) this.resultFrame(fr, t); }
     }
     if (this.state === 'result') { this.resultFrame(fr, t); const m = this.cur;
@@ -122,7 +122,10 @@ export class Analyzer {
     for (const [f, c, fr] of m.pend) this.iconStep(f, c, fr); m.pend = []; }
   iconStep(f, crops, fr) { const m = this.cur; f.p = crops.map((c, i) => C.iconProb(this.A, C.iconFeat(c, m.th[i >> 2]))); f.s = crops.map(c => C.iconSat(c)); if (fr) f.ally = C.allyPlateCrossed(fr, m.th[0]); }
   resultFrame(fr, t) {
-    const m = this.cur, c = R.classify(this.A, fr); if (!c) return; m.lastRes = t;
+    const m = this.cur;
+    const sb = R.readSeriesBox(fr); if (sb) m.series.push({ t, win: sb.win, lose: sb.lose });
+    const xp = R.readXPower(this.A, fr); if (xp) m.xp.push({ t, ...xp });
+    const c = R.classify(this.A, fr); if (!c) return; m.lastRes = t;
     if (c.kind === 'celebration') m.RS.celebration.push({ t, value: c.value });
     else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined, c.panel);
       const e = { t, header }; if (c.kind === 'personal') e.personal = R.readPersonal(this.A, fr, dx, dy); else e.board = R.readBoard(this.A, fr, dx, dy);
@@ -138,7 +141,8 @@ export class Analyzer {
     const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH);
     rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
     rec.match_type = rs.match_type ?? null;
-    rec.power = R.powerForMatchType(rec.match_type);
+    rec.x_series = rec.match_type === 'x' ? R.finalizeSeries(m.series) : null;
+    rec.power = R.powerForSeries(rec.match_type, rec.x_series, R.finalizeXPower(m.xp));
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
     const ownRow = rs.board ? rs.board.find(b => b.own) : null;
     rec.enemy_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === (ownRow.group === 'top' ? 'bot' : 'top')).map(b => ({ slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
