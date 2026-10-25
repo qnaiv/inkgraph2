@@ -2,7 +2,7 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, powerDetailText, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows } from './analysis.js';
 import { b64bytes } from './core/img.js';
 import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
@@ -1823,6 +1823,8 @@ PAGES.match = async () => {
   const rsStat = resultStatus(m);
   const matchTypeLabel = (r.match_type && MATCH_TYPE_LABEL[r.match_type]) || '不明';
   const powerStatusLabel = (r.power?.status && POWER_STATUS_LABEL[r.power.status]) || 'タイプ不明';
+  const detailNote = powerDetailText(m);
+  const powerNoteHtml = detailNote ? `<span class="muted" id="power-note">（${esc(detailNote)}）</span>` : '';
   const powerValueExtra = (r.power?.status === 'acquired' && r.power.value !== null && r.power.value !== undefined)
     ? ` <b class="num" id="power-value">${esc(r.power.value)}</b>`
     : '';
@@ -1856,7 +1858,7 @@ PAGES.match = async () => {
         <div class="detail-stage-info">
           <div class="detail-stage-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="result-status" data-status="${rsStat.key}">${esc(rsStat.label)}</span></div>
           <div class="match-type-line">
-            マッチタイプ <b id="match-type">${esc(matchTypeLabel)}</b> ・ パワー <b id="power-status">${esc(powerStatusLabel)}</b>${powerValueExtra}
+            マッチタイプ <b id="match-type">${esc(matchTypeLabel)}</b> ・ パワー <b id="power-status">${esc(powerStatusLabel)}</b>${powerNoteHtml}${powerValueExtra}
           </div>
           <div class="detail-count-line">
             <span>最終カウント <b class="num">${fmtCount(r.count)}</b></span>
@@ -2471,8 +2473,8 @@ PAGES.trend = async () => {
   const pb = powerBreakdown(filtered);
   const powerBreakdownHtml = pb.excluded > 0 ? `
     <details class="trend-power-breakdown">
-      <summary>パワーの対象外・未取得の内訳</summary>
-      <div>対象外（ナワバリバトルなど）${pb.notApplicable}件／未取得（取得できなかった試合）${pb.notAcquired}件</div>
+      <summary>パワーの対象外・表示なしの内訳</summary>
+      <div>対象外（ナワバリバトルなど）${pb.notApplicable}件／表示なし（計測が終わっていないXマッチ）${pb.notShown}件／読めず ${pb.readFailed}件</div>
     </details>
   ` : '';
 
@@ -2634,7 +2636,7 @@ PAGES.trend = async () => {
       <div class="card-title">Xパワーの推移</div>
       <div class="empty-state">
         <p style="font-weight:var(--fw-bold);font-size:var(--fs-md);margin-bottom:var(--sp-2)">Xパワーはまだ記録されていません</p>
-        <p class="muted">Xマッチの試合を記録すると、ここにパワーの推移が出ます</p>
+        <p class="muted">Xパワーは計測（3勝か3敗）が終わった試合だけ記録します。計測の途中の試合は表示なしです</p>
       </div>
     </div>
   ` : '';
