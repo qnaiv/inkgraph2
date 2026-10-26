@@ -114,8 +114,20 @@ export function frameStepForState(state, base = 0.2) {
 export function resultOf(m) { const rs = (m && m.result_screen) || {}, f = ((m && m.review) || {}).fix || {}; const own = rs.own || {};
   const match_type = f.match_type ?? (m && m.match_type) ?? rs.match_type ?? null;
   return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m), result_source: resultSourceLabel(m), match_type, power: powerOf(m) }; }
+/** D57: 結果画面の K+A（キル＋アシスト）と、検出したキル（アシストは画面に出ないので含まない）から、アシストの推定を出す。
+ *  ka が読めていなければ null。キルの見逃しがあると、その分もアシストに数えられる（推定は「K+A − 検出したキル」の上限側）。 */
+export function assistEstimate(ka, kills) {
+  if (!Number.isInteger(ka) || ka < 0 || !Number.isInteger(kills)) return null;
+  if (kills > ka) return { ka, kills, assists: 0, over: kills - ka };
+  return { ka, kills, assists: ka - kills, over: 0 };
+}
+export function assistText(est) {
+  if (!est) return '';
+  return est.over ? `K+A ${est.ka}（検出キルが ${est.over} 多い：誤検出の可能性）` : `K+A ${est.ka}（アシスト推定 ${est.assists}）`;
+}
+export const ASSIST_NOTE = 'キル通知にアシストは出ないので、検出したキルは K+A より少なくなります。推定アシスト＝K+A−検出キルで、キルの見逃しがあるとその分もアシストに数えられます。';
 export function finalCount(m) { const s = m.tower_series; if (!s || !s.length) return null; const l = s[s.length - 1]; return `${l.own}-${l.enemy}`; }
-export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
+export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', ka: 'キル+アシスト', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
 /** accuracy from review marks. per kind: tp=✓, fp=✗, fn=added. result fields: rmarks ok/wrong */
 export function accuracy(ms) { const A = {}; for (const k of Object.keys(KINDS)) A[k] = { tp: 0, fp: 0, fn: 0, unreviewed: 0 };
   const RF = {}; for (const k of Object.keys(RESULT_FIELDS)) RF[k] = { ok: 0, wrong: 0 };

@@ -269,7 +269,7 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   for (const c of [...deathCands].sort((x, y) => y.conf - x.conf)) if (fusedAccept({ conf: c.conf, signals: c.sigs }) && !near(c, ev.L0)) ev.L0.push({ start: c.start, end: c.end, src: c.src, conf: c.conf, sigs: c.sigs, auto: 'fused' });
   ev.L0.sort((x, y) => x.start - y.start);
   deathCands = deathCands.filter(c => !near(c, ev.L0));
-  const deathRecon = reconcileDeaths(ev.L0, ctx.own, ctx.frames, deathCands);
+  const deathRecon = reconcileDeaths(ev.L0, ctx.own, ctx.frames, deathCands, ctx.lim);
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
   const hidden = runs(t, ok.map(v => !v), 1.0, 0.6), maps = runs(t, mp, 0.4, 1.0);
   const owndead = t.map(x => ev.L0.some(e => x >= e.start && x <= e.end));
@@ -299,7 +299,7 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
-  const rest = reconcileCounts(rec, { own: ctx.own, frames: ctx.frames, spCands, drainAt, skipDeaths: true });
+  const rest = reconcileCounts(rec, { own: ctx.own, frames: ctx.frames, spCands, drainAt, skipDeaths: true, lim: ctx.lim });
   rec.recon = ctx.own ? { applied: deathRecon.applied.concat(rest.applied), summary: { ...deathRecon.summary, ...rest.summary } } : null;
   for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
   attachKillers(rec.own_deaths, m.kscan || []);
