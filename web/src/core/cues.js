@@ -3,9 +3,12 @@ import { crop, sub, gray, bin, hsv, hueDist, nccBin, resizeCropArea, resizeArea,
 const regBin = (fr, x0, y0, x1, y1, th) => { const c = crop(fr, x0, y0, x1, y1); return { c, b: bin(gray(c), th) }; };
 export function timerPresent(A, fr) { const { c, b } = regBin(fr, 614, 28, 648, 72, 180); return nccBin(b, c.w, c.h, A.tpl.tpl_colon, 0.6).score > 0.6; }
 export function mapOpen(A, fr) { const { c, b } = regBin(fr, 15, 10, 130, 125, 200); return nccBin(b, c.w, c.h, A.tpl.tpl_mapx, 0.6).score > 0.6; }
+// soft: 「やられた」らしさ（y が弱くても「カモン」より強ければ y、それ以外は 0）。採用の判定（dead）は従来どおり y>0.5、soft は自動補正の候補探し用（D52）
 export function ownDeadSignal(A, fr) { const { c, b } = regBin(fr, 15, 590, 100, 624, 215);
-  const y = nccBin(b, c.w, c.h, A.tpl.tpl_signal_yarareta).score; if (y <= 0.5) return { dead: false, y };
-  const k = nccBin(b, c.w, c.h, A.tpl.tpl_signal_camon).score; return { dead: y > k, y }; }
+  const y = nccBin(b, c.w, c.h, A.tpl.tpl_signal_yarareta).score; if (y <= SOFT_DEAD_MIN) return { dead: false, y, soft: 0 };
+  const k = nccBin(b, c.w, c.h, A.tpl.tpl_signal_camon).score; const soft = y > k ? y : 0;
+  return { dead: y > 0.5 && y > k, y, soft }; }
+export const SOFT_DEAD_MIN = 0.3;
 export function killNoticeSlotScores(A, fr) {
   const scores = [];
   for (let k = 0; ; k++) {

@@ -347,6 +347,8 @@ try {
   });
   check('rollback removes active pack', packAfterRollback === null);
 
+  // DB が戻った直後は一覧の再描画前の古い DOM を読むことがある（既存のレース）ので、パネルが再描画されるのを待つ
+  await page.waitForFunction(() => { const el = document.querySelector('#learn-panel'); return el && el.textContent.includes('未適用（既定値）'); }, null, { timeout: 5000 }).catch(() => {});
   const panelAfterRollback = await page.$eval('#learn-panel', el => el.textContent);
   check('panel after rollback shows default status without active badge',
     panelAfterRollback.includes('未適用（既定値）') && await page.$('#learn-rollback') === null);

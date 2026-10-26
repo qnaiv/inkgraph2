@@ -919,6 +919,15 @@ button, input, select {
   font-weight: var(--fw-bold);
 }
 
+.kda-auto {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+
 .match-row-col-prog {
   display: flex;
   align-items: center;

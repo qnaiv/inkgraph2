@@ -14,6 +14,8 @@ import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } fr
 import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
 import { CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
+import * as DP from './detect_params.js';
+import { TUNABLE } from './core/tuning.js';
 
 const app = document.getElementById('app');
 const liveSlot = document.createElement('div');
@@ -981,6 +983,7 @@ PAGES.list = async () => {
     ` : ''}
 
     <section id="learn-panel" class="card learn-panel"></section>
+    <section id="tune-panel" class="card learn-panel"></section>
 
     ${!hasMatches ? `
       <div class="card">
@@ -1060,6 +1063,7 @@ PAGES.list = async () => {
                   <span class="kda-item"><span class="kda-label">スペシャル発動</span><span class="kda-val num ${spMismatch ? 'mismatch-val' : ''}" ${spMismatch ? `title="リザルト画面ではスペシャル発動${esc(r.specials)}"` : ''}>${spCnt}</span></span>
                 </div>
                 ${showResultDiff ? `<span class="kda-mismatch" title="${esc(diffTip)}">リザルト画面では${diffParts.join('・')}</span>` : ''}
+                ${(m.recon && m.recon.applied && m.recon.applied.length) ? `<span class="kda-auto" title="${esc(m.recon.applied.map(a => `${KINDS[a.kind] || a.kind} ${a.action === 'added' ? '追加' : a.action === 'promoted' ? '発動に変更' : '削除'} ${mss(a.t - ((m.battle && m.battle[0]) || 0))}`).join('、'))}">リザルト画面に合わせて自動補正 ${m.recon.applied.length}件</span>` : ''}
               </div>
 
               <div class="match-row-col-prog">
@@ -1598,6 +1602,47 @@ PAGES.list = async () => {
   };
 
   await updateLearnPanel();
+
+  // D54: 検出の自動調整パネル（結果画面の数を正解にして、検出のしきい値を端末内で探す）
+  let tuneCand = null, tuneBusy = null;
+  const updateTunePanel = async () => {
+    const el = $('#tune-panel', page); if (!el) return;
+    const st = DP.loadState(), active = st.params, cur = active || DP.defaults();
+    const items = await DP.collectItems().catch(() => []);
+    const fmt = v => (typeof v === 'number' ? String(v) : '-');
+    const lbl = k => (TUNABLE.find(d => d.key === k) || {}).label || k;
+    const cand = tuneCand;
+    const candHtml = tuneBusy ? `<p class="muted">調整中… <span id="tune-progress">${esc(tuneBusy)}</span></p>` : !cand ? '' : cand.reason === 'few' ? `<p class="muted">対象の試合が足りません（${cand.have}／${cand.need} 試合）。結果画面を読めた試合が増えると調整できます。</p>`
+      : `<div class="learn-result"><p><strong>${cand.ok ? '候補が見つかりました' : '今回は適用しません'}</strong>${cand.ok ? '' : `（${esc({ nochange: '今の値より良い値がありませんでした', smallgain: '改善が小さすぎます', holdout: '取り置いた試合で悪化しました' }[cand.reason] || '')}）`}</p>
+        <table class="table"><tbody>
+          <tr><th>学習した試合（${cand.train.n}）の件数の誤差</th><td class="num">${cand.train.before} → ${cand.train.after}</td></tr>
+          <tr><th>取り置いた試合（${cand.holdout.n}）の件数の誤差</th><td class="num">${cand.holdout.before} → ${cand.holdout.after}</td></tr>
+          ${cand.changes.map(c => `<tr><th>${esc(c.label)}</th><td class="num">${fmt(c.from)} → ${fmt(c.to)}</td></tr>`).join('')}
+        </tbody></table>
+        ${cand.ok ? '<div class="learn-actions-row"><button class="btn btn-primary" id="tune-apply" type="button">この候補を端末内に適用</button></div>' : ''}</div>`;
+    const hist = (st.history || []).slice(-3).reverse().map(h => `<li class="muted">${esc(new Date(h.at).toLocaleString('ja-JP'))} ${h.auto ? '自動で適用' : h.note || '適用'}${h.changes ? `（${esc(h.changes.map(c => `${c.key} ${c.from}→${c.to}`).join('、'))}）` : ''}</li>`).join('');
+    el.innerHTML = `
+      <div class="learn-panel-header"><div class="learn-panel-title-wrap"><h2 class="learn-panel-title">検出の自動調整</h2>
+        <span class="learn-badge ${active ? 'badge-active' : 'badge-neutral'}">${active ? '調整適用中' : '既定値'}</span></div></div>
+      <div class="learn-panel-body">
+        <p class="muted">結果画面のデス数・スペシャル回数・K+A を正解にして、保存した試合の信号から検出をやり直し、件数のずれが減るしきい値を探します（手動のラベルは要りません。外部送信なし）。対象: <strong class="num">${items.length}</strong> 試合。</p>
+        <table class="table"><tbody>${TUNABLE.map(d => `<tr><th>${esc(d.label)}</th><td class="num">${fmt(cur[d.key])}</td></tr>`).join('')}</tbody></table>
+        <div class="learn-actions-row">
+          <button class="btn btn-primary" id="tune-run" type="button" ${tuneBusy ? 'disabled' : ''}>今すぐ調整する</button>
+          <button class="btn" id="tune-rollback" type="button" ${(st.history || []).length ? '' : 'disabled'}>ひとつ前に戻す</button>
+          <button class="btn" id="tune-reset" type="button" ${active ? '' : 'disabled'}>既定値に戻す</button>
+          <label class="muted"><input type="checkbox" id="tune-auto" ${DP.autoEnabled() ? 'checked' : ''}> 解析が終わるたびに自動で調整する</label>
+        </div>
+        ${candHtml}
+        ${hist ? `<ul>${hist}</ul>` : ''}
+      </div>`;
+    $('#tune-run', el).onclick = async () => { tuneCand = null; tuneBusy = '準備中'; updateTunePanel(); tuneCand = await DP.makeCandidate({ onProgress: (i, n) => { const e = $('#tune-progress', page); if (e) e.textContent = `${Math.round(100 * i / n)}%`; } }).catch(e => ({ ok: false, reason: 'error', changes: [], train: { n: 0, before: 0, after: 0 }, holdout: { n: 0, before: 0, after: 0 }, err: String(e) })); tuneBusy = null; updateTunePanel(); };
+    const ap = $('#tune-apply', el); if (ap) ap.onclick = () => { DP.applyParams(cand.params, { changes: cand.changes, train: cand.train, holdout: cand.holdout }); tuneCand = null; updateTunePanel(); };
+    $('#tune-rollback', el).onclick = () => { DP.rollback(); tuneCand = null; updateTunePanel(); };
+    $('#tune-reset', el).onclick = () => { DP.reset(); tuneCand = null; updateTunePanel(); };
+    $('#tune-auto', el).onchange = e => DP.setAutoEnabled(e.target.checked);
+  };
+  await updateTunePanel();
 };
 
 // ============================================================================
@@ -2309,8 +2354,9 @@ PAGES.match = async () => {
             : e.kind === 'death'
               ? '<b style="color:var(--death)">×</b> '
               : '<b style="color:var(--special)">◆</b> ';
-          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '');
+          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '') + (e.src && e.src.auto ? (e.src.auto === 'fused' ? '（自動採用）' : '（自動補正）') : '');
           let extraBadge = '';
+          if (e.src && typeof e.src.conf === 'number' && e.src.conf < 0.45 && e.src.auto !== 'added') extraBadge += ' <span class="badge" title="検出の確信度が低いです（複数の信号が一致していません）" style="margin-left:4px;font-size:11px">確信度 低</span>';
           if (e.kind === 'death') {
             const isWasted = spInts.some(si => si.outcome === 'lost_on_death' && Math.abs(e.t - si.end) <= 1.0);
             if (isWasted) extraBadge = ' <span class="badge sp-wasted-badge" style="background:var(--special-wasted);color:var(--text);margin-left:4px;font-size:11px">スペシャル未使用</span>';
