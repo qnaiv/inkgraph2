@@ -53,7 +53,7 @@ try {
   const imgOk = await page.waitForFunction(() => { const i = document.querySelector('#still-img'); return i && i.style.display !== 'none' && i.naturalWidth > 0; }, null, { timeout: 5000 }).then(() => true, () => false);
   check('b) still image displayed', imgOk);
   check('b) stills summary in header', ((await page.locator('#stills-info').textContent().catch(() => '')) || '').includes('静止画 2枚・合計 4 KB（映像は保存されていません）'));
-  check('b) video element hidden', await page.locator('#rv').evaluate(v => getComputedStyle(v).display === 'none'));
+  check('b) 確認画面に動画の要素・録画ファイルを選ぶ入力が無い（D62）', (await page.locator('#rv').count()) === 0 && (await page.locator('#vf').count()) === 0);
   const rows = await page.$$eval('#etab tr.click', trs => trs.map(t => +t.dataset.t));
   const near = t => [T1, T2].reduce((a, b) => Math.abs(b - t) < Math.abs(a - t) ? b : a);
   const lo = Math.min(...rows), hi = Math.max(...rows);
