@@ -1670,9 +1670,11 @@ PAGES.list = async () => {
             <tr><th>アカウント</th><td>${esc(user.email || user.id)}</td></tr>
             <tr><th>最後の同期</th><td class="num">${esc(when(st.lastSync))}</td></tr>
             <tr><th>この端末の試合</th><td class="num">${ms.length} 件（うち、クラウドから取り込んだ閲覧用 ${remoteN} 件）</td></tr>
+            <tr><th>まだ送っていない試合</th><td class="num" id="cloud-pending">…</td></tr>
           </tbody></table>
           <div class="learn-actions-row">
             <button class="btn btn-primary" id="cloud-sync" type="button" ${cloudBusy ? 'disabled' : ''}>${cloudBusy ? '同期中…' : '今すぐ同期'}</button>
+            <button class="btn" id="cloud-resync" type="button" title="送信済みの印を消して、全部の試合をもう一度送ります（クラウドの試合が足りないとき）" ${cloudBusy ? 'disabled' : ''}>すべて送り直す</button>
             <button class="btn" id="cloud-out" type="button">ログアウト</button>
             <label class="muted"><input type="checkbox" id="cloud-auto" ${Cloud.autoEnabled() ? 'checked' : ''}> 保存・修正のたびに自動で同期する</label>
           </div>` : `
@@ -1692,6 +1694,8 @@ PAGES.list = async () => {
     const su = $('#cloud-signup', el); if (su) su.onclick = () => auth(Cloud.signUpPassword);
     for (const id of ['#cloud-id', '#cloud-pass']) { const i = $(id, el); if (i) i.onkeydown = e => { if (e.key === 'Enter') auth(Cloud.signInPassword); }; }
     const sy = $('#cloud-sync', el); if (sy) sy.onclick = async () => { cloudBusy = true; cloudMsg = ''; updateCloudPanel(); const r = await Cloud.syncNow(); cloudBusy = false; cloudMsg = r.ok ? `同期しました（取り込み ${r.pulled} 件・送信 ${r.pushed} 件${r.deleted || r.deletedSent ? `・削除 ${r.deleted + r.deletedSent} 件` : ''}）。` : (r.reason === 'busy' ? '同期中です。' : '同期できませんでした：' + (r.error || r.reason)); if (r.ok && (r.pulled || r.deleted)) PAGES.list(); else updateCloudPanel(); };
+    const rs = $('#cloud-resync', el); if (rs) rs.onclick = async () => { cloudBusy = true; cloudMsg = ''; updateCloudPanel(); const r = await Cloud.resyncAll(); cloudBusy = false; cloudMsg = r.ok ? `全部を送り直しました（取り込み ${r.pulled} 件・送信 ${r.pushed} 件）。` : '同期できませんでした：' + (r.error || r.reason); if (r.ok && (r.pulled || r.deleted)) PAGES.list(); else updateCloudPanel(); };
+    if (user) Cloud.pendingCount().then(n => { const e = $('#cloud-pending', el); if (e) e.textContent = `${n} 件`; }).catch(() => {});
     const so = $('#cloud-out', el); if (so) so.onclick = async () => { await Cloud.signOut(); cloudMsg = 'ログアウトしました（この端末の試合はそのまま残ります）。'; updateCloudPanel(); };
     const au = $('#cloud-auto', el); if (au) au.onchange = e => Cloud.setAuto(e.target.checked);
   };

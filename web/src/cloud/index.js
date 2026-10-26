@@ -15,7 +15,7 @@ export function getClient() {
   return client;
 }
 const getSync = () => sync || (sync = createSync(getClient(), { allMatches: db.allMatches, getMatch: db.getMatch, putMatch: db.putMatch, delMatch: db.delMatch, pendingDeletes: db.pendingDeletes, clearPendingDeletes: db.clearPendingDeletes, loadState, saveState,
-  getDetectParams: () => DP.activeParams(), setDetectParams: p => DP.applyParams(p, { note: 'クラウドから取り込み' }) }));
+  backendKey: SUPABASE_URL, getDetectParams: () => DP.activeParams(), setDetectParams: p => DP.applyParams(p, { note: 'クラウドから取り込み' }) }));
 export const onChange = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 const emit = r => listeners.forEach(f => { try { f(r); } catch { /* ignore */ } });
 export async function getUser() { const { data: { session } } = await getClient().auth.getSession(); return session ? session.user : null; }
@@ -37,6 +37,8 @@ export async function signInPassword(id, password) {
   emit({ signedIn: true }); return { ok: true };
 }
 export async function signOut() { await getClient().auth.signOut(); emit({ signedOut: true }); }
+export async function resyncAll() { if (running) return { ok: false, reason: 'busy' }; running = true; try { const r = await getSync().resyncAll(); emit(r); return r; } finally { running = false; } }
+export const pendingCount = () => getSync().pendingCount();
 export async function syncNow() { if (running) return { ok: false, reason: 'busy' }; running = true; try { const r = await getSync().syncOnce(); emit(r); return r; } finally { running = false; } }
 function schedule(ms = 8000) { if (!autoEnabled()) return; clearTimeout(timer); timer = setTimeout(async () => { if (navigator.onLine !== false && await getUser().catch(() => null)) syncNow(); }, ms); }
 /** アプリの起動時に 1 回呼ぶ。保存・復帰・オンラインの各きっかけで、少し待ってから同期する */

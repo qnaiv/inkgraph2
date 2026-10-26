@@ -5,7 +5,13 @@ const TABLE = 'inkgraph_matches', SETTINGS = 'inkgraph_settings', PAGE = 200, CH
 
 /** client: Supabase クライアント、deps: 端末側の読み書き（テストで差し替えられる） */
 export function createSync(client, deps) {
-  const { allMatches, getMatch, putMatch, delMatch, pendingDeletes, clearPendingDeletes, loadState, saveState, getDetectParams, setDetectParams } = deps;
+  const { allMatches, getMatch, putMatch, delMatch, pendingDeletes, clearPendingDeletes, loadState, saveState, getDetectParams, setDetectParams, backendKey = 'default' } = deps;
+
+  /** 送信済みの印（synced）と取り込みの位置（lastPull）を消す。送り先（プロジェクト）やアカウントが変わったときに、全部を送り直すため（D63） */
+  async function resetMarks(st) {
+    for (const m of await allMatches()) if (m.synced) { const cur = await getMatch(m.id); if (cur) { delete cur.synced; await putMatch(cur, { keepUpdated: true }); } }
+    st.lastPull = null;
+  }
 
   async function pull(userId, st) {
     let from = st.lastPull || null, pulled = 0, deleted = 0, maxAt = from;
@@ -52,6 +58,9 @@ export function createSync(client, deps) {
     const { data: { session } } = await client.auth.getSession(); if (!session) return { ok: false, reason: 'signed-out' };
     const userId = session.user.id, st = loadState(); const out = { ok: true };
     try {
+      // 前回の同期の相手（プロジェクト・アカウント）と違えば、前の相手に送った印は無効。全部を未送信に戻して、新しい相手へ送り直す
+      const key = `${backendKey}|${userId}`;
+      if (st.backend !== key) { await resetMarks(st); st.backend = key; out.reset = true; }
       Object.assign(out, await pull(userId, st));
       Object.assign(out, await push(userId));
       out.settings = await settings(userId);
@@ -59,5 +68,8 @@ export function createSync(client, deps) {
     } catch (e) { st.lastError = String(e && e.message || e); saveState(st); return { ok: false, reason: 'error', error: st.lastError }; }
     return out;
   }
-  return { syncOnce, pull, push, isSyncable };
+  /** 全部を送り直す（印を消して同期する）。手動の「すべて送り直す」用 */
+  async function resyncAll() { const st = loadState(); await resetMarks(st); st.backend = null; saveState(st); return syncOnce(); }
+  async function pendingCount() { return (await allMatches()).filter(isDirty).length; }
+  return { syncOnce, resyncAll, pendingCount, pull, push, isSyncable };
 }

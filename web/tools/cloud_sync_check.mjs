@@ -89,4 +89,20 @@ console.log('--- 設定（検出の自動調整） ---');
   await createSync(c.client, A).syncOnce(); await createSync(c.client, B).syncOnce();
   check(JSON.stringify(B.getDetectParams()) === '{"sig_th":0.4}', '(17) 検出の自動調整の値が別の端末に届く（持っていない端末だけ）');
 }
+console.log('--- 送り先（プロジェクト）が変わったとき（D63） ---');
+{
+  // PC は、前の送り先（旧プロジェクト）に 3 試合を送って、印（synced）が付いている。新しい送り先は空
+  const pcB = fakeDevice('pcB'); pcB.backendKey = 'old-project'; for (const id of ['n#1', 'n#2', 'n#3']) await pcB.putMatch(mk(id));
+  const oldCloud = fakeCloud(); const r0 = await createSync(oldCloud.client, pcB).syncOnce();
+  check(r0.ok && r0.pushed === 3 && [...pcB.ms.values()].every(m => m.synced), '(18) 前の送り先には送れて、印が付く', JSON.stringify(r0));
+  const newCloud = fakeCloud(); pcB.backendKey = 'new-project';
+  const r1 = await createSync(newCloud.client, pcB).syncOnce();
+  check(r1.ok && r1.reset === true && r1.pushed === 3 && newCloud.rows.size === 3, '(19) 送り先が変わったら、印を消して全部を新しい送り先へ送り直す（以前は 0 件のままだった）', JSON.stringify(r1));
+  const r2 = await createSync(newCloud.client, pcB).syncOnce();
+  check(r2.ok && !r2.reset && r2.pushed === 0, '(20) 同じ送り先なら、次からは何も送り直さない', JSON.stringify(r2));
+  // 同じ送り先でもアカウントが変われば送り直す／「すべて送り直す」
+  const c3 = fakeCloud(); const s3 = createSync(c3.client, pcB); const r3 = await s3.resyncAll();
+  check(r3.ok && r3.pushed === 3 && c3.rows.size === 3, '(21)「すべて送り直す」で、空のクラウドにも全部が届く', JSON.stringify(r3));
+  check((await createSync(c3.client, pcB).pendingCount()) === 0, '(22) 送り終えたら「まだ送っていない試合」は 0 件');
+}
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS'); process.exit(fails ? 1 : 0);
