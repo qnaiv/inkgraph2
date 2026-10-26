@@ -148,9 +148,9 @@ try {
   await page.waitForTimeout(500);
   const matchFramesBefore = await page.evaluate(() => window.inkgraph.getSession()?.stats?.frames);
   const matchPaused = await page.evaluate(() => document.getElementById('v')?.paused);
-  const reviewVideoExists = await page.evaluate(() => !!document.getElementById('rv'));
+  const reviewVideoExists = await page.evaluate(() => !document.getElementById('rv')); // D62: 確認画面の動画の要素は無くなった（ライブの #v だけ）
   check('Match detail page: video remains playing (paused === false)', matchPaused === false);
-  check('Match detail page: review video #rv coexists with hidden live video #v', reviewVideoExists);
+  check('Match detail page: no review video #rv (D62); live video #v keeps playing', reviewVideoExists);
 
   await page.waitForTimeout(1500);
   const matchFramesAfter = await page.evaluate(() => window.inkgraph.getSession()?.stats?.frames);

@@ -13,7 +13,7 @@ import * as BK from './backup.js';
 import * as CP from './capacity.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
 import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
-import { CLIP_KIND_JA, clipAt } from './clips.js';
+import { CLIP, CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
 import * as DP from './detect_params.js';
 import * as Cloud from './cloud/index.js';
@@ -1889,26 +1889,6 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
 }
 
 
-async function grabFrames(video, times, reason, matchId, event) {
-  if (!video.src || !video.duration) return 0;
-  const c = document.createElement('canvas');
-  c.width = 1280;
-  c.height = 720;
-  const ctx = c.getContext('2d');
-  const back = video.currentTime;
-  let n = 0;
-  for (const t of times) {
-    if (t < 0 || t > video.duration) continue;
-    await new Promise(r => { video.addEventListener('seeked', r, { once: true }); video.currentTime = t; });
-    ctx.drawImage(video, 0, 0, 1280, 720);
-    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
-    await db.putSnap({ matchId, t, reason, kind: 'event', event, blob });
-    n++;
-  }
-  video.currentTime = back;
-  return n;
-}
-
 // ============================================================================
 // 3. 試合の詳細・確認
 // ============================================================================
@@ -2028,16 +2008,11 @@ PAGES.match = async () => {
           <div class="review-video-wrap" style="position:relative">
             <img id="still-img" alt="確認用の静止画" style="width:100%;height:100%;object-fit:contain;display:none">
             <div id="still-empty" class="muted" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:12px">静止画なし（この試合では静止画が保存されていません）</div>
-            <video id="rv" controls muted style="display:none"></video>
           </div>
           <div id="still-cap" class="muted" style="margin-top:8px;min-height:1.4em"></div>
           <div id="clip-box" class="clip-box"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px">
-            <span id="vstat" class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-            <label class="btn btn-sm">録画ファイルを選ぶ<input type="file" id="vf" accept="video/*" hidden></label>
-          </div>
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-            <div class="review-section-title">見逃しを追加（いまの再生位置）</div>
+            <div class="review-section-title">見逃しを追加（いま見ている時刻）</div>
             <div style="display:flex;gap:8px">
               <button class="btn btn-sm add" data-k="kill" type="button">＋ キル</button>
               <button class="btn btn-sm add" data-k="death" type="button">＋ デス</button>
@@ -2073,16 +2048,8 @@ PAGES.match = async () => {
     drawTL();
   };
 
-  const video = $('#rv', page);
-  let offset = 0;
   let lastSeekTime = m.battle[0] + 45;
   let tlEl = null;
-
-  const updatePlayhead = () => {
-    if (tlEl && video.src) tlEl.setPlayhead(video.currentTime + offset);
-  };
-  video.addEventListener('timeupdate', updatePlayhead);
-  video.addEventListener('seeked', updatePlayhead);
 
   const stills = (await db.snapsOf(m.id)).filter(s => s.kind !== 'clip').sort((a, b) => a.t - b.t);
   const clips = await db.clipsOf(m.id);
@@ -2129,7 +2096,6 @@ PAGES.match = async () => {
   const showClipFrame = (c, frameIdx) => {
     if (!c || !c.frames || frameIdx < 0 || frameIdx >= c.frames.length) return;
     const f = c.frames[frameIdx];
-    if (video.src && video.style.display !== 'none') return;
     if (clipUrl) URL.revokeObjectURL(clipUrl);
     if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
     clipUrl = URL.createObjectURL(f.blob);
@@ -2146,9 +2112,20 @@ PAGES.match = async () => {
     if (statEl) {
       statEl.textContent = `${frameIdx + 1}/${c.frames.length}枚 · ${mss1(f.t)}`;
     }
+    lastSeekTime = f.t; // 「見逃しを追加」は、いま見ているコマの時刻に付く
     if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(f.t);
   };
 
+  // 再生は、クリップのコマ間隔（0.2 秒＝5fps）のとおりの等倍が既定。速度は「等倍／1/2／1/4」から選ぶ
+  let clipSpeed = 1;
+  const startClipTimer = () => {
+    if (clipTimer) clearInterval(clipTimer);
+    clipTimer = setInterval(() => {
+      const c = activeClip;
+      if (!c) { stopClipPlayback(); return; }
+      if (currentFrameIdx + 1 < c.frames.length) { currentFrameIdx++; showClipFrame(c, currentFrameIdx); } else { stopClipPlayback(); }
+    }, Math.round(CLIP.STEP * 1000 / clipSpeed));
+  };
   const playClip = (c, startIdx = 0) => {
     if (!c || !c.frames || !c.frames.length) return;
     stopClipPlayback();
@@ -2159,18 +2136,7 @@ PAGES.match = async () => {
     const btn = $('#clip-play', page);
     if (btn) btn.textContent = '❚❚ 一時停止';
 
-    clipTimer = setInterval(() => {
-      if (!activeClip || activeClip !== c) {
-        stopClipPlayback();
-        return;
-      }
-      if (currentFrameIdx + 1 < c.frames.length) {
-        currentFrameIdx++;
-        showClipFrame(c, currentFrameIdx);
-      } else {
-        stopClipPlayback();
-      }
-    }, 500);
+    startClipTimer();
   };
 
   if (!clips || clips.length === 0) {
@@ -2178,7 +2144,7 @@ PAGES.match = async () => {
   } else {
     if (clipBox) {
       clipBox.innerHTML = `
-        <div class="clip-box-title">場面クリップ（2fps・前後数秒）</div>
+        <div class="clip-box-title">場面クリップ（${Math.round(1 / CLIP.STEP)}fps・前後数秒）</div>
         <div class="clip-chips">
           ${clips.map(c => `
             <button type="button" class="clip-chip" data-idx="${c.idx}">
@@ -2188,7 +2154,10 @@ PAGES.match = async () => {
         </div>
         <div class="clip-controls">
           <button id="clip-play" class="btn btn-sm" type="button">▶ 再生</button>
+          <button id="clip-prev" class="btn btn-sm" type="button" title="1コマ戻る">◀</button>
+          <button id="clip-next" class="btn btn-sm" type="button" title="1コマ進む">▶</button>
           <input type="range" id="clip-seek" class="clip-seek" min="0" max="${clips[0].frames.length - 1}" value="0">
+          <select id="clip-speed" class="input-sm" title="再生速度"><option value="1">等倍</option><option value="0.5">1/2</option><option value="0.25">1/4</option></select>
           <span id="clip-stat" class="clip-stat"></span>
         </div>
       `;
@@ -2227,20 +2196,16 @@ PAGES.match = async () => {
               playClip(activeClip, 0);
             } else {
               playBtn.textContent = '❚❚ 一時停止';
-              clipTimer = setInterval(() => {
-                if (!activeClip) { stopClipPlayback(); return; }
-                if (currentFrameIdx + 1 < activeClip.frames.length) {
-                  currentFrameIdx++;
-                  showClipFrame(activeClip, currentFrameIdx);
-                } else {
-                  stopClipPlayback();
-                }
-              }, 500);
+              startClipTimer();
             }
           }
         };
       }
 
+      const stepFrame = d => { if (!activeClip && clips.length) { activeClip = clips[0]; updateActiveChip(activeClip.idx); } if (!activeClip) return; stopClipPlayback(); currentFrameIdx = Math.max(0, Math.min(activeClip.frames.length - 1, currentFrameIdx + d)); showClipFrame(activeClip, currentFrameIdx); };
+      $('#clip-prev', page).onclick = () => stepFrame(-1);
+      $('#clip-next', page).onclick = () => stepFrame(1);
+      $('#clip-speed', page).onchange = e => { clipSpeed = +e.target.value || 1; if (clipTimer) startClipTimer(); };
       const seekSlider = $('#clip-seek', page);
       if (seekSlider) {
         seekSlider.oninput = () => {
@@ -2259,7 +2224,6 @@ PAGES.match = async () => {
 
   const showStill = (t, near = 15) => {
     stopClipPlayback();
-    if (video.src && video.style.display !== 'none') return;
     if (!stills.length) { stillCap.textContent = ''; showEmpty('静止画なし（この試合では静止画が保存されていません）'); return; }
     let best = stills[0];
     for (const s of stills) if (Math.abs(s.t - t) < Math.abs(best.t - t)) best = s;
@@ -2276,21 +2240,14 @@ PAGES.match = async () => {
 
   const seek = t => {
     lastSeekTime = t;
-    const hasLocalVideo = video.src && video.style.display !== 'none';
-    if (!hasLocalVideo) {
-      const clip = clipAt(clips, t);
-      if (clip) {
-        playClip(clip, 0);
-        return;
-      }
+    const clip = clipAt(clips, t);
+    if (clip) {
+      playClip(clip, 0);
+      return;
     }
     stopClipPlayback();
     showStill(t);
-    if (tlEl && tlEl.setPlayhead && !video.src) tlEl.setPlayhead(t);
-    if (video.src) {
-      video.currentTime = Math.max(0, t - offset - 2);
-      video.play().catch(() => {});
-    }
+    if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(t);
   };
 
   const drawTL = (opts = {}) => {
@@ -2303,21 +2260,6 @@ PAGES.match = async () => {
     $('#tl', page).replaceChildren(tlEl);
     if (opts.reopen) tlEl.openPopover(opts.reopen);
     else if (opts.focus) tlEl.focusSegment(opts.focus);
-    if (video.src && video.currentTime > 0) {
-      tlEl.setPlayhead(video.currentTime + offset);
-    }
-  };
-
-  $('#vstat', page).textContent = '映像は保存されていません（手元の録画ファイルを選ぶと映像でも確認できます）';
-
-  $('#vf', page).onchange = e => {
-    const f = e.target.files[0];
-    if (f) {
-      video.src = URL.createObjectURL(f);
-      video.style.display = 'block'; stillImg.style.display = 'none'; stillEmpty.style.display = 'none';
-      offset = 0;
-      $('#vstat', page).textContent = f.name;
-    }
   };
 
   const accDraw = () => {
@@ -2492,9 +2434,6 @@ PAGES.match = async () => {
         else delete m.review.marks[k];
         await save();
         refresh();
-        if (v === 'wrong') {
-          grabFrames(video, [-1, 0, 1].map(d => +b.dataset.t - offset + d), '誤検出の前後', m.id, { type: 'wrong', key: k });
-        }
       };
     });
 
@@ -2510,14 +2449,10 @@ PAGES.match = async () => {
 
   page.querySelectorAll('.add').forEach(b => {
     b.onclick = async () => {
-      const baseT = video.src ? (video.currentTime + offset) : (video.currentTime > 0 ? video.currentTime + offset : lastSeekTime);
-      const t = Math.round(baseT * 10) / 10;
+      const t = Math.round(lastSeekTime * 10) / 10;
       m.review.added.push({ kind: b.dataset.k, t });
       await save();
       refresh();
-      if (video.src) {
-        grabFrames(video, [-1.5, -0.5, 0.5].map(d => t - offset + d), '見逃しの前後', m.id, { type: 'missed', kind: b.dataset.k, t });
-      }
     };
   });
 

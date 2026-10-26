@@ -69,12 +69,6 @@ if (!(await reviewToggle.isChecked())) {
   await page.waitForTimeout(300);
 }
 
-const videoPath = path.resolve(WEB_DIR, '../raw/1080p/joined_match02.mp4');
-if (fs.existsSync(videoPath)) {
-  await page.setInputFiles('#vf', videoPath);
-  await page.waitForTimeout(1500);
-}
-
 for (let j = 0; j < 6; j++) {
   const btn = page.locator('#etab button.mk[data-v="ok"]:not(.on-ok)').first();
   if (await btn.count()) {
@@ -83,11 +77,6 @@ for (let j = 0; j < 6; j++) {
   }
 }
 
-await page.evaluate(() => {
-  const v = document.querySelector('#rv');
-  if (v) v.currentTime = 68.2;
-});
-await page.waitForTimeout(500);
 await page.click('button.add[data-k="death"]');
 await page.waitForTimeout(1500);
 
@@ -99,11 +88,6 @@ for (const f of ['result', 'mode', 'stage', 'deaths', 'specials']) {
   }
 }
 
-await page.evaluate(() => {
-  const v = document.querySelector('#rv');
-  if (v && v.src) { v.pause(); v.currentTime = 68.2; }
-});
-await page.waitForTimeout(500);
 
 // #33: 書き出しは一覧のダイアログ経由 (詳細の #fbone → 一覧 → 全件で書き出し → 詳細へ戻る)
 await page.click('#fbone');

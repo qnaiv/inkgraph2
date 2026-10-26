@@ -1,5 +1,5 @@
 export const CLIP = {
-  STEP: 0.5,
+  STEP: 0.2, // コマ間隔（秒）。解析のフレーム（5 枚／秒）をそのまま全部残す＝5fps。これより細かくはできない（D62）
   H: 720,
   TYPE: 'image/webp',
   QUALITY: 0.15,
@@ -8,7 +8,7 @@ export const CLIP = {
   BEFORE: 2,
   AFTER: { death: 2, kill: 2, special: 1 },
   MAX_SCENES: 12,
-  MAX_BYTES: Math.round(3.5 * 1024 * 1024),
+  MAX_BYTES: Math.round(12 * 1024 * 1024),
   SPECIAL_TOL: 1.0
 };
 
