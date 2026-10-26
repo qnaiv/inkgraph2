@@ -1,0 +1,77 @@
+name: Ingest feedback (正解データの取り込み)
+
+# inbox/ に正解データの zip を上げると、取り込んで PR を作る。
+on:
+  push:
+    branches: [main]
+    paths: ['inbox/*.zip']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Ingest zips
+        id: ingest
+        run: |
+          shopt -s nullglob
+          zips=(inbox/*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then echo "none=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          : > ingest-summary.md
+          for z in "${zips[@]}"; do
+            stem="$(basename "$z" .zip)"
+            echo "### $stem" >> ingest-summary.md
+            python3 tools/ingest_feedback.py "$z" --apply --out work/feedback | tee ingest-log.txt
+            python3 tools/archive_training.py "work/feedback/$stem" "$stem" | tee -a ingest-summary.md
+            git rm -q "$z"
+          done
+
+      - name: Evaluate (精度の確認)
+        id: eval
+        if: steps.ingest.outputs.none != '1'
+        run: |
+          python3 tools/test_eval_ci.py
+          if python3 tools/eval_ci.py --labels-dir labels --pred python --md eval-summary.md --json eval-result.json; then echo "result=PASS" >> "$GITHUB_OUTPUT"; else echo "result=FAIL" >> "$GITHUB_OUTPUT"; fi
+          cat eval-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Open PR
+        if: steps.ingest.outputs.none != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="ingest/${GITHUB_RUN_ID}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A templates labels training web/public/assets inbox
+          git status --short | head -40
+          if git diff --cached --quiet; then echo "変更なし"; exit 0; fi
+          git commit -q -m "正解データの取り込み (run ${GITHUB_RUN_ID})"
+          git push -q origin "$branch"
+          {
+            echo "## 正解データの取り込み"
+            echo
+            cat ingest-summary.md
+            echo
+            echo "精度の確認（eval_ci）: **${{ steps.eval.outputs.result }}**（詳細は Actions の実行結果の Summary）"
+            echo
+            echo "変更: ルール・ステージの見本（templates/）、正解ラベル（labels/feedback/）、学習用画像（training/）、Web アセット（web/public/assets/）。inbox の zip はこの PR で削除します。"
+          } > pr-body.md
+          if ! gh pr create --base main --head "$branch" --title "正解データの取り込み (run ${GITHUB_RUN_ID})" --body-file pr-body.md; then
+            echo "::warning::PR を作れませんでした。リポジトリの Settings → Actions → General の「Allow GitHub Actions to create and approve pull requests」を有効にするか、ブランチ $branch から手動で PR を作ってください。"
+          fi

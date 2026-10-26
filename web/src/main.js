@@ -1847,6 +1847,7 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
         ${est.over50MB ? `<div class="fb-dialog-warn" id="fbd-warn">合計 約${mbStr}MBで目安の50MBを超えています。チェックを外して分けてください。あと${removeCount}試合外すと50MB以内です</div>` : ''}
         ${noSel ? `<div class="fb-dialog-empty" id="fbd-reason">書き出す試合が選ばれていません。</div>` : ''}
         <div class="fb-dialog-note">静止画にはプレイヤー名が映る場合があります。ZIPは自動送信されません。手動で渡してください。</div>
+        <div class="fb-dialog-note">書き出した ZIP は、<a href="https://github.com/qnaiv/inkgraph2/upload/main/inbox" target="_blank" rel="noopener">GitHub の inbox にアップロード</a>すると、見本の追加・正解ラベル・学習用画像の保存を自動で行い、取り込み結果の PR を作ります（D60）。</div>
         <label class="fb-dialog-mark"><input type="checkbox" id="fbd-mark" ${markExported ? 'checked' : ''}> 書き出し済みにする（次回は差分に出ません）</label>
         ${!markExported ? `<div class="fb-dialog-skip-note" id="fbd-skip-note">今回は記録を残さないため、次回も差分に出ます</div>` : ''}
         <div class="fb-dialog-actions">
