@@ -1,7 +1,7 @@
 // Death dedup check (D38): DeathLatch and mergeDeathRuns unit checks, and timeline screenshot.
 import { DeathLatch, mergeDeathRuns, buildMatch } from '../src/core/analyzer.js';
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -194,7 +194,7 @@ console.log('--- 3. UI Timeline Screenshot Verification ---');
 
 const PORT = 4198;
 const U = `http://127.0.0.1:${PORT}/`;
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const srv = startPreview(PORT, WEB_DIR);
 await new Promise(r => setTimeout(r, 2500));
 
 let browser;

@@ -1,20 +1,28 @@
 // Result-screen reading (port of src/inkgraph/result.py)
 import { crop, gray, bin, hsv, nccBin, nccGray, resizeArea, components } from './img.js';
 import { nn } from './assets.js';
+import { boardIconGray, encodeIcon } from './board_icons.js';
 const loc = (fr, x0, y0, x1, y1, t, th) => { const c = crop(fr, x0, y0, x1, y1); return nccBin(bin(gray(c), th), c.w, c.h, t); };
 export function celebration(A, fr) {
   const w = loc(fr, 0, 0, 260, 130, A.tpl.tpl_res_cel_win, 200).score, l = loc(fr, 0, 0, 260, 130, A.tpl.tpl_res_cel_lose, 200).score;
   if (Math.max(w, l) < 0.6) return null; return w > l ? 'WIN' : 'LOSE';
 }
-export function panelOffset(A, fr) { const r = loc(fr, 450, 0, 800, 110, A.tpl.tpl_res_lobby, 170); return [r.score, r.x + 450 - 550, r.y - 25]; }
+export function panelOffset(A, fr) {
+  const rb = loc(fr, 450, 0, 800, 110, A.tpl.tpl_res_lobby, 170);
+  if (A.tpl.tpl_res_lobby_x) {
+    const rx = loc(fr, 450, 0, 800, 110, A.tpl.tpl_res_lobby_x, 170);
+    if (rx.score > rb.score) return [rx.score, rx.x + 450 - 550, rx.y - 25, 'x'];
+  }
+  return [rb.score, rb.x + 450 - 550, rb.y - 25, 'bankara'];
+}
 function bannerScore(A, fr, dx, dy) {
   const sc = (n, x, y) => { const c = crop(fr, x + dx - 15, y + dy - 15, x + dx + 125, y + dy + 45); const t = A.gray[n]; return nccGray(hsv(c).V, c.w, c.h, t.data, t.w, t.h); };
   return Math.min(sc('tpl_res_board_win', 625, 215), sc('tpl_res_board_lose', 625, 455));
 }
 export function classify(A, fr) {
   const c = celebration(A, fr); if (c) return { kind: 'celebration', value: c, off: [0, 0] };
-  const [s, dx, dy] = panelOffset(A, fr); if (s < 0.6) return null;
-  return { kind: bannerScore(A, fr, dx, dy) > 0.5 ? 'board' : 'personal', value: null, off: [dx, dy] };
+  const [s, dx, dy, panel] = panelOffset(A, fr); if (s < 0.6) return null;
+  return { kind: bannerScore(A, fr, dx, dy) > 0.5 ? 'board' : 'personal', value: null, off: [dx, dy], panel };
 }
 const MODE_BOX = [552, 50, 650, 84], STAGE_BOX = [655, 52, 800, 84];
 export const MATCH_TYPE_BOX = [546, 26, 706, 50];
@@ -25,17 +33,46 @@ export const MATCH_TYPE_BY_LABEL = {
   'レギュラーマッチ': 'other',
   'フェスマッチ': 'other'
 };
+export const MODE_MARGIN = 0.1;
+// ステージ名の開始位置オフセット（実測：ホコはルール名が長いため+38px右にずれる。ガチエリア/ガチアサリ等は未計測のため今回追加しない）
+export const STAGE_DX_BY_MODE = { 'ガチホコバトル': 38 };
 function normText(c) { const b = bin(gray(c), 170); for (let i = 0; i < b.length; i++) b[i] *= 255; return resizeArea(b, c.w, c.h, 120, 32); }
 function pearson(a, b) { let ma = 0, mb = 0; const n = a.length; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n; let s = 0, sa = 0, sb = 0;
   for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) + 1e-6); }
 function best(c, lib) { const v = normText(c); let bk = null, bs = -1; for (const [k, t] of Object.entries(lib)) { const s = pearson(v, t); if (s > bs) { bs = s; bk = k; } } return [bk, bs]; }
+function bestMode(c, lib) {
+  if (!lib || !Object.keys(lib).length) return [null, 0.0, null];
+  const v = normText(c);
+  const classScores = new Map();
+  for (const [k, t] of Object.entries(lib)) {
+    const cls = k.split('__')[0];
+    const s = pearson(v, t);
+    const cur = classScores.get(cls);
+    if (cur === undefined || s > cur) {
+      classScores.set(cls, s);
+    }
+  }
+  if (!classScores.size) return [null, 0.0, null];
+  const sorted = [...classScores.entries()].sort((a, b) => b[1] - a[1]);
+  const [bestRule, bestScore] = sorted[0];
+  const margin = sorted.length > 1 ? bestScore - sorted[1][1] : null;
+  return [bestRule, bestScore, margin];
+}
 export const DEFAULT_HEADER_THR = { mode: 0.5, stage: 0.5 };
-export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR) {
+export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR, panel = null) {
   const bx = b => crop(fr, b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy);
-  const mc = bx(MODE_BOX), sc = bx(STAGE_BOX); const [mk, ms] = best(mc, A.lib.mode), [sk, ss] = best(sc, A.lib.stage);
-  const strip = k => k ? k.split('__')[0] : null;
+  const mc = bx(MODE_BOX);
+  const [bestRule, ms, margin] = bestMode(mc, A.lib.mode);
   const mThr = (thr && typeof thr.mode === 'number') ? thr.mode : 0.5;
   const sThr = (thr && typeof thr.stage === 'number') ? thr.stage : 0.5;
+  const mode = (ms > mThr && (margin === null || margin >= MODE_MARGIN)) ? bestRule : null;
+
+  const stageDx = STAGE_DX_BY_MODE[mode] || 0;
+  const stageBox = [STAGE_BOX[0] + stageDx, STAGE_BOX[1], STAGE_BOX[2] + stageDx, STAGE_BOX[3]];
+  const sc = bx(stageBox);
+  const [sk, ss] = best(sc, A.lib.stage);
+  const strip = k => k ? k.split('__')[0] : null;
+
   let match_type = null, match_type_score = 0;
   if (A.lib?.match_type && Object.keys(A.lib.match_type).length > 0) {
     const mtc = bx(MATCH_TYPE_BOX);
@@ -46,7 +83,18 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR) {
       match_type = (raw && MATCH_TYPE_BY_LABEL[raw]) ? MATCH_TYPE_BY_LABEL[raw] : null;
     }
   }
-  return { mode: ms > mThr ? strip(mk) : null, mode_score: ms, stage: ss > sThr ? strip(sk) : null, stage_score: ss, match_type, match_type_score };
+  if (panel === 'x') {
+    match_type = 'x';
+  }
+  return {
+    mode,
+    mode_score: ms,
+    mode_margin: margin !== null ? Math.round(margin * 100) / 100 : null,
+    stage: ss > sThr ? strip(sk) : null,
+    stage_score: ss,
+    match_type,
+    match_type_score
+  };
 }
 function white(c) { const h = hsv(c), m = new Uint8Array(h.V.length); for (let i = 0; i < m.length; i++) m[i] = h.V[i] > 165 && h.S[i] < 80 ? 1 : 0; return m; }
 function statGlyphs(fr, y0, y1, x0, x1) {
@@ -66,7 +114,7 @@ const ROW_Y = { top: [262, 306, 350, 394], bot: [499, 543, 587, 631] };
 export function readBoard(A, fr, dx, dy) { const out = [];
   for (const grp of ['top', 'bot']) ROW_Y[grp].forEach((y0, i) => { const y = y0 + dy; const h = hsv(crop(fr, 612 + dx, y, 650 + dx, y + 34)); let c = 0; for (let j = 0; j < h.H.length; j++) if (h.H[j] > 22 && h.H[j] < 38 && h.S[j] > 150 && h.V[j] > 180) c++;
     const gs = statGlyphs(fr, y + 2, y + 34, 965 + dx, 1160 + dx); const v = gs.length === 3 ? gs.map(g => readNumber(A, g)) : [null, null, null];
-    out.push({ group: grp, idx: i, own: c / h.H.length > 0.08, ka: v[0], deaths: v[1], specials: v[2] }); });
+    out.push({ group: grp, idx: i, own: c / h.H.length > 0.08, ka: v[0], deaths: v[1], specials: v[2], icon: encodeIcon(boardIconGray(fr, dx, dy, grp, i)) }); });
   return out; }
 // ---- voting over collected result frames (streaming version of read_results) ----
 function pick(lst, k = 5) { if (!lst.length) return []; const rs = [[0]]; for (let i = 1; i < lst.length; i++) { if (lst[i].t - lst[i - 1].t <= 0.6) rs[rs.length - 1].push(i); else rs.push([i]); }

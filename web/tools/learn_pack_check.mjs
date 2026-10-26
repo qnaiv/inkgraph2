@@ -1,7 +1,7 @@
 // Self-learning (S2) verification: learn pack versions, switching, rollback, deactivation, and migration
 // Usage: node tools/learn_pack_check.mjs
 import { chromium } from 'playwright-core';
-import { spawn } from 'node:child_process';
+import { startPreview } from './lib/preview_server.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -30,7 +30,7 @@ check('packDisplayName returns packId or fallback',
 console.log('=== [2] Browser Integration & DB Versioning Test ===');
 const PORT = Number(process.env.PORT) || 4199;
 const U = `http://127.0.0.1:${PORT}/`;
-const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+const srv = startPreview(PORT, WEB_DIR);
 await new Promise(r => setTimeout(r, 2500));
 
 const browser = await chromium.launch({

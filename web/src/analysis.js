@@ -2,6 +2,8 @@
 import { aliveAt } from './core/analyzer.js';
 import * as T from './core/tower.js';
 import { powerForMatchType } from './core/result.js';
+import { decodeFeat, featSim, KP, killerKind } from './core/killer.js';
+import { decodeIcon, prepIcon, matchIcon, iconSimSym, BI } from './core/board_icons.js';
 
 export const MATCH_TYPE_LABEL = {
   x: 'Xマッチ',
@@ -71,7 +73,7 @@ export function detected(m) { const r = m.review || { marks: {} }; const out = [
       out.push({ kind: 'special', t: actT, ready: e.ready, end: e.end, activated_at: actT, outcome: e.outcome, src: e, key: key('special', e.ready) });
     }
   }
-  out.forEach(e => { e.key = e.key || key(e.kind, e.t); e.mark = r.marks[e.key] || null; }); return out.sort((a, b) => a.t - b.t); }
+  out.forEach(e => { e.key = e.key || key(e.kind, e.t); e.mark = (r.marks && r.marks[e.key]) || null; }); return out.sort((a, b) => a.t - b.t); }
 /** effective (corrected) events: detected minus ✗/deleted plus added; with phase & win-prob context */
 export function effective(m) { const S = series(m), r = m.review || { added: [] };
   const ev = detected(m).filter(e => e.mark !== 'wrong' && e.mark !== 'deleted').concat((r.added || []).map(a => ({ kind: a.kind, t: a.t, end: a.t + (a.kind === 'death' ? 5 : 0.5), outcome: a.outcome || (a.kind === 'special' ? 'activated' : undefined), added: true, key: key('add-' + a.kind, a.t) })));
@@ -425,5 +427,261 @@ export function candidateShortage(totalOwn, filtered) {
   const enough = t >= 30 && f >= 10;
   const needed = Math.max(30 - t, 10 - f, 0);
   return { enough, needed, totalOwn: t, filtered: f };
+}
+
+function getUnknownWeaponName(index) {
+  let s = '';
+  let n = index;
+  while (n >= 0) {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  }
+  return `未登録のブキ${s}`;
+}
+
+function getUnknownIconName(index) {
+  let s = '';
+  let n = index;
+  while (n >= 0) {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  }
+  return `未登録のアイコン${s}`;
+}
+
+export function enemyWeaponRows(matches) {
+  if (!Array.isArray(matches)) {
+    return {
+      rows: [],
+      totalDeaths: 0,
+      readDeaths: 0,
+      unreadDeaths: 0,
+      nMatches: 0,
+      overallWinRate: null
+    };
+  }
+
+  let totalDeaths = 0;
+  let readDeaths = 0;
+  let unreadDeaths = 0;
+  let overallWins = 0;
+  let overallLosses = 0;
+  const nMatches = matches.length;
+
+  const unknownGroups = [];
+  const weaponMap = new Map();
+
+  for (const m of matches) {
+    const res = resultOf(m).result;
+    if (res === 'WIN') overallWins++;
+    else if (res === 'LOSE') overallLosses++;
+
+    const eff = effective(m);
+    const matchWeapons = new Map();
+
+    for (const e of eff) {
+      if (e.kind !== 'death') continue;
+      totalDeaths++;
+
+      const kb = e.src?.killed_by;
+      if (!kb) {
+        unreadDeaths++;
+        continue;
+      }
+      readDeaths++;
+
+      let key = null;
+      let name = null;
+      let kind = null;
+
+      if (kb.name) {
+        key = kb.name;
+        name = kb.name;
+        kind = kb.kind || killerKind(kb.name) || 'main';
+      } else if (kb.sig && kb.ar != null) {
+        const feat = decodeFeat(kb.sig);
+        let ug = unknownGroups.find(g =>
+          featSim(feat, g.repFeat) >= KP.match_th &&
+          Math.abs(Math.log(kb.ar / g.repAr)) <= KP.ar_tol
+        );
+        if (!ug) {
+          const groupName = getUnknownWeaponName(unknownGroups.length);
+          ug = {
+            name: groupName,
+            repFeat: feat,
+            repAr: kb.ar
+          };
+          unknownGroups.push(ug);
+        }
+        key = ug.name;
+        name = ug.name;
+        kind = 'unknown';
+      } else {
+        continue;
+      }
+
+      const cur = matchWeapons.get(key) || { name, kind, kills: 0 };
+      cur.kills++;
+      matchWeapons.set(key, cur);
+    }
+
+    for (const [k, mw] of matchWeapons.entries()) {
+      let wep = weaponMap.get(k);
+      if (!wep) {
+        wep = {
+          name: mw.name,
+          kind: mw.kind,
+          matches: 0,
+          wins: 0,
+          losses: 0,
+          killed: 0
+        };
+        weaponMap.set(k, wep);
+      }
+      wep.matches++;
+      wep.killed += mw.kills;
+      if (res === 'WIN') wep.wins++;
+      else if (res === 'LOSE') wep.losses++;
+    }
+  }
+
+  const rows = [];
+  for (const wep of weaponMap.values()) {
+    const known = wep.wins + wep.losses;
+    const winRate = known > 0 ? wep.wins / known : null;
+    rows.push({
+      name: wep.name,
+      kind: wep.kind,
+      matches: wep.matches,
+      wins: wep.wins,
+      losses: wep.losses,
+      winRate,
+      killed: wep.killed,
+      low: wep.matches < 5
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (b.killed !== a.killed) return b.killed - a.killed;
+    if (b.matches !== a.matches) return b.matches - a.matches;
+    return a.name.localeCompare(b.name, 'ja');
+  });
+
+  const overallKnown = overallWins + overallLosses;
+  const overallWinRate = overallKnown > 0 ? overallWins / overallKnown : null;
+
+  return {
+    rows,
+    totalDeaths,
+    readDeaths,
+    unreadDeaths,
+    nMatches,
+    overallWinRate
+  };
+}
+
+export function enemyPresenceRows(matches, lib) {
+  if (!Array.isArray(matches)) {
+    return { rows: [], nMatches: 0, withIcons: 0, namedSlots: 0, totalSlots: 0, overallWinRate: null };
+  }
+
+  const iconLib = Array.isArray(lib) ? lib : (lib && Array.isArray(lib.lib) ? lib.lib : []);
+  let totalSlots = 0, namedSlots = 0, withIcons = 0;
+  let overallWins = 0, overallLosses = 0;
+
+  const unknownGroups = [];
+  const weaponMap = new Map();
+
+  for (const m of matches) {
+    const res = resultOf(m).result;
+    const isWin = res === 'WIN';
+    const isLose = res === 'LOSE';
+    if (isWin) overallWins++;
+    else if (isLose) overallLosses++;
+
+    const hasIcons = Array.isArray(m.enemy_icons) && m.enemy_icons.length > 0;
+    if (hasIcons) withIcons++;
+    if (!hasIcons) continue;
+
+    const matchWeapons = new Map();
+
+    for (const item of m.enemy_icons) {
+      if (!item || !item.icon) continue;
+      totalSlots++;
+      const mr = matchIcon(iconLib, item.icon);
+
+      let key = null, name = null, kind = null;
+      if (mr.name) {
+        namedSlots++;
+        key = mr.name;
+        name = mr.name;
+        kind = 'main';
+      } else if (mr.ambiguous && mr.ambiguous.length > 0) {
+        key = 'ambiguous:リッター4K／4Kスコープ';
+        name = 'リッター4K／4Kスコープ';
+        kind = 'ambiguous';
+      } else {
+        const pg = prepIcon(item.icon);
+        let ug = unknownGroups.find(g0 => iconSimSym(pg, g0.rep) >= BI.group_th);
+        if (!ug) {
+          const groupName = getUnknownIconName(unknownGroups.length);
+          ug = { name: groupName, rep: pg };
+          unknownGroups.push(ug);
+        }
+        key = ug.name;
+        name = ug.name;
+        kind = 'unknown';
+      }
+
+      if (!matchWeapons.has(key)) {
+        matchWeapons.set(key, { name, kind });
+      }
+    }
+
+    if (!isWin && !isLose) continue;
+
+    for (const [k, mw] of matchWeapons.entries()) {
+      let wep = weaponMap.get(k);
+      if (!wep) {
+        wep = { name: mw.name, kind: mw.kind, matches: 0, wins: 0, losses: 0 };
+        weaponMap.set(k, wep);
+      }
+      wep.matches++;
+      if (isWin) wep.wins++;
+      else if (isLose) wep.losses++;
+    }
+  }
+
+  const rows = [];
+  for (const wep of weaponMap.values()) {
+    const known = wep.wins + wep.losses;
+    const winRate = known > 0 ? wep.wins / known : null;
+    rows.push({
+      name: wep.name,
+      kind: wep.kind,
+      matches: wep.matches,
+      wins: wep.wins,
+      losses: wep.losses,
+      winRate,
+      low: wep.matches < 5
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (b.matches !== a.matches) return b.matches - a.matches;
+    return a.name.localeCompare(b.name, 'ja');
+  });
+
+  const nMatches = overallWins + overallLosses;
+  const overallWinRate = nMatches > 0 ? overallWins / nMatches : null;
+
+  return {
+    rows,
+    nMatches,
+    withIcons,
+    namedSlots,
+    totalSlots,
+    overallWinRate
+  };
 }
 

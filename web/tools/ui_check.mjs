@@ -1,4 +1,5 @@
 // Real-interaction UI checks. Called from screenshots.mjs; each check uses its own browser context.
+import { startPreview } from './lib/preview_server.mjs';
 export async function runUiChecks(browser, U, ms) {
   const results = [];
   const check = async (name, fn) => {
@@ -66,12 +67,11 @@ export async function runUiChecks(browser, U, ms) {
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const { chromium } = await import('playwright-core');
-  const { spawn } = await import('node:child_process');
   const fs = await import('node:fs');
   const path = await import('node:path');
   const WEB_DIR = path.resolve(import.meta.dirname, '..');
   const PORT = Number(process.env.PORT) || 4217;
-  const srv = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: WEB_DIR, stdio: 'ignore' });
+  const srv = startPreview(PORT, WEB_DIR);
   await new Promise(r => setTimeout(r, 2500));
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
   const U = `http://127.0.0.1:${PORT}/`;

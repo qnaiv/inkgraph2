@@ -2,7 +2,9 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage } from './analysis.js';
+import { detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows } from './analysis.js';
+import { b64bytes } from './core/img.js';
+import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as FB from './feedback.js';
@@ -10,6 +12,8 @@ import * as BK from './backup.js';
 import * as CP from './capacity.js';
 import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } from './feedback.js';
 import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
+import { CLIP_KIND_JA, clipAt } from './clips.js';
+import { recountDiff } from './core/live_counts.js';
 
 const app = document.getElementById('app');
 const liveSlot = document.createElement('div');
@@ -18,7 +22,13 @@ const normalSlot = document.createElement('div');
 normalSlot.id = 'slot-normal';
 app.append(normalSlot, liveSlot);
 
+let pageCleanup = null;
+
 function mountPage(el, isLive = false) {
+  if (pageCleanup) {
+    try { pageCleanup(); } catch (e) {}
+    pageCleanup = null;
+  }
   if (isLive) {
     if (el && liveSlot.firstElementChild !== el) {
       if (!(session && session.running && session.page && liveSlot.contains(session.page))) {
@@ -46,6 +56,22 @@ let reviewMode = false;
 let openDialogOnList = null; // 詳細画面から一覧へ遷移したとき自動で開くダイアログのモード
 let lastTrendQuery = '';
 let trendStageSort = { key: 'n', dir: 'desc' };
+let enemyIconLibPromise = null;
+function getEnemyIconLib() {
+  if (!enemyIconLibPromise) enemyIconLibPromise = (async () => {
+    try {
+      const res = await fetch(new URL('assets/inkgraph_assets.json', document.baseURI).href);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      return prepEnemyIconLib(j.enemy_icon, b64bytes);
+    } catch (e) {
+      return { lib: [] };
+    }
+  })();
+  return enemyIconLibPromise;
+}
+// 傾向画面の描画を見本の読み込みで待たせないよう、起動時に先読みする
+getEnemyIconLib();
 
 window.inkgraph = {
   db,
@@ -55,6 +81,7 @@ window.inkgraph = {
   feedback: FB,
   backup: BK,
   AN,
+  recountDiff,
   buildBatchZip: (...a) => buildBatchZip(...a),
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
@@ -131,6 +158,13 @@ window.addEventListener('hashchange', () => {
     currentPage = p;
     updateNavActive(p);
     PAGES[p]();
+  }
+});
+
+window.addEventListener('beforeunload', () => {
+  if (pageCleanup) {
+    try { pageCleanup(); } catch (e) {}
+    pageCleanup = null;
   }
 });
 
@@ -427,7 +461,17 @@ PAGES.live = async () => {
       </div>
 
       <div class="card live-match-card">
-        <div class="card-title" style="margin-bottom:0">この試合</div>
+        <div class="live-match-header">
+          <div class="card-title" style="margin-bottom:0">この試合</div>
+          <span id="live-count-badge" class="live-count-badge is-provisional" title="試合中の数字は速報です。試合後に映像全体を数え直して確定します">速報</span>
+        </div>
+        <div id="live-recount-note" class="live-recount-note" hidden></div>
+
+        <div id="live-capture-warn" class="live-capture-warn" role="status" hidden>
+          <div style="font-weight:var(--fw-bold)">この試合は保存しません</div>
+          <div id="live-capture-warn-reason"></div>
+          <div style="color:var(--text-muted);margin-top:2px">次の試合からは通常どおり記録します。記録中はこの画面を表に出したままにしてください。</div>
+        </div>
 
         <div class="live-stats-row">
           <div class="stat">
@@ -614,14 +658,29 @@ PAGES.live = async () => {
     $('#k', page).textContent = '0';
     $('#d', page).textContent = '0';
     $('#sp', page).textContent = '0';
+    $('#live-capture-warn', page) && ($('#live-capture-warn', page).hidden = true);
+    $('.live-stats-row', page)?.classList.remove('is-void');
+    // D49: ライブの数字の状態（速報／確定／保存なし）と、数え直しの注記
+    const COUNT_BADGE = { provisional: ['速報', '試合中の数字は速報です。試合後に映像全体を数え直して確定します'], final: ['確定', ''], discarded: ['保存なし', ''] };
+    const setCountBadge = (state, note = '') => {
+      const b = $('#live-count-badge', page);
+      if (b) { b.textContent = COUNT_BADGE[state][0]; b.className = `live-count-badge is-${state}`; b.title = COUNT_BADGE[state][1]; }
+      const n = $('#live-recount-note', page);
+      if (n) { n.textContent = note; n.hidden = !note; }
+    };
+    setCountBadge('provisional');
     const vEmpty = $('#video-empty', page);
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
       event: e => {
+        if (e.type === 'special_end') return;
         const tt = mss(e.t - t0);
         if (e.type === 'battle_start') {
           t0 = e.t; k = d = sp = 0; estWp = 0.5;
+          const warn = $('#live-capture-warn', page); if (warn) warn.hidden = true;
+          $('.live-stats-row', page)?.classList.remove('is-void');
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+          setCountBadge('provisional');
           updateSpark(50);
           addEventRow('0:00', '▶', 'バトル開始', null);
         } else if (e.type === 'battle_end') {
@@ -646,6 +705,9 @@ PAGES.live = async () => {
           sp++;
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
           addEventRow(tt, '<b style="color:var(--special)">◆</b>', 'スペシャル発動', 0);
+        } else if (e.type === 'special_lost') {
+          const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+          addEventRow(tt, '<b style="color:var(--special)">◇</b>', 'スペシャルを使う前にやられた', null);
         }
         $('#k', page).textContent = k;
         $('#d', page).textContent = d;
@@ -666,7 +728,43 @@ PAGES.live = async () => {
           ? `解析中 · ${mss($('#v', page).currentTime)}${isFinite(dur) ? ' / ' + mss(dur) : ''}`
           : `解析中 · 経過 ${mss(session ? session.now() : 0)}`;
       },
-      
+      interrupted: info => {
+        const warn = $('#live-capture-warn', page);
+        const rEl = $('#live-capture-warn-reason', page);
+        if (rEl) {
+          if (info.reason === 'hidden') {
+            rEl.textContent = '記録中にウィンドウやタブが裏に回り、映像の取り込みが止まったためです。';
+          } else {
+            const n = Math.round(info.gapSec || 0);
+            rEl.textContent = `映像の取り込みが約${n}秒止まったためです。`;
+          }
+        }
+        if (warn) warn.hidden = false;
+        $('.live-stats-row', page)?.classList.add('is-void');
+        const tt = mss(Math.max(0, (session ? session.now() : 0) - t0));
+        const label = info.reason === 'hidden'
+          ? '裏に回ったため、この試合は保存しません'
+          : '取り込みが止まったため、この試合は保存しません';
+        addEventRow(tt, '⚠', label, null);
+      },
+      discarded: ({ rec, interrupted }) => {
+        justSaved = true;
+        const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+        setCountBadge('discarded');
+        const dot = $('#live-dot', page);
+        if (dot) {
+          dot.className = 'status-dot-idle';
+          dot.style.background = 'var(--warn)';
+        }
+        const stateEl = $('#state', page);
+        if (stateEl) {
+          stateEl.textContent = interrupted?.reason === 'stall'
+            ? '保存しませんでした（映像の取り込みが止まったため）'
+            : '保存しませんでした（記録中に裏に回ったため）';
+        }
+        const tt = mss(Math.max(0, (session ? session.now() : 0) - t0));
+        addEventRow(tt, '■', '試合を保存しませんでした', null);
+      },
       match: rec => {
         savedCount++;
         justSaved = true;
@@ -675,9 +773,22 @@ PAGES.live = async () => {
         $('#live-dot', page).style.background = 'var(--kill)';
         $('#state', page).textContent = '保存しました';
         const ev = effective(rec);
-        $('#k', page).textContent = ev.filter(x => x.kind === 'kill').length;
-        $('#d', page).textContent = ev.filter(x => x.kind === 'death').length;
-        $('#sp', page).textContent = ev.filter(x => x.kind === 'special').length;
+        const finK = ev.filter(x => x.kind === 'kill').length;
+        const finD = ev.filter(x => x.kind === 'death').length;
+        const finSp = ev.filter(x => x.kind === 'special').length;
+        const diff = recountDiff({ k, d, sp }, { k: finK, d: finD, sp: finSp });
+        k = finK;
+        d = finD;
+        sp = finSp;
+        $('#k', page).textContent = k;
+        $('#d', page).textContent = d;
+        $('#sp', page).textContent = sp;
+        setCountBadge('final', diff.text);
+        if (diff.changed.length > 0) {
+          const tt = mss(Math.max(0, (session ? session.now() : 0) - t0));
+          const summary = diff.changed.map(c => `${c.label} ${c.from}→${c.to}`).join('、');
+          addEventRow(tt, '↺', `数え直し：${summary}`, null);
+        }
         if (rec.tower_series?.length) {
           const last = rec.tower_series[rec.tower_series.length - 1];
           const diff = last.own - last.enemy;
@@ -759,6 +870,7 @@ PAGES.list = async () => {
     const snaps = snapsById.get(m.id) || [];
     let updatedAny = false;
     for (const s of snaps) {
+      if (s.kind === 'clip') continue;
       if (!s.features && s.blob) {
         try {
           const feat = await learn.computeStillFeature(s.blob, s);
@@ -771,7 +883,7 @@ PAGES.list = async () => {
       }
     }
     if (updatedAny) {
-      const validFeats = snaps.map(s => s.features).filter(Boolean);
+      const validFeats = snaps.filter(s => s.kind !== 'clip').map(s => s.features).filter(Boolean);
       if (validFeats.length > 0) {
         await db.setMatchLearnFeatures(m.id, validFeats).catch(() => {});
         m.learnFeatures = validFeats;
@@ -1536,7 +1648,7 @@ async function buildBatchZip(matches, { mode = 'diff', batchId = FB.makeBatchId(
   const files = {};
   const snapshotsById = {};
   for (const m of matches) {
-    const snaps = await db.snapsOf(m.id);
+    const snaps = (await db.snapsOf(m.id)).filter(s => s.kind !== 'clip');
     const safe = m.id.replace(/[^0-9A-Za-z]/g, '_');
     const sn = [];
     for (const s of snaps) {
@@ -1558,7 +1670,7 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
   document.querySelector('.fb-dialog-overlay')?.remove();
   const all = await db.allMatches();
   const snapsById = new Map();
-  for (const m of all.filter(FB.hasReview)) snapsById.set(m.id, await db.snapsOf(m.id));
+  for (const m of all.filter(FB.hasReview)) snapsById.set(m.id, (await db.snapsOf(m.id)).filter(s => s.kind !== 'clip'));
   let mode = initialMode === 'full' ? 'full' : 'diff';
   const unchecked = new Set();
   let markExported = true;
@@ -1796,6 +1908,7 @@ PAGES.match = async () => {
             <video id="rv" controls muted style="display:none"></video>
           </div>
           <div id="still-cap" class="muted" style="margin-top:8px;min-height:1.4em"></div>
+          <div id="clip-box" class="clip-box"></div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px">
             <span id="vstat" class="muted" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
             <label class="btn btn-sm">録画ファイルを選ぶ<input type="file" id="vf" accept="video/*" hidden></label>
@@ -1847,18 +1960,188 @@ PAGES.match = async () => {
   video.addEventListener('timeupdate', updatePlayhead);
   video.addEventListener('seeked', updatePlayhead);
 
-  const stills = (await db.snapsOf(m.id)).sort((a, b) => a.t - b.t);
+  const stills = (await db.snapsOf(m.id)).filter(s => s.kind !== 'clip').sort((a, b) => a.t - b.t);
+  const clips = await db.clipsOf(m.id);
   const stillImg = $('#still-img', page), stillEmpty = $('#still-empty', page), stillCap = $('#still-cap', page);
   const KIND_JA = { kill: 'キル', death: 'デス', special: 'スペシャル発動', celebration: 'リザルト', personal: 'リザルト', board: 'リザルト', event: '見逃し・誤検出' };
   let stillUrl = null;
   const showEmpty = msg => { stillImg.style.display = 'none'; stillEmpty.textContent = msg; stillEmpty.style.display = 'flex'; };
+
+  const relT = t => mss(t - m.battle[0]); /* clip labels use the same battle-relative time as the events table */
+  const mss1 = t => {
+    t = Math.max(0, t - m.battle[0]);
+    const min = Math.floor(t / 60);
+    const sec = (t % 60).toFixed(1).padStart(4, '0');
+    return `${min}:${sec}`;
+  };
+
+  const clipBox = $('#clip-box', page);
+  let activeClip = null;
+  let currentFrameIdx = 0;
+  let clipTimer = null;
+  let clipUrl = null;
+
+  const stopClipPlayback = () => {
+    if (clipTimer) {
+      clearInterval(clipTimer);
+      clipTimer = null;
+    }
+    const btn = $('#clip-play', page);
+    if (btn) btn.textContent = '▶ 再生';
+  };
+
+  pageCleanup = () => {
+    stopClipPlayback();
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
+    if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
+  };
+
+  const updateActiveChip = idx => {
+    page.querySelectorAll('.clip-chip').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.idx) === idx);
+    });
+  };
+
+  const showClipFrame = (c, frameIdx) => {
+    if (!c || !c.frames || frameIdx < 0 || frameIdx >= c.frames.length) return;
+    const f = c.frames[frameIdx];
+    if (video.src && video.style.display !== 'none') return;
+    if (clipUrl) URL.revokeObjectURL(clipUrl);
+    if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
+    clipUrl = URL.createObjectURL(f.blob);
+    stillImg.onerror = () => { stillCap.textContent = ''; showEmpty('静止画なし（静止画を表示できません）'); };
+    stillImg.onload = () => { stillEmpty.style.display = 'none'; stillImg.style.display = 'block'; };
+    stillImg.src = clipUrl;
+    stillCap.textContent = `場面クリップ ${relT(c.t)}（${c.kinds.map(k => CLIP_KIND_JA[k] || k).join('・')}）`;
+    const seekEl = $('#clip-seek', page);
+    if (seekEl) {
+      seekEl.max = c.frames.length - 1;
+      seekEl.value = frameIdx;
+    }
+    const statEl = $('#clip-stat', page);
+    if (statEl) {
+      statEl.textContent = `${frameIdx + 1}/${c.frames.length}枚 · ${mss1(f.t)}`;
+    }
+    if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(f.t);
+  };
+
+  const playClip = (c, startIdx = 0) => {
+    if (!c || !c.frames || !c.frames.length) return;
+    stopClipPlayback();
+    activeClip = c;
+    currentFrameIdx = startIdx;
+    updateActiveChip(c.idx);
+    showClipFrame(c, currentFrameIdx);
+    const btn = $('#clip-play', page);
+    if (btn) btn.textContent = '❚❚ 一時停止';
+
+    clipTimer = setInterval(() => {
+      if (!activeClip || activeClip !== c) {
+        stopClipPlayback();
+        return;
+      }
+      if (currentFrameIdx + 1 < c.frames.length) {
+        currentFrameIdx++;
+        showClipFrame(c, currentFrameIdx);
+      } else {
+        stopClipPlayback();
+      }
+    }, 500);
+  };
+
+  if (!clips || clips.length === 0) {
+    if (clipBox) clipBox.innerHTML = '<div class="muted clip-empty">この試合には場面クリップがありません</div>';
+  } else {
+    if (clipBox) {
+      clipBox.innerHTML = `
+        <div class="clip-box-title">場面クリップ（2fps・前後数秒）</div>
+        <div class="clip-chips">
+          ${clips.map(c => `
+            <button type="button" class="clip-chip" data-idx="${c.idx}">
+              ${relT(c.t)} ${CLIP_KIND_JA[c.kind] || c.kind}${c.events && c.events.length > 1 ? ' ほか' : ''}
+            </button>
+          `).join('')}
+        </div>
+        <div class="clip-controls">
+          <button id="clip-play" class="btn btn-sm" type="button">▶ 再生</button>
+          <input type="range" id="clip-seek" class="clip-seek" min="0" max="${clips[0].frames.length - 1}" value="0">
+          <span id="clip-stat" class="clip-stat"></span>
+        </div>
+      `;
+
+      activeClip = clips[0];
+      const initialSeek = $('#clip-seek', page);
+      if (initialSeek) {
+        initialSeek.max = clips[0].frames.length - 1;
+        initialSeek.value = 0;
+      }
+      const initialStat = $('#clip-stat', page);
+      if (initialStat && clips[0].frames.length > 0) {
+        initialStat.textContent = `1/${clips[0].frames.length}枚 · ${mss1(clips[0].frames[0].t)}`;
+      }
+
+      page.querySelectorAll('.clip-chip').forEach(btn => {
+        btn.onclick = () => {
+          const idx = Number(btn.dataset.idx);
+          const c = clips.find(x => x.idx === idx);
+          if (c) playClip(c, 0);
+        };
+      });
+
+      const playBtn = $('#clip-play', page);
+      if (playBtn) {
+        playBtn.onclick = () => {
+          if (!activeClip && clips.length > 0) {
+            activeClip = clips[0];
+            updateActiveChip(activeClip.idx);
+          }
+          if (!activeClip) return;
+          if (clipTimer) {
+            stopClipPlayback();
+          } else {
+            if (currentFrameIdx >= activeClip.frames.length - 1) {
+              playClip(activeClip, 0);
+            } else {
+              playBtn.textContent = '❚❚ 一時停止';
+              clipTimer = setInterval(() => {
+                if (!activeClip) { stopClipPlayback(); return; }
+                if (currentFrameIdx + 1 < activeClip.frames.length) {
+                  currentFrameIdx++;
+                  showClipFrame(activeClip, currentFrameIdx);
+                } else {
+                  stopClipPlayback();
+                }
+              }, 500);
+            }
+          }
+        };
+      }
+
+      const seekSlider = $('#clip-seek', page);
+      if (seekSlider) {
+        seekSlider.oninput = () => {
+          stopClipPlayback();
+          if (!activeClip && clips.length > 0) {
+            activeClip = clips[0];
+            updateActiveChip(activeClip.idx);
+          }
+          if (!activeClip) return;
+          currentFrameIdx = Math.max(0, Math.min(activeClip.frames.length - 1, parseInt(seekSlider.value, 10)));
+          showClipFrame(activeClip, currentFrameIdx);
+        };
+      }
+    }
+  }
+
   const showStill = (t, near = 15) => {
+    stopClipPlayback();
     if (video.src && video.style.display !== 'none') return;
     if (!stills.length) { stillCap.textContent = ''; showEmpty('静止画なし（この試合では静止画が保存されていません）'); return; }
     let best = stills[0];
     for (const s of stills) if (Math.abs(s.t - t) < Math.abs(best.t - t)) best = s;
     const d = Math.abs(best.t - t);
     if (d > near) { stillCap.textContent = `最も近い静止画は ${mss(best.t)}（対象から ±${d.toFixed(1)}秒）`; showEmpty(`静止画なし（${mss(t)} の近くには静止画がありません）`); return; }
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
     if (stillUrl) URL.revokeObjectURL(stillUrl);
     stillUrl = URL.createObjectURL(best.blob);
     stillImg.onerror = () => { stillCap.textContent = ''; showEmpty('静止画なし（静止画を表示できません）'); };
@@ -1869,6 +2152,15 @@ PAGES.match = async () => {
 
   const seek = t => {
     lastSeekTime = t;
+    const hasLocalVideo = video.src && video.style.display !== 'none';
+    if (!hasLocalVideo) {
+      const clip = clipAt(clips, t);
+      if (clip) {
+        playClip(clip, 0);
+        return;
+      }
+    }
+    stopClipPlayback();
     showStill(t);
     if (tlEl && tlEl.setPlayhead && !video.src) tlEl.setPlayhead(t);
     if (video.src) {
@@ -2438,6 +2730,141 @@ PAGES.trend = async () => {
     </div>
   `;
 
+  const PRESENCE_KIND_LABEL = {
+    main: 'メイン',
+    unknown: '未登録',
+    ambiguous: '区別不可'
+  };
+
+  const enemyIconLib = await getEnemyIconLib();
+  const presenceStats = enemyPresenceRows(filtered, enemyIconLib);
+  let presenceBodyHtml = '';
+  if (presenceStats.withIcons === 0) {
+    presenceBodyHtml = `
+      <div class="empty-state">
+        <p class="muted">まだ結果画面のアイコンを保存した試合がありません</p>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
+        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
+        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
+      </div>
+    `;
+  } else {
+    const presenceRowsHtml = presenceStats.rows.map(r => {
+      const kindLabel = PRESENCE_KIND_LABEL[r.kind] || r.kind || '—';
+      const winRateCell = r.low
+        ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>`
+        : pct(r.winRate);
+      return `
+        <tr class="${r.low ? 'trend-stage-low' : ''}">
+          <td>${esc(r.name)}</td>
+          <td>${esc(kindLabel)}</td>
+          <td class="num">${r.matches}</td>
+          <td class="num">${r.wins}勝${r.losses}敗</td>
+          <td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td>
+        </tr>
+      `;
+    }).join('');
+
+    presenceBodyHtml = `
+      <div style="overflow-x:auto">
+        <table class="table trend-stage-table trend-weapon-table">
+          <thead>
+            <tr>
+              <th>ブキ</th>
+              <th>種類</th>
+              <th>いた試合</th>
+              <th>勝敗</th>
+              <th>いた試合の勝率</th>
+            </tr>
+          </thead>
+          <tbody>${presenceRowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
+        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
+        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
+      </div>
+    `;
+  }
+
+  const enemyPresenceCardHtml = `
+    <div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">いた敵ブキ（結果画面のアイコン）</div>
+      ${presenceBodyHtml}
+    </div>
+  `;
+
+  const WEAPON_KIND_LABEL = {
+    main: 'メイン',
+    special: 'スペシャル',
+    sub: 'サブ',
+    unknown: '未登録'
+  };
+
+  const weaponStats = enemyWeaponRows(filtered);
+  let weaponBodyHtml = '';
+  if (weaponStats.rows.length === 0) {
+    weaponBodyHtml = `
+      <div class="empty-state">
+        <p class="muted">まだやられた相手のブキを読めたデスがありません</p>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>デスしたときの吹き出し（「〇〇 で やられた!」）から読んだ名前です。読めたデス ${weaponStats.readDeaths}/${weaponStats.totalDeaths} 件</div>
+      </div>
+    `;
+  } else {
+    const weaponRowsHtml = weaponStats.rows.map(r => {
+      const kindLabel = WEAPON_KIND_LABEL[r.kind] || r.kind || '—';
+      const winRateCell = r.low
+        ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>`
+        : pct(r.winRate);
+      return `
+        <tr class="${r.low ? 'trend-stage-low' : ''}">
+          <td>${esc(r.name)}</td>
+          <td>${esc(kindLabel)}</td>
+          <td class="num">${r.matches}</td>
+          <td class="num">${r.wins}勝${r.losses}敗</td>
+          <td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td>
+          <td class="num">${r.killed}</td>
+        </tr>
+      `;
+    }).join('');
+
+    weaponBodyHtml = `
+      <div style="overflow-x:auto">
+        <table class="table trend-stage-table trend-weapon-table">
+          <thead>
+            <tr>
+              <th>ブキ</th>
+              <th>種類</th>
+              <th>やられた試合</th>
+              <th>勝敗</th>
+              <th>やられた試合の勝率</th>
+              <th>やられた回数</th>
+            </tr>
+          </thead>
+          <tbody>${weaponRowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
+        <div>デスしたときの吹き出し（「〇〇 で やられた!」）から読んだ名前です。読めたデス ${weaponStats.readDeaths}/${weaponStats.totalDeaths} 件</div>
+        <div>母数は“そのブキにやられた試合”です。試合にいても自分を倒していないブキは数えていません。スペシャル・サブの名前からは相手のメインブキは分かりません</div>
+        <div>やられた試合は負けに偏りやすいため、この勝率は“そのブキがいた試合全体の勝率”より低めに出ます</div>
+        <div>5試合未満の行は参考になりません。全体の勝率は ${pct(weaponStats.overallWinRate)} です</div>
+      </div>
+    `;
+  }
+
+  const weaponCardHtml = `
+    <div class="card trend-weapon-card" style="margin-bottom:var(--sp-6)">
+      <div class="card-title">やられた相手のブキ</div>
+      ${weaponBodyHtml}
+    </div>
+  `;
+
   // 4. Top 8 winrate-lowering deaths & winrate-raising kills
   const topDeaths = deaths.filter(e => e.wp_delta !== undefined).sort((a, b) => a.wp_delta - b.wp_delta).slice(0, 8);
   const topKills = kills.filter(e => e.wp_delta !== undefined && e.wp_delta >= 0.005).sort((a, b) => b.wp_delta - a.wp_delta).slice(0, 8);
@@ -2649,6 +3076,8 @@ PAGES.trend = async () => {
     </div>
 
     ${stageCardHtml}
+    ${enemyPresenceCardHtml}
+    ${weaponCardHtml}
 
     <div class="trends-two-col">
       <div class="card">

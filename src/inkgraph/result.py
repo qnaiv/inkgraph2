@@ -18,17 +18,28 @@ def celebration(img):
     if max(w,l)<0.6: return None
     return 'WIN' if w>l else 'LOSE'
 LOBBY_XY=(550,25)
+LOBBY_TPLS=[('tpl_res_lobby.png','bankara'),('tpl_res_lobby_x.png','x')]
+def panel_match(img):
+    reg=img[0:110,450:800]
+    tb=T('tpl_res_lobby.png')
+    sb,(xb,yb)=_loc(reg,tb,170) if tb is not None else (0.0,(0,0))
+    tx=T('tpl_res_lobby_x.png')
+    if tx is not None:
+        sx,(xx,yx)=_loc(reg,tx,170)
+        if sx>sb:
+            return (sx,xx+450-LOBBY_XY[0],yx-LOBBY_XY[1],'x')
+    return (sb,xb+450-LOBBY_XY[0],yb-LOBBY_XY[1],'bankara')
 def panel_offset(img):
-    s,(x,y)=_loc(img[0:110,450:800],T('tpl_res_lobby.png'),170)
-    return (s, x+450-LOBBY_XY[0], y-LOBBY_XY[1])
+    s,dx,dy,_=panel_match(img)
+    return (s,dx,dy)
 BANNER_XY={'top':(625,215),'bot':(625,455)}
 def classify(img):
     c=celebration(img)
     if c: return ('celebration',c,(0,0))
-    s,dx,dy=panel_offset(img)
+    s,dx,dy,panel=panel_match(img)
     if s<0.6: return (None,None,(0,0))
     bw=_banner_score(img,dx,dy)
-    return ('board' if bw>0.5 else 'personal',None,(dx,dy))
+    return ('board' if bw>0.5 else 'personal',panel,(dx,dy))
 def _banner_score(img,dx,dy):
     def sc(name,x,y):
         reg=img[max(0,y+dy-15):y+dy+45,max(0,x+dx-15):x+dx+125]; t=imread_unicode(os.path.join(TPL,name))
@@ -38,11 +49,17 @@ def _banner_score(img,dx,dy):
     return min(sc('tpl_res_board_win.png',625,215),sc('tpl_res_board_lose.png',625,455))
 # ---------- header (mode / stage) ----------
 MODE_BOX=(552,50,650,84); STAGE_BOX=(655,52,800,84)
+MODE_MARGIN=0.1
+# ステージ名の開始位置オフセット（実測：ホコはルール名が長いため+38px右にずれる。ガチエリア/ガチアサリ等は未計測のため今回追加しない）
+STAGE_DX_BY_MODE={'ガチホコバトル':38}
 def _crop(img,box,dx,dy): x0,y0,x1,y1=box; return img[y0+dy:y1+dy,x0+dx:x1+dx]
 def _lib(kind):
     return {os.path.splitext(os.path.basename(p))[0]:imread_unicode(p,0) for p in glob.glob(os.path.join(TPL,'res_'+kind,'*.png'))}
 def _norm_text(c): return cv2.resize(_wb(c,170),(120,32),interpolation=cv2.INTER_AREA).astype(np.float32)
-def header_crops(img,dx,dy): return _crop(img,MODE_BOX,dx,dy),_crop(img,STAGE_BOX,dx,dy)
+def header_crops(img,dx,dy,mode=None):
+    sdx=STAGE_DX_BY_MODE.get(mode,0)
+    sbox=(STAGE_BOX[0]+sdx,STAGE_BOX[1],STAGE_BOX[2]+sdx,STAGE_BOX[3])
+    return _crop(img,MODE_BOX,dx,dy),_crop(img,sbox,dx,dy)
 def _best(c,lib):
     if not lib: return None,0.0
     v=_norm_text(c); best=(None,-1)
@@ -51,12 +68,36 @@ def _best(c,lib):
         a=v-v.mean(); b=tt-tt.mean(); s=float((a*b).sum()/(np.sqrt((a*a).sum()*(b*b).sum())+1e-6))
         if s>best[1]: best=(k,s)
     return best
-def read_header(img,dx,dy,exclude=None):
-    m,s=header_crops(img,dx,dy); lm=_lib('mode'); ls=_lib('stage')
+def _best_mode(c,lib):
+    if not lib: return None,0.0,None
+    v=_norm_text(c); c_scores={}
+    for k,t in lib.items():
+        tt=cv2.resize(t,(120,32)).astype(np.float32)
+        a=v-v.mean(); b=tt-tt.mean(); s=float((a*b).sum()/(np.sqrt((a*a).sum()*(b*b).sum())+1e-6))
+        cls=k.split('__')[0]
+        if cls not in c_scores or s>c_scores[cls]: c_scores[cls]=s
+    if not c_scores: return None,0.0,None
+    sorted_s=sorted(c_scores.items(),key=lambda x:x[1],reverse=True)
+    best_mode,best_score=sorted_s[0]
+    margin=(best_score-sorted_s[1][1]) if len(sorted_s)>1 else None
+    return best_mode,best_score,margin
+def read_header(img,dx,dy,exclude=None,panel=None):
+    lm=_lib('mode'); ls=_lib('stage')
     if exclude: lm={k:v for k,v in lm.items() if exclude not in k}; ls={k:v for k,v in ls.items() if exclude not in k}
-    mk,ms=_best(m,lm); sk,ss=_best(s,ls)
+    m=_crop(img,MODE_BOX,dx,dy)
+    best_mode,ms,margin=_best_mode(m,lm)
+    mode=best_mode if (ms>0.5 and (margin is None or margin>=MODE_MARGIN)) else None
+    _,s=header_crops(img,dx,dy,mode=mode)
+    sk,ss=_best(s,ls)
     strip=lambda k: k.split('__')[0] if k else None
-    return {'mode':strip(mk) if ms>0.5 else None,'mode_score':round(ms,2),'stage':strip(sk) if ss>0.5 else None,'stage_score':round(ss,2)}
+    return {
+        'mode':mode,
+        'mode_score':round(ms,2),
+        'mode_margin':round(margin,2) if margin is not None else None,
+        'stage':strip(sk) if ss>0.5 else None,
+        'stage_score':round(ss,2),
+        'match_type':'x' if panel=='x' else None
+    }
 # ---------- digits ----------
 def _white(img): h=cv2.cvtColor(img,cv2.COLOR_BGR2HSV); return ((h[...,2]>165)&(h[...,1]<80)).astype(np.uint8)
 def stat_glyphs(img,y0,y1,x0,x1):
@@ -136,10 +177,12 @@ def _vote(vals):
     u,c=np.unique(np.array(vals,dtype=object).astype(str),return_counts=True); return vals[[str(v) for v in vals].index(u[np.argmax(c)])]
 def read_results(path,start,end=None,exclude_src=None,exclude_hdr=None,S=None):
     S=S or scan(path,start,end)
-    res={'result':_vote([v for _,v,_,_ in S['celebration']]),'mode':None,'stage':None,'own':None,'board':None,'board_frame_t':None}
+    res={'result':_vote([v for _,v,_,_ in S['celebration']]),'mode':None,'stage':None,'match_type':None,'own':None,'board':None,'board_frame_t':None}
     hdr_src=_pick(S['board'])+_pick(S['personal'])
-    hs=[read_header(img,*off,exclude=exclude_hdr) for _,_,off,img in hdr_src]
-    res['mode']=_vote([h['mode'] for h in hs]); res['stage']=_vote([h['stage'] for h in hs])
+    hs=[read_header(img,*off,exclude=exclude_hdr,panel=panel) for _,panel,off,img in hdr_src]
+    res['mode']=_vote([h['mode'] for h in hs]); res['stage']=_vote([h['stage'] for h in hs]); res['match_type']=_vote([h['match_type'] for h in hs])
+    m_margins=[h['mode_margin'] for h in hs if h.get('mode')==res['mode'] and h.get('mode_margin') is not None]
+    res['mode_margin']=min(m_margins) if m_margins else min([h['mode_margin'] for h in hs if h.get('mode_margin') is not None], default=None)
     pers=[read_personal(img,*off,exclude_src=exclude_src) for _,_,off,img in _pick(S['personal'])]
     own=None
     if any(pers): own={k:_vote([p[k] for p in pers if p]) for k in ('ka','deaths','specials')}

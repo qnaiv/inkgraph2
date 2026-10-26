@@ -12,6 +12,7 @@ for n,th in [('tpl_colon.png',127),('tpl_signal_yarareta.png',127),('tpl_signal_
 mx=gray('tpl_mapx.png')[15:75,15:75]; out['tpl']['tpl_mapx']=binimg(mx,200)
 for n in ('tpl_res_cel_win','tpl_res_cel_lose'): out['tpl'][n]=binimg(gray(n+'.png'),200)
 out['tpl']['tpl_res_lobby']=binimg(gray('tpl_res_lobby.png'),170)
+out['tpl']['tpl_res_lobby_x']=binimg(gray('tpl_res_lobby_x.png'),170)
 for n in ('tpl_res_board_win','tpl_res_board_lose'):
     v=cv2.cvtColor(imread_unicode(os.path.join(TPL,n+'.png')),cv2.COLOR_BGR2HSV)[...,2]
     out['gray'][n]=dict(w=int(v.shape[1]),h=int(v.shape[0]),data=b64(v))
@@ -24,5 +25,11 @@ clf=pickle.load(open(os.path.join(MODELS,'icon_lr.pkl'),'rb'))
 out['icon_lr']=dict(coef=[round(float(x),6) for x in clf.coef_.ravel()],intercept=float(clf.intercept_[0]))
 for key,f in (('digits','digits.npz'),('tc_digits','tc_badge_digits.npz')):
     z=np.load(os.path.join(TPL,'res_digits',f)); out[key]=dict(X=[[round(float(v),4) for v in r] for r in z['X']],y=[int(v) for v in z['y']])
+# D47: デスカメ吹き出しの「やられた!」（720p の 2 値）と、やられた相手のブキ名の見本（web/tools/killer_lib_build.mjs が作る）
+kl=os.path.join(TPL,'killer_lib.json')
+out['killer']=dict(tpl=binimg(gray('tpl_deathcam_yarareta.png'),127),lib=json.load(open(kl,encoding='utf-8'))['lib'] if os.path.exists(kl) else [])
+# D48: 結果画面ボードの敵ブキアイコン見本（web/tools/enemy_icon_lib_build.mjs が作る）
+eil=os.path.join(TPL,'enemy_icon_lib.json')
+out['enemy_icon']=json.load(open(eil,encoding='utf-8')) if os.path.exists(eil) else {'lib':[]}
 p=os.path.join(ROOT,'web','public','assets','inkgraph_assets.json'); json.dump(out,open(p,'w'),ensure_ascii=False)
 print('wrote',p,os.path.getsize(p))

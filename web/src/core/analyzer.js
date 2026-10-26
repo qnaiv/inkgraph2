@@ -4,7 +4,37 @@ import * as C from './cues.js';
 import * as R from './result.js';
 import * as T from './tower.js';
 import { runs, medfilt, median, r1 } from './img.js';
-export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
+import { readKiller, decideKiller, KP } from './killer.js';
+import { LiveSpecialTracker } from './live_special.js';
+export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240, sp_drain_min: 0.15, sp_drain_win: 1.5, sp_end_tol: 0.5 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
+
+export function specialOutcome(a, b, deathStarts, t, go, lastOk = null) {
+  const endTol = P.sp_end_tol ?? 0.5;
+  const drainWin = P.sp_drain_win ?? 1.5;
+  const drainMin = P.sp_drain_min ?? 0.15;
+
+  const endDeath = deathStarts.some(s => s >= Math.max(a, b - endTol) && s <= b + 1.0); // 従来の窓 a〜b+1.0 の内側だけを見る
+  if (endDeath) {
+    return { outcome: 'lost_on_death', mid_death: false, drain: null };
+  }
+
+  const midDeath = deathStarts.some(s => s >= a && s < b - endTol);
+  if (midDeath) {
+    let maxGo = -Infinity;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] > b && t[i] <= b + drainWin) {
+        if (go[i] > maxGo) maxGo = go[i];
+      }
+    }
+    const drain = maxGo === -Infinity ? 0.0 : +maxGo.toFixed(2);
+    const outcome = drain >= drainMin ? 'activated' : 'lost_on_death';
+    return { outcome, mid_death: true, drain };
+  }
+
+  const unused = lastOk != null && b >= lastOk - 1.0;
+  const outcome = unused ? 'unused_at_end' : 'activated';
+  return { outcome, mid_death: false, drain: null };
+}
 
 export class DeathLatch {
   constructor(clearSec = 1.0) {
@@ -39,8 +69,8 @@ export class DeathLatch {
 }
 
 export class Analyzer {
-  constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); }
-  newBattle(t) { this.deathLatch.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); this.liveSp = new LiveSpecialTracker(); }
+  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
     this.lastT = t; const tp = C.timerPresent(this.A, fr);
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
@@ -48,8 +78,8 @@ export class Analyzer {
       const m = this.cur; if (tp) m.lastTp = t;
       if (t - m.lastTp > P.battle_gap) { // battle over
         m.F = m.F.filter(f => f.t <= m.lastTp + 1e-6); m.b = m.lastTp;
-        if (m.b - m.a < P.battle_min) { this.cur = null; this.state = 'idle'; this.onEvent({ type: 'battle_discard', t }); }
-        else { this.state = 'result'; m.resultFrom = m.b; this.onEvent({ type: 'battle_end', t: m.b }); }
+        if (m.b - m.a < P.battle_min) { this.liveSp.reset(); this.cur = null; this.state = 'idle'; this.onEvent({ type: 'battle_discard', t }); }
+        else { this.state = 'result'; m.resultFrom = m.b; for (const e of this.liveSp.end(m.b)) this.onEvent(e); this.onEvent({ type: 'battle_end', t: m.b }); }
       } else { this.battleFrame(fr, t, tp);
         if (tp) { if (m.RS.celebration.length + m.RS.personal.length + m.RS.board.length) m.RS = { celebration: [], personal: [], board: [] }; }
         else if (t - m.lastTp > 2) this.resultFrame(fr, t); }
@@ -69,8 +99,11 @@ export class Analyzer {
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
     if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); }
     if (m.spPrev <= 0.2 && gw > 0.2) this.onEvent({ type: 'special_ready', t });
+    if (m.spPrev > 0.2 && gw <= 0.2) this.onEvent({ type: 'special_end', t });
     m.spPrev = gw;
-    if (this.deathLatch.update(sg.dead, tp, mp, t)) this.onEvent({ type: 'own_death', t });
+    if (this.deathLatch.update(sg.dead, tp, mp, t)) { this.liveSp.death(t); this.onEvent({ type: 'own_death', t }); if (A.killer) m.kscan.push({ t0: t, reads: [] }); }
+    for (const e of this.liveSp.frame({ t, gw, ok: tp, map: mp, dead: sg.dead })) this.onEvent(e);
+    this.killerStep(fr, t);
     const prevSlots = (m.F.length && m.F[m.F.length - 1].killSlots) ? m.F[m.F.length - 1].killSlots : [];
     for (let i = 0; i < killSlots.length; i++) {
       const prev = i < prevSlots.length ? !!prevSlots[i] : false;
@@ -78,20 +111,27 @@ export class Analyzer {
     }
     m.F.push(f);
   }
+  // D47: デス直後のデスカメ吹き出し「<ブキ名> で / やられた!」を +1〜+8 秒の間だけ読む
+  killerStep(fr, t) {
+    const m = this.cur, A = this.A; if (!A.killer || !m.kscan.length) return; const k = m.kscan[m.kscan.length - 1];
+    if (t < k.t0 + KP.from || t > k.t0 + KP.to || k.done) return;
+    const r = readKiller(A, fr); if (!r) return; k.reads.push(r);
+    if (r.name && r.score >= 0.9) k.done = true; // 十分に似た見本があれば以降は読まない
+  }
   fixHue() { const m = this.cur; m.th = m.hist.map(h => { let bi = 0; for (let i = 1; i < 180; i++) if (h[i] > h[bi]) bi = i; return h[bi] ? bi : 0; });
     for (const [f, c, fr] of m.pend) this.iconStep(f, c, fr); m.pend = []; }
   iconStep(f, crops, fr) { const m = this.cur; f.p = crops.map((c, i) => C.iconProb(this.A, C.iconFeat(c, m.th[i >> 2]))); f.s = crops.map(c => C.iconSat(c)); if (fr) f.ally = C.allyPlateCrossed(fr, m.th[0]); }
   resultFrame(fr, t) {
     const m = this.cur, c = R.classify(this.A, fr); if (!c) return; m.lastRes = t;
     if (c.kind === 'celebration') m.RS.celebration.push({ t, value: c.value });
-    else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined);
+    else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined, c.panel);
       const e = { t, header }; if (c.kind === 'personal') e.personal = R.readPersonal(this.A, fr, dx, dy); else e.board = R.readBoard(this.A, fr, dx, dy);
       m.RS[c.kind].push(e);
       const lowConf = !header.mode || !header.stage || (c.kind === 'personal' && !e.personal);
       if (m.snaps.length < 6 && (m.snaps.length < 2 || lowConf) && (!m.snaps.length || t - m.snaps[m.snaps.length - 1].t > 1.5)) this.onEvent({ type: 'snapshot', t, reason: lowConf ? 'リザルト画面の読み取りに自信なし' : 'リザルト画面のサンプル', kind: c.kind, header });
       if (lowConf || m.snaps.length < 2) m.snaps.push({ t }); }
   }
-  flush() { if (this.state === 'battle') { const m = this.cur; m.b = m.lastTp; if (m.b - m.a >= P.battle_min) { this.state = 'result'; this.finish(); } else { this.cur = null; this.state = 'idle'; this.deathLatch.reset(); } }
+  flush() { if (this.state === 'battle') { const m = this.cur; m.b = m.lastTp; if (m.b - m.a >= P.battle_min) { for (const e of this.liveSp.end(m.b)) this.onEvent(e); this.state = 'result'; this.finish(); } else { this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.liveSp.reset(); } }
     else if (this.state === 'result') this.finish(); }
   finish() {
     const m = this.cur; if (!m) return; if (!m.th) this.fixHue();
@@ -100,11 +140,29 @@ export class Analyzer {
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
-    if (rs.mode === 'ガチヤグラ' && m.tower.length) tagEvents(rec, T.series(m.tower));
-    rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
-    rec.tower_raw = m.tower.length; this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.onMatch(rec);
+    const ownRow = rs.board ? rs.board.find(b => b.own) : null;
+    rec.enemy_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === (ownRow.group === 'top' ? 'bot' : 'top')).map(b => ({ slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
+    if (isTowerRule(rs.mode) && m.tower.length) tagEvents(rec, T.series(m.tower));
+    if (isTowerRule(rs.mode)) {
+      rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
+      rec.tower_raw = m.tower.length;
+    } else {
+      rec.tower_rows = [];
+      rec.tower_raw = 0;
+    }
+    this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.liveSp.reset(); this.onMatch(rec);
   }
 }
+/** D47: 読み取り（デス検知時刻 t0 ごと）を、検出したデス区間に付ける。1 回のデスでデス検知が 2 回出ることがある（例: 290.2 と 292.0）ので、
+ *  同じデス区間に対応した読み取りはまとめてから決める。吹き出しが読めなかったデスには付けない */
+export function attachKillers(deaths, kscan) {
+  const byDeath = new Map();
+  for (const k of kscan) { if (!k.reads.length) continue; let best = null, bd = Infinity;
+    for (const e of deaths) { const d = k.t0 < e.start ? e.start - k.t0 : (k.t0 <= e.end ? 0 : k.t0 - e.end); if (d < bd) { bd = d; best = e; } }
+    if (!best || bd > 3) continue; if (!byDeath.has(best)) byDeath.set(best, []); byDeath.get(best).push(...k.reads); }
+  for (const [e, reads] of byDeath) if (!e.killed_by) e.killed_by = decideKiller(reads);
+}
+export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
 export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
@@ -187,10 +245,18 @@ export function buildMatch(m, no, srcH) {
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
   const hidden = runs(t, ok.map(v => !v), 1.0, 0.6), maps = runs(t, mp, 0.4, 1.0);
   const owndead = t.map(x => ev.L0.some(e => x >= e.start && x <= e.end));
-  const ready = medfilt(F.map((f, i) => f.gw > 0.2 && !owndead[i] && ok[i] && !mp[i]), 3); const sp = []; const okT = t.filter((_, i) => ok[i]); const lastOk = okT.length ? okT[okT.length - 1] : 0;
-  for (const [a, b] of runs(t, ready, P.sp_min, 3.0)) { const lost = ev.L0.some(e => a <= e.start && e.start <= b + 1.0); const unused = !lost && okT.length && b >= lastOk - 1.0;
-    const outcome = lost ? 'lost_on_death' : (unused ? 'unused_at_end' : 'activated');
-    sp.push({ ready: r1(a), end: r1(b), outcome, activated_at: outcome === 'activated' ? r1(b) : null }); }
+  const ready = medfilt(F.map((f, i) => f.gw > 0.2 && !owndead[i] && ok[i] && !mp[i]), 3); const sp = []; const okT = t.filter((_, i) => ok[i]); const lastOk = okT.length ? okT[okT.length - 1] : null;
+  const deathStarts = ev.L0.map(e => e.start);
+  const go = F.map(f => f.go ?? 0);
+  for (const [a, b] of runs(t, ready, P.sp_min, 3.0)) {
+    const res = specialOutcome(a, b, deathStarts, t, go, lastOk);
+    const item = { ready: r1(a), end: r1(b), outcome: res.outcome, activated_at: res.outcome === 'activated' ? r1(b) : null };
+    if (res.mid_death) {
+      item.mid_death = true;
+      item.drain = +res.drain.toFixed(2);
+    }
+    sp.push(item);
+  }
   const hasKillSlots = F.some(f => f.killSlots && f.killSlots.length);
   const kills = hasKillSlots
     ? killEventsFromSlots(t, F)
@@ -199,6 +265,7 @@ export function buildMatch(m, no, srcH) {
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
   for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
+  attachKillers(rec.own_deaths, m.kscan || []);
   for (const e of rec.special) { const [a, b] = aliveAt(rec, e.ready); e.alive_at_ready = `${a}v${b}`; }
   for (const e of rec.own_kills) { const [a, b] = aliveAt(rec, e.start - 1.0); e.alive_before = `${a}v${b}`; }
   return rec;
