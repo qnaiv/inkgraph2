@@ -105,4 +105,14 @@ console.log('--- 送り先（プロジェクト）が変わったとき（D63）
   check(r3.ok && r3.pushed === 3 && c3.rows.size === 3, '(21)「すべて送り直す」で、空のクラウドにも全部が届く', JSON.stringify(r3));
   check((await createSync(c3.client, pcB).pendingCount()) === 0, '(22) 送り終えたら「まだ送っていない試合」は 0 件');
 }
+console.log('--- ブキアイコンの見本の同期（D65） ---');
+{
+  const A = fakeDevice('A'), B = fakeDevice('B'), c = fakeCloud(); let libA = [{ name: 'テストX', icon: 'AAAA' }], libB = [{ name: 'テストY', icon: 'BBBB' }];
+  const depsFor = (d, get, set) => ({ ...d, getWeaponLib: get, mergeWeaponLib: items => { set(items); } });
+  const sa = createSync(c.client, depsFor(A, () => libA, v => { libA = v; })), sb = createSync(c.client, depsFor(B, () => libB, v => { libB = v; }));
+  await sa.syncOnce(); await sb.syncOnce(); await sa.syncOnce();
+  const key = l => JSON.stringify(l.map(x => x.name).sort());
+  check(key(libA) === '["テストX","テストY"]' && key(libB) === '["テストX","テストY"]', '(23) 別々に付けたブキアイコンの名前が、両方の端末で和集合になる', `${key(libA)} / ${key(libB)}`);
+  const before = JSON.stringify(c.settings.get('u1').data.weaponLib.items.length); await sa.syncOnce(); check(JSON.stringify(c.settings.get('u1').data.weaponLib.items.length) === before && before === '2', '(24) 同じものを重ねて保存しない（2 件のまま）', before);
+}
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS'); process.exit(fails ? 1 : 0);
