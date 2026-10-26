@@ -2244,5 +2244,5 @@ tr.added td {
   .detail-header, .detail-header-stats, .learn-actions-row { flex-wrap: wrap; }
   .match-row { flex-wrap: wrap; gap: var(--sp-2); }
   svg { max-width: 100%; height: auto; }
-  #learn-panel, #tune-panel { display: none; } /* 自己学習・自動調整は記録する PC の機能 */
+  #learn-panel, #tune-panel, #retention-panel { display: none; } /* 自己学習・自動調整は記録する PC の機能 */
 }

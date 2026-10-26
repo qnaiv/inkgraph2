@@ -988,6 +988,7 @@ PAGES.list = async () => {
       </details>
     ` : ''}
 
+    <section id="retention-panel" class="card learn-panel"></section>
     <section id="cloud-panel" class="card learn-panel"></section>
     <section id="learn-panel" class="card learn-panel"></section>
     <section id="tune-panel" class="card learn-panel"></section>
@@ -1690,6 +1691,28 @@ PAGES.list = async () => {
     const au = $('#cloud-auto', el); if (au) au.onchange = e => Cloud.setAuto(e.target.checked);
   };
   await updateCloudPanel();
+
+  // D59: 静止画・場面クリップを残す試合数（古いものから自動で消す。数値データは残る）
+  const updateRetentionPanel = async () => {
+    const el = $('#retention-panel', page); if (!el) return;
+    const keep = db.getRetentionKeep(), plan = await db.retentionPlan(keep), favN = ms.filter(x => x.favorite === true).length;
+    el.innerHTML = `
+      <div class="learn-panel-header"><div class="learn-panel-title-wrap"><h2 class="learn-panel-title">画像・クリップの保存数</h2>
+        <span class="learn-badge badge-neutral">直近 ${keep} 試合</span></div></div>
+      <div class="learn-panel-body">
+        <p class="muted">確認用の静止画・場面クリップ（と、昔の録画）を、新しい試合から何試合ぶん残すかを決めます。試合を保存するたびに、これより古いものを自動で消します。<strong>試合の数値データ（検出結果・確認画面の修正）は消えません</strong>（クラウドにも同期されます）。お気に入り（★）の試合は数えず、自動では消しません${favN ? `（今は ${favN} 試合）` : ''}。</p>
+        <div class="learn-actions-row">
+          <label>残す試合数
+            <select id="retention-keep" class="input-sm">${db.RETENTION_CHOICES.concat(db.RETENTION_CHOICES.includes(keep) ? [] : [keep]).sort((a, b) => a - b).map(n => `<option value="${n}" ${n === keep ? 'selected' : ''}>${n} 試合${n === db.RETENTION_DEFAULT ? '（既定）' : ''}</option>`).join('')}</select>
+          </label>
+          <button class="btn" id="retention-now" type="button" ${plan.length ? '' : 'disabled'}>いま整理する（${plan.length} 試合ぶんを消す）</button>
+        </div>
+      </div>`;
+    const run = async n => { const p = await db.retentionPlan(n); if (p.length && !confirm(`${p.length} 試合ぶんの静止画・場面クリップ（と昔の録画）を削除します。試合の数値データは残ります。よろしいですか？`)) return false; db.setRetentionKeep(n); await db.enforceRetention(n); return true; };
+    $('#retention-keep', el).onchange = async e => { const n = +e.target.value, prev = db.getRetentionKeep(); if (await run(n)) PAGES.list(); else e.target.value = String(prev); };
+    $('#retention-now', el).onclick = async () => { if (await run(db.getRetentionKeep())) PAGES.list(); };
+  };
+  await updateRetentionPanel();
 };
 
 // ============================================================================

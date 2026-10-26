@@ -229,7 +229,7 @@ export class Session {
         });
       }
     }
-    try { await db.enforceRetention(30); } catch (e) { console.warn('enforceRetention failed', e); }
+    try { await db.enforceRetention(); } catch (e) { console.warn('enforceRetention failed', e); }
     try { await db.enforceCapacity(); } catch (e) { console.warn('enforceCapacity failed', e); }
     this.cb.match?.(rec);
   }
