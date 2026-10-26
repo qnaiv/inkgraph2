@@ -1050,6 +1050,7 @@ PAGES.list = async () => {
 
               <div class="match-row-col-stage">
                 <span class="match-row-title">${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')}</span>
+                ${(!r.mode && m.result_screen && m.result_screen.mode_unknown) ? '<span class="badge" title="結果画面は読めましたが、登録済みのどのルールとも十分に一致しませんでした（ガチアサリなど、見本の無いルールかもしれません）。確認画面でルール名を直して正解データを書き出すと、見本として追加できます。" style="font-size:11px">未登録のルール？</span>' : ''}
                 <span class="stills-state">${esc(stillsStateLabel(m))}</span>
                 <span class="export-state" data-state="${FB.exportStateOf(m)}">${esc(EXPORT_STATE_LABEL[FB.exportStateOf(m)])}</span>
                 <span class="result-status" data-status="${rsStat.key}">${esc(rsStat.label)}</span>
@@ -2270,7 +2271,7 @@ PAGES.match = async () => {
               <button class="mk ${mk === 'wrong' ? 'on-wrong' : ''}" data-f="${k}" data-v="wrong" type="button">✗</button>
             </td>
             <td>
-              ${mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">` : ''}
+              ${mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
             </td>
           </tr>`;
         }).join('')}
