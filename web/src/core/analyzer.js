@@ -6,6 +6,7 @@ import * as T from './tower.js';
 import { runs, medfilt, median, r1 } from './img.js';
 import { readKiller, decideKiller, KP } from './killer.js';
 import { LiveSpecialTracker } from './live_special.js';
+import { reconcileCounts } from './reconcile.js';
 export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240, sp_drain_min: 0.15, sp_drain_win: 1.5, sp_end_tol: 0.5 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
 
 export function specialOutcome(a, b, deathStarts, t, go, lastOk = null) {
@@ -91,9 +92,9 @@ export class Analyzer {
   }
   battleFrame(fr, t, tp) {
     const m = this.cur, A = this.A; const mp = C.mapOpen(A, fr), sg = C.ownDeadSignal(A, fr);
-    const killSlots = C.killNoticeSlots(A, fr), kill = killSlots.some(Boolean);
+    const ksc = C.killNoticeSlotScores(A, fr), killSlots = ksc.map(s => s > 0.6), kill = killSlots.some(Boolean);
     const [gw, go] = C.gauge(fr), crops = C.iconCrops(fr);
-    const f = { t, ok: tp, map: mp, sig: sg.dead, kill, killSlots, gw, go, p: null, s: null, ally: null };
+    const f = { t, ok: tp, map: mp, sig: sg.dead, sy: sg.soft, ks: Math.max(0, ...ksc), kill, killSlots, gw, go, p: null, s: null, ally: null };
     if (!m.th) { if (tp && m.hueN < 60) { C.hueHist(crops, 0, m.hist[0]); C.hueHist(crops, 1, m.hist[1]); m.hueN++; }
       m.pend.push([f, crops, mp ? fr : null]);
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
@@ -135,7 +136,7 @@ export class Analyzer {
     else if (this.state === 'result') this.finish(); }
   finish() {
     const m = this.cur; if (!m) return; if (!m.th) this.fixHue();
-    const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH);
+    const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH, { own: rs.own, frames: m.RS.personal.length + m.RS.board.length });
     rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
@@ -231,7 +232,9 @@ export function killEventsFromSlots(t, F) {
   events.sort((x, y) => x.start - y.start || x.slot - y.slot);
   return events.map(e => ({ start: e.start, end: e.end }));
 }
-export function buildMatch(m, no, srcH) {
+export const SOFT_DEATH_TH = 0.35, SOFT_READY_TH = 0.12;
+const meanOf = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
+export function buildMatch(m, no, srcH, ctx = {}) {
   const F = m.F, t = F.map(f => f.t), ok = F.map(f => f.ok), mp = F.map(f => f.map), n = F.length;
   const d = F.map(f => (f.p || Array(8).fill(0)).map(p => p > P.icon_th));
   for (let k = 1; k < n; k++) if (!ok[k]) d[k] = d[k - 1].slice();
@@ -241,6 +244,7 @@ export function buildMatch(m, no, srcH) {
     ev[k] = runs(t, col, P.minlen, P.gap).filter(([a, b]) => keep(a, b)).map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'hud' })); });
   const sig = medfilt(F.map(f => f.sig), 5); const sr = mergeDeathRuns(t, sig, ok, mp);
   let own = sr.map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'signal' }));
+  const hudL0 = ev.L0; // 信号が拾えた試合では採用しない HUD 分類器の自分デス候補（D52 の補正候補にだけ使う）
   if (!sr.length) own = own.concat(ev.L0); ev.L0 = own.sort((x, y) => x.start - y.start);
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
   const hidden = runs(t, ok.map(v => !v), 1.0, 0.6), maps = runs(t, mp, 0.4, 1.0);
@@ -257,13 +261,29 @@ export function buildMatch(m, no, srcH) {
     }
     sp.push(item);
   }
+  // --- D52: 確信度（conf）と補正の候補 ---
+  const inWin = (a, b) => F.filter(f => f.t >= a - 1e-6 && f.t <= b + 1e-6);
+  for (const e of ev.L0) e.conf = +(e.src === 'signal' ? meanOf(inWin(e.start, e.end).map(f => f.sy || 0)) : 0.3 * (median(inWin(e.start, e.end).map(f => (f.p ? f.p[0] : 0))) || 0)).toFixed(2);
+  const accepted = ev.L0;
+  const softSig = medfilt(F.map(f => (f.sy || 0) >= SOFT_DEATH_TH), 5);
+  const deathCands = mergeDeathRuns(t, softSig, ok, mp, 1.0).map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'signal_soft', conf: +meanOf(inWin(a, b).map(f => f.sy || 0)).toFixed(2) }))
+    .concat(hudL0.filter(e => e.src === 'hud').map(e => ({ start: e.start, end: e.end, src: 'hud_soft', conf: +(0.3 * (median(inWin(e.start, e.end).map(f => (f.p ? f.p[0] : 0))) || 0)).toFixed(2) })))
+    .filter(c => !accepted.some(e => c.start <= e.end + 1.5 && e.start <= c.end + 1.5));
+  for (const e of sp) { const w = inWin(e.ready, e.end); e.conf = +(0.5 * Math.min(1, (e.end - e.ready) / 1.0) + 0.5 * Math.min(1, meanOf(w.map(f => f.gw)))).toFixed(2); }
+  const spReady = medfilt(F.map((f, i) => f.gw > SOFT_READY_TH && !owndead[i] && ok[i] && !mp[i]), 3);
+  const spCands = runs(t, spReady, 0.2, 1.0).map(([a, b]) => ({ ready: r1(a), end: r1(b), conf: +(0.1 + 0.3 * Math.min(1, meanOf(inWin(a, b).map(f => f.gw)))).toFixed(2) }));
+  const drainAt = b => { let mx = 0; for (let i = 0; i < t.length; i++) if (t[i] > b && t[i] <= b + P.sp_drain_win && go[i] > mx) mx = go[i]; return mx; };
+
   const hasKillSlots = F.some(f => f.killSlots && f.killSlots.length);
   const kills = hasKillSlots
     ? killEventsFromSlots(t, F)
     : runs(t, F.map(f => f.kill), 0.2, 1.0).map(([a, b]) => ({ start: r1(a), end: r1(b) }));
+  for (const e of kills) e.conf = +Math.max(0, ...inWin(e.start - 0.2, e.end + 0.2).map(f => f.ks || 0)).toFixed(2);
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
+  const recon = reconcileCounts(rec, { own: ctx.own, frames: ctx.frames, deathCands, spCands, drainAt });
+  rec.recon = ctx.own ? recon : null;
   for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
   attachKillers(rec.own_deaths, m.kscan || []);
   for (const e of rec.special) { const [a, b] = aliveAt(rec, e.ready); e.alive_at_ready = `${a}v${b}`; }

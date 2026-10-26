@@ -1060,6 +1060,7 @@ PAGES.list = async () => {
                   <span class="kda-item"><span class="kda-label">スペシャル発動</span><span class="kda-val num ${spMismatch ? 'mismatch-val' : ''}" ${spMismatch ? `title="リザルト画面ではスペシャル発動${esc(r.specials)}"` : ''}>${spCnt}</span></span>
                 </div>
                 ${showResultDiff ? `<span class="kda-mismatch" title="${esc(diffTip)}">リザルト画面では${diffParts.join('・')}</span>` : ''}
+                ${(m.recon && m.recon.applied && m.recon.applied.length) ? `<span class="kda-auto" title="${esc(m.recon.applied.map(a => `${KINDS[a.kind] || a.kind} ${a.action === 'added' ? '追加' : a.action === 'promoted' ? '発動に変更' : '削除'} ${mss(a.t - ((m.battle && m.battle[0]) || 0))}`).join('、'))}">リザルト画面に合わせて自動補正 ${m.recon.applied.length}件</span>` : ''}
               </div>
 
               <div class="match-row-col-prog">
@@ -2309,7 +2310,7 @@ PAGES.match = async () => {
             : e.kind === 'death'
               ? '<b style="color:var(--death)">×</b> '
               : '<b style="color:var(--special)">◆</b> ';
-          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '');
+          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '') + (e.src && e.src.auto ? '（自動補正）' : '');
           let extraBadge = '';
           if (e.kind === 'death') {
             const isWasted = spInts.some(si => si.outcome === 'lost_on_death' && Math.abs(e.t - si.end) <= 1.0);
