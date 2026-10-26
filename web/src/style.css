@@ -2242,7 +2242,24 @@ tr.added td {
   .main table { display: block; max-width: 100%; overflow-x: auto; }
   .page-header { flex-wrap: wrap; gap: var(--sp-2); }
   .detail-header, .detail-header-stats, .learn-actions-row { flex-wrap: wrap; }
-  .match-row { flex-wrap: wrap; gap: var(--sp-2); }
+  /* 試合一覧の行：PC は 5 列・高さ固定 72px。スマホでは「結果・日時＋メニュー／ルール・ステージ／キル・デス・スペシャル／確認の進み」を縦に積んだカードにする */
+  .match-row { grid-template-columns: 1fr auto; grid-template-areas: "res menu" "stage stage" "kda kda" "prog prog"; height: auto; padding: var(--sp-3) var(--sp-4); gap: var(--sp-2) var(--sp-3); align-items: center; }
+  .match-row-col-res { grid-area: res; flex-wrap: nowrap; gap: var(--sp-2); min-width: 0; }
+  .match-row-col-res .fav-btn { margin-right: 0; }
+  .match-row-date { flex-basis: auto; white-space: nowrap; }
+  .match-row-col-stage { grid-area: stage; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
+  .match-row-title { white-space: normal; overflow: visible; text-overflow: clip; flex-basis: 100%; }
+  .match-row-col-kda { grid-area: kda; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+  .kda-mismatch, .kda-auto { white-space: normal; }
+  .match-row-col-prog { grid-area: prog; }
+  .match-row .row-menu { grid-area: menu; justify-self: end; }
+  /* 傾向分析・詳細の複数列は、スマホでは縦に積む */
+  .trends-stat-band { grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+  .trends-stat-band > :first-child { grid-column: 1 / -1; }
+  .trends-two-col, .small-charts-grid, .detail-body.review-on { grid-template-columns: 1fr; }
+  .fb-dialog-row { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); }
+  /* クラウドから取り込んだ閲覧用の試合には、静止画・書き出し・確認の進みが無い */
+  .match-row.is-remote .stills-state, .match-row.is-remote .export-state, .match-row.is-remote .match-row-col-prog { display: none; }
   svg { max-width: 100%; height: auto; }
   #learn-panel, #tune-panel, #retention-panel { display: none; } /* 自己学習・自動調整は記録する PC の機能 */
 }

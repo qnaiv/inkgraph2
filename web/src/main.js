@@ -1048,7 +1048,7 @@ PAGES.list = async () => {
           const dtStr = m.created ? new Date(m.created).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
 
           return `
-            <div class="match-row click" data-id="${esc(m.id)}">
+            <div class="match-row click${m.remote ? ' is-remote' : ''}" data-id="${esc(m.id)}">
               <div class="match-row-col-res">
                 <button class="fav-btn" data-id="${esc(m.id)}" type="button" aria-label="お気に入り" title="お気に入り">${m.favorite === true ? '★' : '☆'}</button>
                 <span class="${badgeCls(r.result)}">${resJa(r.result)}</span>
