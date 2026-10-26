@@ -1,6 +1,7 @@
 // weapon_stats_check.mjs: D65 敵・味方・自分のブキ別「いた試合の勝率」と、未登録アイコンに名前を付ける流れ（純関数＋実ブラウザ）。
 import { enemyPresenceRows, unknownIconGroups } from '../src/analysis.js';
 import { encodeIcon } from '../src/core/board_icons.js';
+import { typeOfWeapon, weaponOptions, WEAPON_TYPES, UNCLASSIFIED } from '../src/core/weapons.js';
 import { chromium } from 'playwright-core';
 import { startPreview } from './lib/preview_server.mjs';
 import path from 'node:path'; import fs from 'node:fs';
@@ -32,6 +33,13 @@ const ms = [mkm(1, [1, 11, 12, 13], [2, 21, 22], 3), mkm(2, [1, 99, 12, 13], [2,
   check(g99 && g99.slots === 2 && g99.matches === 2 && g99.side.enemy === 2 && g.every((x, i) => i === 0 || g[i - 1].slots >= x.slots), '(6) 未登録のアイコンは、同じ絵どうしにまとめる（99 は 2 枠・2 試合）。枠の多い順', JSON.stringify(g99 && [g99.slots, g99.matches]));
   check(!g.some(x => x.rep === ico(1)), '(7) 名前が付いた絵（テストX）は未登録の一覧に出ない');
 }
+{
+  check(typeOfWeapon('わかばシューター') === 'シューター' && typeOfWeapon('リッター4K') === 'チャージャー' && typeOfWeapon('Rブラスターエリート WNTR') === 'ブラスター', '(7a) 一覧にあるブキは種類が決まる');
+  check(typeOfWeapon('ヒーローブラスター レプリカ') === 'ブラスター' && typeOfWeapon('ヒーローローラー レプリカ') === 'ローラー', '(7b) 一覧に無くても、名前に種類が入っていれば推定する');
+  check(typeOfWeapon('謎のブキ') === UNCLASSIFIED && typeOfWeapon('謎のブキ', { 謎のブキ: 'フデ' }) === 'フデ', '(7c) 分からなければ「未分類」。この端末で付けた種類があればそれを使う');
+  const o = weaponOptions(['ヒーローブラスター レプリカ', '謎のブキ'], {});
+  check(WEAPON_TYPES.every(t => o[t].length > 0) && o['ブラスター'].includes('ヒーローブラスター レプリカ') && o[UNCLASSIFIED].includes('謎のブキ'), '(7d) 選択肢は種類ごと。実際に読んだ名前も、種類のところに混ぜる');
+}
 console.log('--- 実ブラウザ ---');
 const PORT = process.env.PORT || '4239', srv = startPreview(PORT, WEB); await new Promise(r => setTimeout(r, 2500));
 const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, headless: true });
@@ -46,13 +54,26 @@ try {
   check(/未登録のブキアイコンに名前を付ける/.test(t0) && (await page.$$('.weapon-naming-row')).length >= 1, '(8) 傾向分析に「未登録のブキアイコンに名前を付ける」が出る', t0.slice(0, 60));
   check((await page.$$eval('.weapon-icon-canvas', cs => cs.every(c => c.width === 112 && c.getContext('2d').getImageData(10, 10, 1, 1).data[3] === 255))), '(9) アイコンの絵が描かれる');
   const first = await page.$eval('.weapon-naming-row', r => r.querySelector('.weapon-icon-canvas').dataset.icon.length > 100 && r.textContent);
+
+  // 一覧から選ぶ：種類が自動で入る。選ぶまでボタンは押せない
+  check(await page.$eval('.weapon-naming-row:first-child .weapon-name-save', b => b.disabled), '(10a) 何も選んでいない間は「名前を付ける」が押せない');
+  await page.evaluate(() => document.querySelector('#weapon-naming').scrollIntoView()); await page.selectOption('.weapon-naming-row:first-child .weapon-name-select', 'スプラシューター'); await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(SH, '01_naming.png'), fullPage: false });
-  await page.fill('.weapon-naming-row:first-child .weapon-name-input', 'わかばシューター'); await page.click('.weapon-naming-row:first-child .weapon-name-save'); await page.waitForTimeout(800);
+  await page.selectOption('.weapon-naming-row:first-child .weapon-name-select', 'わかばシューター');
+  check((await page.textContent('.weapon-naming-row:first-child .weapon-type-auto')).includes('シューター') && !(await page.$eval('.weapon-naming-row:first-child .weapon-name-save', b => b.disabled)), '(10b) ブキを選ぶと、種類（シューター）が自動で入り、ボタンが押せる');
+  await page.click('.weapon-naming-row:first-child .weapon-name-save'); await page.waitForTimeout(800);
+  // 一覧に無いブキ：名前と種類を入れる
+  await page.selectOption('.weapon-naming-row:first-child .weapon-name-select', '__custom__');
+  await page.fill('.weapon-naming-row:first-child .weapon-name-input', 'テスト用ブキ'); await page.selectOption('.weapon-naming-row:first-child .weapon-type-select', 'ローラー');
+  await page.click('.weapon-naming-row:first-child .weapon-name-save'); await page.waitForTimeout(800);
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('inkgraph.weaponLib')));
-  check(stored && stored.items.length === 1 && stored.items[0].name === 'わかばシューター', '(10) 名前を付けると、この端末の見本に登録される', JSON.stringify(stored && stored.items.map(i => i.name)));
-  const tables = await page.$$eval('.trend-presence-card', cs => cs.map(c => ({ title: c.querySelector('.card-title').textContent, rows: [...c.querySelectorAll('tbody tr')].map(r => r.cells[0].textContent) })));
+  const byName = n => stored && stored.items.find(i => i.name === n);
+  check(stored && stored.items.length === 2 && byName('わかばシューター') && byName('わかばシューター').type === 'シューター' && byName('テスト用ブキ') && byName('テスト用ブキ').type === 'ローラー', '(10) 選んだブキと、リストにない武器（名前＋種類）が、種類つきでこの端末の見本に登録される', JSON.stringify(stored && stored.items.map(i => [i.name, i.type])));
+  const tables = await page.$$eval('.trend-presence-card', cs => cs.map(c => ({ title: c.querySelector('.card-title').textContent, rows: [...c.querySelectorAll('tbody tr')].map(r => r.cells[0].textContent), rows2: [...c.querySelectorAll('tbody tr')].map(r => [r.cells[0].textContent, r.cells[1].textContent]) })));
   const allNames = tables.flatMap(t => t.rows);
+  const typeOf = n => tables.flatMap(t => t.rows2).find(r => r[0] === n);
   check(allNames.includes('わかばシューター') && tables.length === 3, '(11) 登録した名前が、いた敵ブキ／味方ブキの表に出る（過去の試合にも反映）。表は 敵・味方・自分 の 3 つ', JSON.stringify(tables.map(t => t.title)));
+  check((typeOf('わかばシューター') || [])[1] === 'シューター' && (typeOf('テスト用ブキ') || [])[1] === 'ローラー', '(11b) 表の「種類」の列に、選んだブキの種類が入る（シューター・ローラー）', JSON.stringify([typeOf('わかばシューター'), typeOf('テスト用ブキ')]));
   await page.screenshot({ path: path.join(SH, '02_tables.png'), fullPage: false });
   check(errs.length === 0, '(12) ページエラーなし', errs.join('|'));
 } finally { await browser.close(); srv.kill(); }

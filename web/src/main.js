@@ -18,6 +18,7 @@ import { recountDiff } from './core/live_counts.js';
 import * as DP from './detect_params.js';
 import * as Cloud from './cloud/index.js';
 import * as WL from './weapon_lib.js';
+import { WEAPON_TYPES, UNCLASSIFIED, typeOfWeapon, weaponOptions } from './core/weapons.js';
 import { TUNABLE } from './core/tuning.js';
 
 const app = document.getElementById('app');
@@ -2823,12 +2824,13 @@ PAGES.trend = async () => {
   };
 
   const enemyIconLib = WL.combinedLib(await getEnemyIconLib()); // 静的な見本＋この端末で名前を付けた見本（D65）
+  const userTypeMap = WL.userTypes();
   // D65: 結果画面ボードのブキアイコン（敵・味方・自分）から「そのブキがいた試合」の勝敗を出す。武器別。全体の勝率との差が小さい（負けやすい）順に見られるよう「全体との差」を付ける
   const presenceCard = (title, stats, noteLines) => {
     const noteHtml = `<div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">${noteLines.map(l => `<div>${l}</div>`).join('')}<div>名前が付いた枠 ${stats.namedSlots}/${stats.totalSlots}</div></div>`;
     if (stats.withIcons === 0) return `<div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)"><div class="card-title">${esc(title)}</div><div class="empty-state"><p class="muted">まだ結果画面のアイコンを保存した試合がありません</p></div>${noteHtml}</div>`;
     const rowsHtml = stats.rows.map(r => {
-      const kindLabel = PRESENCE_KIND_LABEL[r.kind] || r.kind || '—';
+      const kindLabel = r.kind === 'main' ? typeOfWeapon(r.name, userTypeMap) : (PRESENCE_KIND_LABEL[r.kind] || r.kind || '—'); // 種類（シューター等）は名前から自動で入る（D66）
       const winRateCell = r.low ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>` : pct(r.winRate);
       const dl = r.delta === null || r.delta === undefined ? '—' : `${r.delta > 0 ? '+' : ''}${Math.round(r.delta * 100)}pt`;
       return `<tr class="${r.low ? 'trend-stage-low' : ''}"><td>${esc(r.name)}</td><td>${esc(kindLabel)}</td><td class="num">${r.matches}</td><td class="num">${r.wins}勝${r.losses}敗</td><td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td><td class="num ${r.low ? 'muted' : (r.delta < 0 ? 'neg' : '')}" ${r.delta !== null && r.delta < 0 && !r.low ? 'style="color:var(--lose)"' : ''}>${dl}</td></tr>`;
@@ -2845,15 +2847,18 @@ PAGES.trend = async () => {
     + presenceCard('自分のブキ', ownStats, NOTE_COMMON.slice(0, 1).concat(['自分のブキは、結果画面のボードの自分の行のアイコンです']));
   // 未登録のアイコンに名前を付ける
   const unknownGroups = unknownIconGroups(filtered, enemyIconLib);
-  const nameSuggest = [...new Set([...(await getWeaponNames()), ...WL.loadUserLib().items.map(x => x.name)])].sort((a, b) => a.localeCompare(b, 'ja'));
+  const opts = weaponOptions(await getWeaponNames(), userTypeMap);
+  const optionsHtml = [...WEAPON_TYPES, UNCLASSIFIED].filter(t => opts[t].length).map(t => `<optgroup label="${esc(t)}">${[...opts[t]].sort((x, y) => x.localeCompare(y, 'ja')).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('');
   const namingCardHtml = unknownGroups.length === 0 ? '' : `<div class="card trend-weapon-card" id="weapon-naming" style="margin-bottom:var(--sp-6)"><div class="card-title">未登録のブキアイコンに名前を付ける（${unknownGroups.length} 種類）</div>
-      <p class="muted" style="font-size:var(--fs-xs)">絵を見てブキ名を入れると、この端末の見本に登録され、過去の試合にも反映されます（クラウド同期をしていれば他の端末にも届きます）。入力欄には、登録済みの名前の候補が出ます。</p>
-      <datalist id="weapon-names">${nameSuggest.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <p class="muted" style="font-size:var(--fs-xs)">絵を見て、一覧からブキを選んでください（種類は自動で入ります）。この端末の見本に登録され、過去の試合にも反映されます（クラウド同期をしていれば他の端末にも届きます）。一覧に無いブキは「リストにない武器」を選んで、名前と種類を入れてください。</p>
       <div class="weapon-naming-list" style="display:flex;flex-direction:column;gap:var(--sp-2)">${unknownGroups.slice(0, 30).map((g, i) => `<div class="weapon-naming-row" data-i="${i}" style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
         <canvas class="weapon-icon-canvas" width="112" height="68" data-icon="${esc(g.rep)}" style="background:#000;border-radius:4px"></canvas>
         <span class="muted" style="font-size:var(--fs-xs)">${g.slots}枠・${g.matches}試合（敵 ${g.side.enemy}・味方 ${g.side.ally}）</span>
-        <input class="input-sm weapon-name-input" list="weapon-names" placeholder="ブキ名" size="22">
-        <button class="btn btn-sm weapon-name-save" type="button">名前を付ける</button></div>`).join('')}</div>${unknownGroups.length > 30 ? '<p class="muted" style="font-size:var(--fs-xs)">多い順に 30 種類まで出しています。名前を付けると次が出ます。</p>' : ''}</div>`;
+        <select class="input-sm weapon-name-select" style="min-width:200px"><option value="">ブキを選ぶ…</option>${optionsHtml}<option value="__custom__">リストにない武器…</option></select>
+        <span class="weapon-custom" hidden style="display:none;gap:var(--sp-2);align-items:center"><input class="input-sm weapon-name-input" placeholder="ブキ名" size="18"><select class="input-sm weapon-type-select">${[...WEAPON_TYPES, UNCLASSIFIED].map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select></span>
+        <span class="weapon-type-auto muted" style="font-size:var(--fs-xs)"></span>
+        <button class="btn btn-sm weapon-name-save" type="button" disabled>名前を付ける</button>
+      </div>`).join('')}</div>${unknownGroups.length > 30 ? '<p class="muted" style="font-size:var(--fs-xs)">多い順に 30 種類まで出しています。名前を付けると次が出ます。</p>' : ''}</div>`;
 
   const WEAPON_KIND_LABEL = {
     main: 'メイン',
@@ -3197,12 +3202,12 @@ PAGES.trend = async () => {
     const tmp = document.createElement('canvas'); tmp.width = 56; tmp.height = 34; tmp.getContext('2d').putImageData(im, 0, 0);
     ctx.imageSmoothingEnabled = false; ctx.drawImage(tmp, 0, 0, 112, 68);
   });
-  page.querySelectorAll('.weapon-name-save').forEach(btn => {
-    btn.onclick = () => {
-      const row = btn.closest('.weapon-naming-row'), name = $('.weapon-name-input', row).value.trim(); if (!name) return;
-      const g = unknownGroups[+row.dataset.i], mates = [g.rep];
-      WL.addNamed(name, mates); PAGES.trend();
-    };
+  page.querySelectorAll('.weapon-naming-row').forEach(row => {
+    const sel = $('.weapon-name-select', row), custom = $('.weapon-custom', row), inp = $('.weapon-name-input', row), tsel = $('.weapon-type-select', row), auto = $('.weapon-type-auto', row), btn = $('.weapon-name-save', row);
+    const current = () => (sel.value === '__custom__' ? { name: inp.value.trim(), type: tsel.value } : { name: sel.value, type: sel.value ? typeOfWeapon(sel.value, userTypeMap) : '' });
+    const refresh = () => { const isC = sel.value === '__custom__'; custom.style.display = isC ? 'inline-flex' : 'none'; const c = current(); auto.textContent = !isC && c.name ? `種類: ${c.type}` : ''; btn.disabled = !c.name; };
+    sel.onchange = refresh; inp.oninput = refresh; tsel.onchange = refresh;
+    btn.onclick = () => { const c = current(); if (!c.name) return; const g = unknownGroups[+row.dataset.i]; WL.addNamed(c.name, [g.rep], c.type !== UNCLASSIFIED ? c.type : null); PAGES.trend(); };
   });
 
   page.querySelectorAll('.wp-dot, .click-match').forEach(el => {
