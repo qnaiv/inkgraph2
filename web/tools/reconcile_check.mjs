@@ -31,7 +31,7 @@ console.log('--- reconcileCounts unit checks ---');
 // 候補が floor 未満なら足さない
 {
   const rec = mk({ own_deaths: [] });
-  reconcileCounts(rec, { own: own(0, 1, null), frames: 10, deathCands: [{ start: 5, end: 7, src: 'hud_soft', conf: 0.1 }] });
+  reconcileCounts(rec, { own: own(0, 1, null), frames: 10, deathCands: [{ start: 5, end: 7, src: 'hud_soft', conf: 0.05 }] });
   check(rec.own_deaths.length === 0, '(4) 確信度が floor 未満の候補は足さない');
 }
 // 結果画面が読めていない・フレーム不足・null は何もしない
@@ -96,6 +96,23 @@ const run = (F, ctx) => buildMatch({ a: 0, b: F[F.length - 1].t, F, th: [0, 0], 
   const F = mkF(60, t => ({ killSlots: [(t >= 10 && t < 12) || (t >= 30 && t < 32) || (t >= 45 && t < 47)], kill: false, ks: (t >= 10 && t < 12) ? 0.9 : (t >= 30 && t < 32) ? 0.65 : (t >= 45 && t < 47) ? 0.8 : 0 }));
   const r = run(F, { own: own(2, null, null), frames: 20 });
   check(r.own_kills.length === 2 && !r.own_kills.some(e => e.start === 30), '(17) キル 3 → K+A=2 で conf 最低(30秒)を落とす', JSON.stringify(r.own_kills));
+}
+
+console.log('--- D53 合議（fusion） ---');
+import { fuseDeath, fusedAccept, fuseKill } from '../src/core/fusion.js';
+{
+  const a = fuseDeath({ sy: 0.5 }), b = fuseDeath({ sy: 0.5, hud: 1 }), c = fuseDeath({ sy: 0.5, hud: 1, killer: true }), d = fuseDeath({ sy: 0, hud: 1 });
+  check(a.conf < b.conf && b.conf < c.conf && a.signals.length === 1 && b.signals.length === 2 && d.signals.length === 1, '(18) 信号が増えるほど確信度が上がる', `${a.conf}/${b.conf}/${c.conf}/${d.conf}`);
+  check(!fusedAccept(fuseDeath({ sy: 0.45 })) && fusedAccept(fuseDeath({ sy: 0.45, hud: 1 })) && !fusedAccept(fuseDeath({ hud: 1 })), '(19) 弱い信号＋HUD の一致は採用、HUD だけ・弱い信号だけは採用しない');
+  check(fuseKill({ notice: 0.9, enemy: true }).conf > fuseKill({ notice: 0.9 }).conf && fuseKill({ notice: 0.6 }).conf < fuseKill({ notice: 0.9 }).conf, '(20) キルは通知が強く敵アイコンも×なら確信度が高い');
+}
+{
+  // 結果画面なしでも、弱い信号（0.45）と HUD の自分アイコン×が一致する 100〜103 秒は採用される。HUD だけの 130〜133 秒は採用されない
+  const F = mkF(150, t => ({ sy: (t >= 10 && t < 14) ? 0.8 : (t >= 100 && t < 103 ? 0.45 : 0), sig: t >= 10 && t < 14,
+    p: Array(8).fill(0).map((_, i) => i === 0 && ((t >= 10 && t < 14) || (t >= 100 && t < 103) || (t >= 130 && t < 133)) ? 0.95 : 0.0), s: Array(8).fill(20) }));
+  const r = run(F, {});
+  const fused = r.own_deaths.filter(e => e.auto === 'fused');
+  check(r.own_deaths.length === 2 && fused.length === 1 && fused[0].start >= 100 && fused[0].start < 101 && fused[0].sigs.includes('sig') && fused[0].sigs.includes('hud'), '(21) 結果画面なしでも 2 信号が一致した弱いデスは採用する', JSON.stringify(r.own_deaths.map(e => [e.start, e.auto, e.conf])));
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');

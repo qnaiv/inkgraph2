@@ -6,7 +6,7 @@ export const RECON = {
   maxAdjust: 2,      // 1 種類あたり直す最大件数（結果画面の読み違いで検出を壊さないための歯止め）
   maxKillDrop: 3,
   minFrames: 3,      // 結果画面を読めたフレーム数の下限（これ未満は信用しない）
-  deathFloor: 0.25,  // 候補にする最低の確信度
+  deathFloor: 0.1,   // 候補にする最低の確信度（fusion.js の合議後の値）
   overlapSec: 2.0,   // 既存のデスと候補がこれ以内なら同じデスとみなして足さない
   spFloor: 0.1,
   spOverlapSec: 1.0,
@@ -14,6 +14,29 @@ export const RECON = {
 
 const isCount = v => Number.isInteger(v) && v >= 0 && v <= 60;
 const overlaps = (a0, a1, b0, b1, m) => a0 <= b1 + m && b0 <= a1 + m;
+
+/** デスだけ先に合わせる（スペシャルの判定がデスの位置に依存するため、スペシャルを数える前に呼ぶ）。L は検出したデスの配列（in place で直す） */
+export function reconcileDeaths(L, own, frames, deathCands = []) {
+  const applied = [], summary = {};
+  if (!own || frames < RECON.minFrames || !isCount(own.deaths)) return { applied, summary };
+  const before = L.length; let n = own.deaths - before;
+  if (n > 0) {
+    const pool = deathCands.filter(c => c.conf >= RECON.deathFloor).sort((a, b) => b.conf - a.conf);
+    for (const c of pool) {
+      if (n <= 0 || applied.length >= RECON.maxAdjust) break;
+      if (L.some(e => overlaps(c.start, c.end, e.start, e.end, RECON.overlapSec))) continue;
+      L.push({ start: c.start, end: c.end, src: c.src, conf: c.conf, sigs: c.sigs, auto: 'added' });
+      applied.push({ kind: 'death', action: 'added', t: c.start, conf: c.conf });
+      n--;
+    }
+    L.sort((a, b) => a.start - b.start);
+  } else if (n < 0) {
+    const drop = [...L].sort((a, b) => (a.conf ?? 0) - (b.conf ?? 0) || (a.end - a.start) - (b.end - b.start)).slice(0, Math.min(-n, RECON.maxAdjust));
+    for (const e of drop) { L.splice(L.indexOf(e), 1); applied.push({ kind: 'death', action: 'dropped', t: e.start, conf: e.conf ?? null }); }
+  }
+  summary.deaths = { result: own.deaths, before, after: L.length };
+  return { applied, summary };
+}
 
 /**
  * rec を結果画面の数に合わせて直す（in place）。
@@ -29,25 +52,7 @@ export function reconcileCounts(rec, ctx) {
   const applied = [], summary = {};
   if (!own || frames < RECON.minFrames) return { applied, summary };
 
-  // --- デス: 結果画面のデス数に合わせる ---
-  if (isCount(own.deaths)) {
-    const L = rec.own_deaths, before = L.length; let n = own.deaths - before;
-    if (n > 0) {
-      const pool = deathCands.filter(c => c.conf >= RECON.deathFloor).sort((a, b) => b.conf - a.conf);
-      for (const c of pool) {
-        if (n <= 0 || applied.length >= RECON.maxAdjust) break;
-        if (L.some(e => overlaps(c.start, c.end, e.start, e.end, RECON.overlapSec))) continue;
-        L.push({ start: c.start, end: c.end, src: c.src, conf: c.conf, auto: 'added' });
-        applied.push({ kind: 'death', action: 'added', t: c.start, conf: c.conf });
-        n--;
-      }
-      L.sort((a, b) => a.start - b.start);
-    } else if (n < 0) {
-      const drop = [...L].sort((a, b) => (a.conf ?? 0) - (b.conf ?? 0) || (a.end - a.start) - (b.end - b.start)).slice(0, Math.min(-n, RECON.maxAdjust));
-      for (const e of drop) { L.splice(L.indexOf(e), 1); applied.push({ kind: 'death', action: 'dropped', t: e.start, conf: e.conf ?? null }); }
-    }
-    summary.deaths = { result: own.deaths, before, after: L.length };
-  }
+  if (!ctx.skipDeaths) { const r = reconcileDeaths(rec.own_deaths, own, frames, deathCands); applied.push(...r.applied); Object.assign(summary, r.summary); }
 
   // --- スペシャル: 結果画面のスペシャル回数（＝発動の数）に合わせる ---
   if (isCount(own.specials)) {

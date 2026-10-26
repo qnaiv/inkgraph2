@@ -2310,8 +2310,9 @@ PAGES.match = async () => {
             : e.kind === 'death'
               ? '<b style="color:var(--death)">×</b> '
               : '<b style="color:var(--special)">◆</b> ';
-          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '') + (e.src && e.src.auto ? '（自動補正）' : '');
+          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '') + (e.src && e.src.auto ? (e.src.auto === 'fused' ? '（自動採用）' : '（自動補正）') : '');
           let extraBadge = '';
+          if (e.src && typeof e.src.conf === 'number' && e.src.conf < 0.45 && e.src.auto !== 'added') extraBadge += ' <span class="badge" title="検出の確信度が低いです（複数の信号が一致していません）" style="margin-left:4px;font-size:11px">確信度 低</span>';
           if (e.kind === 'death') {
             const isWasted = spInts.some(si => si.outcome === 'lost_on_death' && Math.abs(e.t - si.end) <= 1.0);
             if (isWasted) extraBadge = ' <span class="badge sp-wasted-badge" style="background:var(--special-wasted);color:var(--text);margin-left:4px;font-size:11px">スペシャル未使用</span>';
