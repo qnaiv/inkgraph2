@@ -14,11 +14,17 @@ function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r
   };
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); return dbp; }
 const tx = async (store, mode, fn) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const r = fn(s); t.oncomplete = () => res(r instanceof IDBRequest ? r.result : r); t.onerror = () => rej(t.error); }); };
-export const putMatch = m => tx('matches', 'readwrite', s => s.put(m));
+// D58: 書き込みのたびに更新時刻（updated）を付ける（クラウド同期の新旧の判定用）。同期が取り込む／送った記録（keepUpdated）は付け替えない。
+export const putMatch = (m, opts = {}) => { if (!opts.keepUpdated) m.updated = new Date().toISOString(); const r = tx('matches', 'readwrite', s => s.put(m)); if (!opts.keepUpdated && typeof window !== 'undefined') r.then(() => window.dispatchEvent(new CustomEvent('inkgraph:dirty')), () => {}); return r; };
 export const getMatch = id => tx('matches', 'readonly', s => s.get(id));
 export const allMatches = async () => (await tx('matches', 'readonly', s => s.getAll())).sort((a, b) => (a.created || '').localeCompare(b.created || '') || a.match - b.match);
 const delSnaps = async id => { for (const sn of await snapsOf(id)) await tx('snaps', 'readwrite', s => s.delete(sn.id)); };
-export const delMatch = async id => { await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); };
+const DEL_KEY = 'inkgraph.cloud.deleted'; // クラウドに「消した」と伝えるための印（送ったら消す）
+export const pendingDeletes = () => { try { return JSON.parse(localStorage.getItem(DEL_KEY) || '[]'); } catch { return []; } };
+export const clearPendingDeletes = ids => { try { localStorage.setItem(DEL_KEY, JSON.stringify(pendingDeletes().filter(d => !ids.includes(d.id)))); } catch { /* ignore */ } };
+export const delMatch = async (id, opts = {}) => {
+  if (!opts.fromCloud) { try { localStorage.setItem(DEL_KEY, JSON.stringify([...pendingDeletes().filter(d => d.id !== id), { id, at: new Date().toISOString() }])); if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inkgraph:dirty')); } catch { /* ignore */ } }
+  await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); };
 export async function snapsCount(id) { return (await snapsOf(id)).length; }
 // m.favorite: boolean / m.stillsState: 'kept'|'deleted'|'none' (旧レコードはフィールド無し可)
 export function stillsStateOf(m, snapCount) {
@@ -28,14 +34,26 @@ export function stillsStateOf(m, snapCount) {
 }
 export async function deleteStills(id) { const m = await getMatch(id); if (!m) return null; await delSnaps(id); m.stillsState = 'deleted'; await putMatch(m); return m; }
 export async function setFavorite(id, fav) { const m = await getMatch(id); if (!m) return null; m.favorite = !!fav; await putMatch(m); return m; }
-export async function enforceRetention(keep = 30) {
-  const ms = (await allMatches()).filter(m => m.favorite !== true).reverse(); // newest first, favorites excluded
-  const removed = []; let kept = 0;
+// D59: 静止画・場面クリップ（と、昔の録画）を残す試合数。既定は直近 3 試合（確認に使う分だけ）。お気に入りは数えず、自動では消さない。
+// 試合の数値データ（検出結果・確認画面の修正）は、静止画が消えても残る（クラウドにも同期される）。
+export const RETENTION_KEY = 'inkgraph.retentionKeep', RETENTION_DEFAULT = 3, RETENTION_CHOICES = [1, 2, 3, 5, 10, 30];
+export function getRetentionKeep() { try { const v = parseInt(localStorage.getItem(RETENTION_KEY) || '', 10); return Number.isFinite(v) && v >= 1 && v <= 100 ? v : RETENTION_DEFAULT; } catch { return RETENTION_DEFAULT; } }
+export function setRetentionKeep(n) { try { localStorage.setItem(RETENTION_KEY, String(Math.max(1, Math.min(100, Math.round(n))))); } catch { /* ignore */ } }
+/** 整理の対象（残す分より古い試合）の id を返す。消さずに数えるだけ（確認ダイアログ用） */
+export async function retentionPlan(keep = getRetentionKeep()) {
+  const ms = (await allMatches()).filter(m => m.favorite !== true).reverse(); // 新しい順・お気に入りを除く
+  const rotate = []; let kept = 0;
   for (const m of ms) {
-    if (!(await snapsCount(m.id))) continue;
+    const has = (await snapsCount(m.id)) > 0 || !!(await getVideo(m.id));
+    if (!has) continue;
     if (kept < keep) { kept++; continue; }
-    await deleteStills(m.id); removed.push(m.id);
+    rotate.push(m.id);
   }
+  return rotate;
+}
+export async function enforceRetention(keep = getRetentionKeep()) {
+  const removed = await retentionPlan(keep);
+  for (const id of removed) { if (await snapsCount(id)) await deleteStills(id); await tx('videos', 'readwrite', s => s.delete(id)); }
   return removed;
 }
 export async function stillsUsage(capBytes = getCapBytes()) {
