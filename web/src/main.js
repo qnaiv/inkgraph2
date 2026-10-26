@@ -1677,15 +1677,20 @@ PAGES.list = async () => {
             <label class="muted"><input type="checkbox" id="cloud-auto" ${Cloud.autoEnabled() ? 'checked' : ''}> 保存・修正のたびに自動で同期する</label>
           </div>` : `
           <div class="learn-actions-row">
-            <button class="btn btn-primary" id="cloud-google" type="button">Google でログイン</button>
-            <input class="input-sm" id="cloud-email" type="email" placeholder="メールアドレス" size="24" autocomplete="email">
-            <button class="btn" id="cloud-mail" type="button">メールでログイン</button>
-          </div>`}
+            <input class="input-sm" id="cloud-id" type="text" placeholder="ID（メールアドレスの形）" size="26" autocomplete="username" autocapitalize="off">
+            <input class="input-sm" id="cloud-pass" type="password" placeholder="パスワード（12文字以上）" size="22" autocomplete="current-password">
+            <button class="btn btn-primary" id="cloud-login" type="button">ログイン</button>
+            <button class="btn" id="cloud-signup" type="button">新規登録</button>
+          </div>
+          <p class="muted" style="font-size:12px">初めてなら「新規登録」。IDはメールアドレスの形で入力します（確認メールは送りません）。パスワードを忘れても再発行できませんが、データは各端末に残ります。</p>`}
         ${cloudMsg ? `<p class="muted" id="cloud-msg">${esc(cloudMsg)}</p>` : ''}
         ${st.lastError ? `<p class="muted" style="color:var(--lose)">直前の同期でエラー：${esc(st.lastError)}</p>` : ''}
       </div>`;
-    const g = $('#cloud-google', el); if (g) g.onclick = async () => { const { error } = await Cloud.signInGoogle(); if (error) { cloudMsg = 'Google ログインを開始できませんでした：' + error.message; updateCloudPanel(); } };
-    const mb = $('#cloud-mail', el); if (mb) mb.onclick = async () => { const email = $('#cloud-email', el).value.trim(); if (!email) return; const { error } = await Cloud.signInEmail(email); cloudMsg = error ? 'メールを送れませんでした：' + error.message : `${email} にログイン用のリンクを送りました。メールのリンクを、この端末のブラウザで開いてください。`; updateCloudPanel(); };
+    const auth = async fn => { const id = $('#cloud-id', el).value.trim(), pw = $('#cloud-pass', el).value; if (!id || !pw) { cloudMsg = 'IDとパスワードを入力してください。'; updateCloudPanel(); return; } if (pw.length < 8) { cloudMsg = 'パスワードは 8 文字以上にしてください（12 文字以上をおすすめします）。'; updateCloudPanel(); return; }
+      const r = await fn(id, pw); if (r.ok) { cloudMsg = 'ログインしました。同期を始めます…'; await updateCloudPanel(); const s = await Cloud.syncNow(); cloudMsg = s.ok ? `同期しました（取り込み ${s.pulled} 件・送信 ${s.pushed} 件）。` : '同期できませんでした：' + (s.error || s.reason); if (s.ok && s.pulled) PAGES.list(); else updateCloudPanel(); } else { cloudMsg = r.error; updateCloudPanel(); } };
+    const li = $('#cloud-login', el); if (li) li.onclick = () => auth(Cloud.signInPassword);
+    const su = $('#cloud-signup', el); if (su) su.onclick = () => auth(Cloud.signUpPassword);
+    for (const id of ['#cloud-id', '#cloud-pass']) { const i = $(id, el); if (i) i.onkeydown = e => { if (e.key === 'Enter') auth(Cloud.signInPassword); }; }
     const sy = $('#cloud-sync', el); if (sy) sy.onclick = async () => { cloudBusy = true; cloudMsg = ''; updateCloudPanel(); const r = await Cloud.syncNow(); cloudBusy = false; cloudMsg = r.ok ? `同期しました（取り込み ${r.pulled} 件・送信 ${r.pushed} 件${r.deleted || r.deletedSent ? `・削除 ${r.deleted + r.deletedSent} 件` : ''}）。` : (r.reason === 'busy' ? '同期中です。' : '同期できませんでした：' + (r.error || r.reason)); if (r.ok && (r.pulled || r.deleted)) PAGES.list(); else updateCloudPanel(); };
     const so = $('#cloud-out', el); if (so) so.onclick = async () => { await Cloud.signOut(); cloudMsg = 'ログアウトしました（この端末の試合はそのまま残ります）。'; updateCloudPanel(); };
     const au = $('#cloud-auto', el); if (au) au.onchange = e => Cloud.setAuto(e.target.checked);
@@ -1847,6 +1852,7 @@ async function showFeedbackExportDialog(initialMode = 'diff') {
         ${est.over50MB ? `<div class="fb-dialog-warn" id="fbd-warn">合計 約${mbStr}MBで目安の50MBを超えています。チェックを外して分けてください。あと${removeCount}試合外すと50MB以内です</div>` : ''}
         ${noSel ? `<div class="fb-dialog-empty" id="fbd-reason">書き出す試合が選ばれていません。</div>` : ''}
         <div class="fb-dialog-note">静止画にはプレイヤー名が映る場合があります。ZIPは自動送信されません。手動で渡してください。</div>
+        <div class="fb-dialog-note">書き出した ZIP は、<a href="https://github.com/qnaiv/inkgraph2/upload/main/inbox" target="_blank" rel="noopener">GitHub の inbox にアップロード</a>すると、見本の追加・正解ラベル・学習用画像の保存を自動で行い、取り込み結果の PR を作ります（D60）。</div>
         <label class="fb-dialog-mark"><input type="checkbox" id="fbd-mark" ${markExported ? 'checked' : ''}> 書き出し済みにする（次回は差分に出ません）</label>
         ${!markExported ? `<div class="fb-dialog-skip-note" id="fbd-skip-note">今回は記録を残さないため、次回も差分に出ます</div>` : ''}
         <div class="fb-dialog-actions">

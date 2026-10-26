@@ -17,7 +17,7 @@ try {
   await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.waitForTimeout(500);
   check(new URL(page.url()).hash === '#list', '(1) スマホ幅では、ライブ分析ではなく試合一覧が開く', page.url());
   await page.waitForSelector('#cloud-panel .learn-panel-title');
-  const panel = await page.textContent('#cloud-panel'); check(/未ログイン/.test(panel) && /Google でログイン/.test(panel) && /メールでログイン/.test(panel) && /数値と時刻だけ/.test(panel), '(2) 未ログインのパネル：Google／メールでログインと、「数値と時刻だけ」の説明');
+  const panel = await page.textContent('#cloud-panel'); check(/未ログイン/.test(panel) && /ログイン/.test(panel) && /新規登録/.test(panel) && /数値と時刻だけ/.test(panel) && !!(await page.$('#cloud-id')) && !!(await page.$('#cloud-pass')), '(2) 未ログインのパネル：ID・パスワードの入力欄、ログイン／新規登録、「数値と時刻だけ」の説明');
   check(!(await page.isVisible('.sidenav a[data-page="live"]')) && await page.isVisible('.sidenav a[data-page="list"]'), '(3) スマホ幅ではメニューの「ライブ分析」が隠れる');
   const rows = await page.$$eval('.match-row', els => els.map(e => e.dataset.id)); check(rows[0] === 'cloud#3' && rows.length === 3, '(4) 一覧は新しい順（最新が一番上）', rows.join(','));
   const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth); check(over <= 1, '(5) スマホ幅でページ全体が横にはみ出さない（一覧）', `はみ出し ${over}px`);

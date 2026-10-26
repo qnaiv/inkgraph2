@@ -712,3 +712,28 @@
 - 画面：試合一覧に「画像・クリップの保存数」パネル（残す試合数の選択、「いま整理する（N 試合ぶんを消す）」）。残す数を減らす／いま整理するときは、消す試合数つきの確認ダイアログを出す。スマホ幅（D58）では隠す。
 - 注意：既定を 30 → 3 にしたので、次に試合を保存したとき、確認前の古い試合の静止画が消える。確認を残したい試合はお気に入りにするか、残す数を増やす。D30 の容量上限（250MB）による整理は別に動く（変更なし）。
 - 検証：`web/tools/retention_rotate_check.mjs`（実ブラウザ：既定 3・お気に入りを除いた古い 3 試合が対象・数値データと修正が残る・昔の録画も消える・残す数を変える・確認ダイアログ・設定の保存、11 件 ALL PASS）。既存の `stills_retention_check`（13）・`stills_capacity_check`（34）・`backup_check`（22）も PASS。`no_video_check` は実映像の検証結果（`test-results/web_matches.json`）が必要で、この環境では動かない。
+
+## D60 (2026-10-26) 学習用の画像・正解データを、このリポジトリに溜める（`inbox/` に zip を上げると自動で取り込む）
+- 背景：学習の成果が端末の中だけに留まっている（自己学習・検出の自動調整は端末／アカウント内、見本の追加は PC で `ingest_feedback.py` を手で回したときだけ）。学習用の画像は Supabase に入れると容量が心配なので GitHub に溜める。個人情報ではないので、まずは新しいリポジトリを作らず、このリポジトリに入れる（重くなったら、データ専用の非公開リポジトリへ移すことを検討）。
+- 流れ：アプリの「正解データを書き出す」で ZIP を作る → [GitHub の `inbox/` にアップロード](https://github.com/qnaiv/inkgraph2/upload/main/inbox)（PC でもスマホでも）→ GitHub Actions（`.github/workflows/ingest-feedback.yml`）が自動で取り込み、**取り込み結果の PR** を作る。マージすると Pages で配信され、成果が製品に反映される。
+- Actions がやること（zip ごと）：
+  1. `tools/ingest_feedback.py --apply`（既存）：ルール・ステージの見本の追加（`templates/`）、正解ラベル（`labels/feedback/<名前>.json`）、Web アセットの再書き出し（`web/public/assets/inkgraph_assets.json`）。
+  2. `tools/archive_training.py`（新規）：zip の画像と `feedback.json` を `training/<名前>/` に保存する。画像は最大幅 1280・WebP（品質 80）に軽くし（1080p の JPEG 約 250KB → 約 50〜80KB）、縮小後のハッシュが同じ画像はバッチをまたいで重複させない。`snapshots[].file` は保存先の相対パスに書き換える。`training/index.json` にバッチごとの試合数・画像数・容量とハッシュの対応を残す。
+  3. 精度の確認：`tools/test_eval_ci.py` と `tools/eval_ci.py`（手元の正解ラベルで測る）。結果（PASS/FAIL）を PR の本文に書く（`GITHUB_TOKEN` が作った PR では他のワークフローが走らないので、この中で測る）。
+  4. zip を削除し、ブランチ `ingest/<run id>` に変更をまとめて PR を作る。
+- 手元でやること：リポジトリの Settings → Actions → General で「Allow GitHub Actions to create and approve pull requests」を有効にする（無効だと PR は作れず、ブランチだけ push して警告を出す。ブランチから手動で PR を作れる）。
+- 検証：サンプルの zip（`labels/feedback/feedback_sample.zip`）で、`ingest_feedback.py --apply` → `archive_training.py` を通して確認した（画像 3 枚・231KB、`training/index.json` に記録、既存の `eval_ci` は PASS）。Actions 上での実行（PR の作成まで）は、マージ後に最初の zip を上げて確認する。
+- 注意：zip そのものも一度は main の履歴に入る（アップロードは main へのコミットのため）。数 MB 程度なので当面は許容する。確認画面の静止画にはプレイヤー名が映ることがある（学習用画像にそのまま入る。公開リポジトリなので、気になる場合は非公開リポジトリへ移す）。
+- 今後：学習パック（見本・しきい値・モデル）を製品の既定として配る仕組みや、端末の中での見本の自動追加は、この取り込みの流れの上に載せる。
+
+## D61 (2026-10-26) クラウド同期を InkGraph 専用の Supabase プロジェクトに移し、ログインを ID／パスワードにする（D58 の変更）
+- 背景：D58 は別アプリ（fragments）と同居のプロジェクトを使ったが、実際に使うと、メールのリンクは CAPTCHA（ボット対策）で弾かれ、Google ログインは fragments のサイト（Site URL）に戻された。どちらもプロジェクト全体の設定で、InkGraph だけ変えられない。匿名ログインは、端末ごとに別のユーザーになりスマホから PC のデータが見えず、CAPTCHA が有効だと同じく弾かれ、同居のプロジェクトでは匿名ユーザーを InkGraph の表から除外していた。
+- 変更：
+  - 専用プロジェクト `inkgraph`（`mcbakoycsrijtohwipyb`、Singapore）を使う。`inkgraph_matches`・`inkgraph_settings` の 2 表と、自分の行だけ読み書きできる RLS を同じ形で作った（匿名ユーザーは除外）。接続先と publishable キーは `web/src/cloud/config.js`。fragments 側に作った 2 表は残っている（使わない。不要なら、fragments の SQL エディタで `drop table public.inkgraph_matches, public.inkgraph_settings;`）。
+  - ログインは **ID／パスワード**（`signUp`・`signInWithPassword`）。IDはメールアドレスの形（Supabase が形式を検査するため。確認メールは送らない設定にする）。パネルに ID・パスワードの入力欄と「ログイン」「新規登録」。8 文字未満は断り、12 文字以上を勧める。エラーは日本語の文にする（IDまたはパスワードが違う・すでに登録済み・新規登録が止めてある・パスワードが弱い・ID の形が違う・試しすぎ）。Google とメールのリンクの画面は外した（関数は残してある）。
+  - 「Confirm email」がオンのまま新規登録すると、セッションが返らず確認メールが要る。その場合は、画面に設定のしかたを出す。
+- 手元でやること（Supabase のダッシュボード、プロジェクト `inkgraph`）：
+  1. Authentication → Sign In / Providers → Email で「Confirm email」をオフにする。
+  2. 同じ画面（または Authentication → Sign In / Providers 上部の設定）で、アカウントを作ったあとに「Allow new users to sign up」をオフにする（身内に配るときだけ一時的にオンにして登録してもらう）。
+  3. Authentication → URL Configuration の Site URL を `https://qnaiv.github.io/inkgraph2/`、Redirect URLs に同じ URL と `http://localhost:5173/` を入れる（ID／パスワードでは使わないが、将来メール等を使うときのため）。
+- 検証：`cloud_ui_check`（未ログインのパネルが ID・パスワード・ログイン・新規登録になったこと）、`cloud_sync_check` が PASS。実際の Supabase への登録・ログインは、この環境から Supabase に接続できないため未確認。
