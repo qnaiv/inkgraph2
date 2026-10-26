@@ -1,6 +1,9 @@
 import { prepAssets } from './core/assets.js';
 import { Analyzer } from './core/analyzer.js';
 import { setParams } from './core/tuning.js';
+import { configureYolo, readHeaderTensor, preprocessHeader } from './yolo_runner.js';
+import { mergeYoloHeader } from './core/yolo_header.js';
+import { powerForMatchType } from './core/result.js';
 import { CLIP } from './clips.js';
 
 let A = null, an = null, curFrame = null, curT = 0;
@@ -70,7 +73,15 @@ function openClip(kind, t) {
   }
 }
 
+// D56: 結果画面の見出し（ルール・ステージ・モード）の YOLO 読み取り。試合ごとに最大 YOLO_MAX 回（結果画面のサンプル静止画を撮るのと同じ場面）
+let matchChain = Promise.resolve();
+const YOLO_MAX = 3; let yoloReads = [], yoloPending = [], yoloCount = 0;
+function yoloHeaderNow(fr) {
+  if (!fr || yoloCount >= YOLO_MAX) return; yoloCount++;
+  try { const chw = preprocessHeader(fr); yoloPending.push(readHeaderTensor(chw).then(r => { if (r) yoloReads.push(r); })); } catch (e) { console.warn('yolo preprocess failed', e); }
+}
 function resetMatchState() {
+  yoloReads = []; yoloPending = []; yoloCount = 0;
   for (const clip of pendingClips) {
     if (clip.frames && clip.frames.length >= 1) {
       clip.frames.sort((a, b) => a.t - b.t);
@@ -110,15 +121,23 @@ self.onmessage = async (ev) => {
   const m = ev.data;
   if (m.type === 'init') {
     if (m.detectParams) setParams(m.detectParams);
+    configureYolo(m.assetsUrl.replace(/[^/]*$/, ''));
     if (!A) { const r = await fetch(m.assetsUrl); A = prepAssets(await r.json()); }
     an = new Analyzer(A, { srcH: m.srcH || 1080, matchNo: m.matchNo || 1, learnThresholds: m.learnThresholds || null,
-      onMatch: rec => { resetMatchState(); postMessage({ type: 'match', rec }); },
+      onMatch: rec => {
+        const pend = yoloPending, reads = yoloReads; resetMatchState();
+        // YOLO の読み取りを待ってから試合を送る。flush（停止）はこの完了を待つので、待っている間に Worker が止められて試合が消えることはない
+        matchChain = matchChain.then(async () => {
+          try { await Promise.allSettled(pend); const filled = mergeYoloHeader(rec, reads, powerForMatchType); if (filled.length) rec.yolo_filled = filled; } catch (e) { console.warn('yolo merge failed', e); }
+          postMessage({ type: 'match', rec });
+        }); },
       onEvent: e => { postMessage({ type: 'event', e });
         if (e.type === 'battle_start') { battleA = e.t; snapPlan = [20, 90, 180]; resetMatchState(); }
         if (e.type === 'own_kill') { momentSnap(e.t, 'kill', 'キル'); openClip('kill', e.t); }
         if (e.type === 'own_death') { momentSnap(e.t, 'death', 'デス'); openClip('death', e.t); }
         if (e.type === 'special_ready') momentSnap(e.t, 'special', 'スペシャル');
         if (e.type === 'special_end') openClip('special', e.t);
+        if (e.type === 'snapshot' && (e.kind === 'personal' || e.kind === 'board')) yoloHeaderNow(curFrame);
         if (e.type === 'snapshot') snap(e.t, e.reason, { kind: e.kind, header: e.header }, curFrame, ['celebration', 'personal', 'board'].includes(e.kind)); } });
     postMessage({ type: 'ready' });
   } else if (m.type === 'frame') {
@@ -162,5 +181,7 @@ self.onmessage = async (ev) => {
       });
     }
     postMessage({ type: 'ack', t: m.t, tp, ms, state: an.state, buf: m.buf }, [m.buf]);
-  } else if (m.type === 'flush') { an.flush(); resetMatchState(); postMessage({ type: 'flushed' }); }
+  } else if (m.type === 'yolo_header') { // 診断用: 渡されたフレームの見出しを YOLO で読んで返す（動作確認・チェック用）
+    const r = await readHeaderTensor(preprocessHeader({ w: m.w, h: m.h, data: new Uint8ClampedArray(m.buf) })); postMessage({ type: 'yolo_header', r });
+  } else if (m.type === 'flush') { an.flush(); await matchChain; resetMatchState(); postMessage({ type: 'flushed' }); }
 };

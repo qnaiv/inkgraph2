@@ -663,3 +663,18 @@
   - `ingest_feedback.py`：ステージの見本の切り出しにルールを渡すように直した（これまでホコでも +38 が効かず、ずれた位置の画像をステージの見本にしていた）。位置が分かっていないルール（ガチアサリなど）では、実測するまでルール名の見本だけ追加し、ステージの見本は追加しない。
 - 今回やらないこと：ガチアサリ固有の指標（ゴール・アサリ数）、Python 側（`src/inkgraph/result.py`）の下限。結果画面の数（デス・スペシャル・K+A）と、キル・デス・スペシャルの検出はルールに依らないので、D52〜D54 の自動補正・調整はアサリでもそのまま効く見込み。
 - 検証：`web/tools/unknown_rule_check.mjs`（9 件 ALL PASS）、ビルド、既存チェック（result_missing 36・special_states 26・reconcile・tuning・special_outcome・live_special・kill_slot）が通った。実映像（ガチアサリ・既存ルール）での下限の当たり具合は未計測（下限で既存ルールが `null` にならないかは、手元で 3 ルールの録画を流して確認が必要）。
+
+## D56 (2026-10-26) 結果画面の見出し（ルール・ステージ・モード）を v1 の YOLO モデル（yolo_stats.onnx）で読む
+- 背景：v1（qnaiv/InkGraph）で Roboflow 学習した `yolo_stats.onnx`（リポジトリ直下に配置）は、数字・キル/デス/スペシャルのアイコンに加えて、ルール 5 種（`rule_asari` を含む）・モード 4 種・ステージ 25 種を判別できる。テンプレートに見本の無いガチアサリ（D55 で「ルール不明」にした）を読める。
+- 実画像での確認（v1 の参照画像 `reference_praise.png`＝Xマッチ・ガチアサリ・オヒョウ海運の結果画面、`web/tools/fixtures/asari_x_result_720p.jpg` に 720p で保存）：`mode_x 0.96`・`rule_asari 0.95`・`stage_ohyou 0.98` を正しく読めた（1080p のまま切り出すと rule_asari は 0.83）。letterbox ではなく**ストレッチ**で入力しないと何も出ない（Roboflow の学習時と同じ）。
+- 仕組み：
+  - `web/src/core/yolo_header.js`（純粋関数）：v1 の `run_header_cascade` と同じ手順。フレームの右上（x 0.41〜0.92、y 0.02〜0.15）を 640x640 に双一次で引き伸ばし、出力 `[1, 51, 8400]` を conf≥0.5・クラスごとの NMS 0.45 で絞り、mode_/rule_/stage_ ごとに最高確信度を採る。クラス名はこのアプリの表記（ガチホコバトル、`bankara_open` など）に変換する。複数フレームは確信度の合計で多数決。
+  - `web/src/yolo_runner.js`：Worker 内で `onnxruntime-web`（WASM・単一スレッド）を最初に必要になったときに 1 回だけ読み込む。`web/tools/copy_yolo_assets.mjs` がビルド前（`prebuild`/`predev`）に WASM とモデルを `web/public/assets/`（`ort/`・`yolo_stats.onnx`）へコピーする（git には入れない。GitHub Pages のビルドは `npm run build` なので自動で走る）。
+  - `web/src/worker.js`：結果画面のサンプル静止画を撮る場面（`personal`/`board`）で、そのフレームの見出しを切り出して（フレームのバッファは転送されて消えるので同期で前処理）非同期に読む。1 試合あたり最大 3 回。試合の確定時に読み取りを待ってから `match` を送る。`flush`（停止）はこの送信を待つので、読み取り中に Worker が止められて試合が消えることはない。
+  - 反映（`mergeYoloHeader`）：**テンプレートで読めなかった項目（mode・stage・match_type）だけ埋める**（`mode_source:'yolo'` など、`rec.yolo_filled`）。テンプレートで読めていて食い違う項目は直さず、`result_screen.yolo_disagree` に記録だけする（どちらが正しいかはまだ実映像で分からないため）。
+- 速度：1 回の推論は約 0.36 秒（初回のモデル読み込み込みで約 1.4〜2.6 秒）。前処理は約 20〜50 ミリ秒。試合ごとに数回で、ライブ解析のフレーム処理を妨げない（Worker 内）。
+- 検証：`web/tools/yolo_header_check.mjs`（純関数 6 件、実ブラウザで実モデルを動かす 5 件、ビルド済みの Worker 経由 2 件、計 13 件 ALL PASS）。既存チェックも通った。
+- 未確認・今後：
+  - 実映像の試合を通した確認（既存ルール・ステージで YOLO とテンプレートが食い違う頻度、`yolo_disagree` の中身）。結果次第で「YOLO を優先する」「食い違いは確認画面で目立たせる」を決める。
+  - 数字（結果画面のデス数・スペシャル数・K+A）の読み取りへの利用（Model 1 `yolo_result.onnx` の MyArrow で行を特定し、Model 2 で数字を読む v1 のカスケード）。今回は見出しだけ。
+  - ヤグラとして YOLO が埋めた試合は、ヤグラ用の処理（カウント・勝率）が試合確定時に走っていないので、タグ付けされない（テンプレートが読めなかった試合だけの話）。
