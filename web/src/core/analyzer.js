@@ -8,6 +8,7 @@ import { readKiller, decideKiller, KP } from './killer.js';
 import { LiveSpecialTracker } from './live_special.js';
 import { reconcileCounts, reconcileDeaths } from './reconcile.js';
 import { fuseDeath, fusedAccept, fuseKill, FUSE } from './fusion.js';
+import { packCues } from './cues_pack.js';
 export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240, sp_drain_min: 0.15, sp_drain_win: 1.5, sp_end_tol: 0.5, sig_th: 0.5, ready_th: 0.2, sp_gap: 3.0, kill_th: 0.6 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
 
 export function specialOutcome(a, b, deathStarts, t, go, lastOk = null) {
@@ -95,7 +96,7 @@ export class Analyzer {
     const m = this.cur, A = this.A; const mp = C.mapOpen(A, fr), sg = C.ownDeadSignal(A, fr);
     const ksc = C.killNoticeSlotScores(A, fr), killSlots = ksc.map(s => s > 0.6), kill = killSlots.some(Boolean);
     const [gw, go] = C.gauge(fr), crops = C.iconCrops(fr);
-    const f = { t, ok: tp, map: mp, sig: sg.dead, sy: sg.soft, ks: Math.max(0, ...ksc), kill, killSlots, gw, go, p: null, s: null, ally: null };
+    const f = { t, ok: tp, map: mp, sig: sg.dead, sy: sg.soft, ks: Math.max(0, ...ksc), ksc, kill, killSlots, gw, go, p: null, s: null, ally: null };
     if (!m.th) { if (tp && m.hueN < 60) { C.hueHist(crops, 0, m.hist[0]); C.hueHist(crops, 1, m.hist[1]); m.hueN++; }
       m.pend.push([f, crops, mp ? fr : null]);
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
@@ -139,6 +140,7 @@ export class Analyzer {
     const m = this.cur; if (!m) return; if (!m.th) this.fixHue();
     const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH, { own: rs.own, frames: m.RS.personal.length + m.RS.board.length });
     rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
+    rec.cues = packCues(m.F);
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
@@ -236,7 +238,8 @@ export function killEventsFromSlots(t, F) {
 export const SOFT_DEATH_TH = 0.35, SOFT_READY_TH = 0.12;
 const meanOf = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
 export function buildMatch(m, no, srcH, ctx = {}) {
-  const F = m.F, t = F.map(f => f.t), ok = F.map(f => f.ok), mp = F.map(f => f.map), n = F.length;
+  // キル通知のしきい値（kill_th）は保存した通知スコア（ksc）から判定し直す。既定 0.6 は従来の killNoticeSlots と同じ
+  const F = m.F.some(f => f.ksc) ? m.F.map(f => (f.ksc ? { ...f, killSlots: f.ksc.map(v => v > P.kill_th), kill: f.ksc.some(v => v > P.kill_th) } : f)) : m.F, t = F.map(f => f.t), ok = F.map(f => f.ok), mp = F.map(f => f.map), n = F.length;
   const d = F.map(f => (f.p || Array(8).fill(0)).map(p => p > P.icon_th));
   for (let k = 1; k < n; k++) if (!ok[k]) d[k] = d[k - 1].slice();
   const slots = [...Array(8)].map((_, i) => (i < 4 ? 'L' : 'R') + (i % 4)); const ev = {};

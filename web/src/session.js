@@ -5,6 +5,7 @@ import { powerForMatchType } from './core/result.js';
 import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
+import * as detectParams from './detect_params.js';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
@@ -34,7 +35,7 @@ export class Session {
     const learnState = await db.getLearnState().catch(() => null);
     const activePack = await db.activeLearnPack(learnState).catch(() => null);
     const learnThresholds = activePack?.thresholds || null;
-    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds }); });
+    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds, detectParams: detectParams.activeParams() }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
 
     // visibilitychange リスナ: hidden 時はガードに通知、visible 復帰時に running なら resume()
@@ -256,5 +257,7 @@ export class Session {
     if (this.stream) this.stream.getTracks().forEach(t => t.stop());
     this.worker?.terminate();
     this.cb.stopped?.();
+    // D54: 解析が止まって手が空いたら、結果画面の数に合わせた検出パラメータの自動調整を試す（条件を満たしたときだけ適用。失敗しても何も壊さない）
+    detectParams.autoTune().then(c => { if (c && c.ok) this.cb.tuned?.(c); }).catch(e => console.warn('autoTune failed', e));
   }
 }

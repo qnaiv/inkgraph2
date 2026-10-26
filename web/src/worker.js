@@ -1,5 +1,6 @@
 import { prepAssets } from './core/assets.js';
 import { Analyzer } from './core/analyzer.js';
+import { setParams } from './core/tuning.js';
 import { CLIP } from './clips.js';
 
 let A = null, an = null, curFrame = null, curT = 0;
@@ -108,6 +109,7 @@ let battleA = null, snapPlan = [];
 self.onmessage = async (ev) => {
   const m = ev.data;
   if (m.type === 'init') {
+    if (m.detectParams) setParams(m.detectParams);
     if (!A) { const r = await fetch(m.assetsUrl); A = prepAssets(await r.json()); }
     an = new Analyzer(A, { srcH: m.srcH || 1080, matchNo: m.matchNo || 1, learnThresholds: m.learnThresholds || null,
       onMatch: rec => { resetMatchState(); postMessage({ type: 'match', rec }); },
