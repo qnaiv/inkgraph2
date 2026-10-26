@@ -14,11 +14,17 @@ function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r
   };
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); return dbp; }
 const tx = async (store, mode, fn) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const r = fn(s); t.oncomplete = () => res(r instanceof IDBRequest ? r.result : r); t.onerror = () => rej(t.error); }); };
-export const putMatch = m => tx('matches', 'readwrite', s => s.put(m));
+// D58: 書き込みのたびに更新時刻（updated）を付ける（クラウド同期の新旧の判定用）。同期が取り込む／送った記録（keepUpdated）は付け替えない。
+export const putMatch = (m, opts = {}) => { if (!opts.keepUpdated) m.updated = new Date().toISOString(); const r = tx('matches', 'readwrite', s => s.put(m)); if (!opts.keepUpdated && typeof window !== 'undefined') r.then(() => window.dispatchEvent(new CustomEvent('inkgraph:dirty')), () => {}); return r; };
 export const getMatch = id => tx('matches', 'readonly', s => s.get(id));
 export const allMatches = async () => (await tx('matches', 'readonly', s => s.getAll())).sort((a, b) => (a.created || '').localeCompare(b.created || '') || a.match - b.match);
 const delSnaps = async id => { for (const sn of await snapsOf(id)) await tx('snaps', 'readwrite', s => s.delete(sn.id)); };
-export const delMatch = async id => { await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); };
+const DEL_KEY = 'inkgraph.cloud.deleted'; // クラウドに「消した」と伝えるための印（送ったら消す）
+export const pendingDeletes = () => { try { return JSON.parse(localStorage.getItem(DEL_KEY) || '[]'); } catch { return []; } };
+export const clearPendingDeletes = ids => { try { localStorage.setItem(DEL_KEY, JSON.stringify(pendingDeletes().filter(d => !ids.includes(d.id)))); } catch { /* ignore */ } };
+export const delMatch = async (id, opts = {}) => {
+  if (!opts.fromCloud) { try { localStorage.setItem(DEL_KEY, JSON.stringify([...pendingDeletes().filter(d => d.id !== id), { id, at: new Date().toISOString() }])); if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inkgraph:dirty')); } catch { /* ignore */ } }
+  await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); };
 export async function snapsCount(id) { return (await snapsOf(id)).length; }
 // m.favorite: boolean / m.stillsState: 'kept'|'deleted'|'none' (旧レコードはフィールド無し可)
 export function stillsStateOf(m, snapCount) {

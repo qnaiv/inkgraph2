@@ -689,3 +689,18 @@
   - 信号を保存する前に解析した試合（`cues` が無い）は直せない。その旨を表示し、手入力の値は傾向分析と自動調整（D54、`resultOf` が手入力を反映する）の正解にだけ使われる。
 - 試合一覧を日時の降順（最新が一番上）に並べる（同じ日時は試合番号の降順）。
 - 検証：`web/tools/recorrect_check.mjs`（Node：未対応の条件、足す・削る、✗・見逃し追加の扱い、もとに戻す、計 12 件）、`web/tools/recorrect_ui_check.mjs`（実ブラウザ：入力→検出が直る→説明→保存→戻す、7 件）、`web/tools/assist_check.mjs`（純関数 4 件・一覧・詳細・並び順、10 件）が ALL PASS。既存チェック（reconcile・tuning・unknown_rule・special_outcome・live_special・kill_slot・result_missing・special_states・learn_pack・self_learn・backup）も通った。`feedback_batch_check` の 2 件（ダウンロードのファイル名）は、この変更の前の main でも同じく落ちる（headless のダウンロード検知。この変更とは無関係）。
+
+## D58 (2026-10-26) アカウントに紐付けたクラウド同期（数値と時刻だけ）とスマホでの閲覧
+- 背景：ローカルの IndexedDB に加えて、アカウントに紐付けて、スマホなどで実績・分析結果を見たい。画像などを溜めると容量を食うので、データだけでよい。
+- 方針（端末が主、クラウドは写し）：
+  - 同期するのは数値と時刻だけ（勝敗・ルール・ステージ・キル/デス/スペシャルの時刻と種類・ヤグラのカウント推移・確認画面の修正・手入力の値・検出の自動調整の値）。**送らない**のは静止画・クリップ・録画・検出用の信号（`cues`）・ヤグラの生データ・自己学習の特徴量（`slim.js` の `LOCAL_ONLY`）。1 試合 10〜30KB、400KB を超える試合は送らない。他人の試合（検証用、`source.owner !== 'self'`）は送らない。プレイヤー名は元々保存していない（結果画面は OCR をしないため）。
+  - 同期の順は、取り込み（クラウドの新しい分を端末へ）→ 送信（端末で変更があった分）→ 設定。同じ試合を両方で直したら更新時刻が新しい方が勝つ。端末専用の項目（`cues`・静止画など）は、クラウドの更新を取り込んでも消さない。端末に無い試合は「閲覧用」（`remote:true`）として追加し、確認の修正はできない（画像・信号が無いため。修正は記録した端末で）。削除は印（`inkgraph.cloud.deleted`）を送って、他の端末からも消す。失敗しても端末のデータは何も壊さず、未送信のまま残る。
+  - `db.putMatch` が書き込みのたびに `updated` を付ける（同期が取り込む／送った記録は `keepUpdated` で付け替えない）。`synced` との差が「未送信」。
+- 保存先：Supabase の既存プロジェクト `fragments`（別アプリと同居）。`inkgraph_matches(user_id, id, updated_at, deleted, data jsonb)`・`inkgraph_settings` の 2 表だけを足し（`inkgraph_` で始まる名前で、既存の表・ポリシーには触れない）、行ごとのアクセス制限（RLS）で「自分の行だけ」読み書きできる。匿名サインインが有効なプロジェクトなので、ポリシーは匿名ユーザー（`is_anonymous`）を除外する（SQL エディタで実行済み）。未ログイン（anon）には何も許さない。
+- ログイン：Google（OAuth）またはメールのリンク（OTP）。PKCE（`?code=`）で、hash ルーティングと衝突しない。接続先と publishable キー（公開して安全な値）は `web/src/cloud/config.js`。
+- 自動同期：保存・修正のたび（8 秒待って 1 回）、アプリの起動時、画面に戻ったとき、オンラインに戻ったとき。試合一覧の「クラウド同期」パネルで、手動の同期・ログアウト・自動のオン/オフ。
+- スマホ（幅 820px 以下）：ライブ分析は使わない（メニューから隠し、最初の画面は試合一覧）。自己学習・自動調整のパネルは隠す。表は横にスクロールし、ページ全体は横にはみ出さない。
+- 検証：`web/tools/cloud_sync_check.mjs`（偽の Supabase で 2 台の端末：切り出し・送らない項目・往復しない・修正が届く・端末専用の項目が残る・競合は新しい方が勝つ・削除・失敗しても無事・設定、計 19 件）、`web/tools/cloud_ui_check.mjs`（実ブラウザのスマホ幅：未ログインのパネル・ライブ分析が隠れる・降順・はみ出さない・閲覧用の試合の表示・PC は従来どおり、11 件）が ALL PASS。既存チェックも通った。実際の Supabase とのログイン・同期は、ログインが人手の操作なので未確認。
+- 手元でやること（Supabase のダッシュボード）：
+  1. Authentication → URL Configuration の Redirect URLs に、公開 URL（`https://qnaiv.github.io/inkgraph2/`）と、開発用の `http://localhost:5173/` を追加する。
+  2. Google でログインするなら、Authentication → Providers の Google を有効にする（Google Cloud で OAuth クライアントを作り、Client ID／Secret を貼る）。しないなら、メールのリンクだけで使える（Supabase 標準のメール送信は 1 時間あたりの数に上限がある）。

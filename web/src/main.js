@@ -16,6 +16,7 @@ import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, pl
 import { CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
 import * as DP from './detect_params.js';
+import * as Cloud from './cloud/index.js';
 import { TUNABLE } from './core/tuning.js';
 
 const app = document.getElementById('app');
@@ -95,6 +96,7 @@ window.inkgraph = {
 };
 
 let currentPage = 'live';
+const isNarrow = () => typeof matchMedia === 'function' && matchMedia('(max-width: 820px)').matches;
 
 function parseHash(hashStr) {
   const raw = (hashStr || '').replace(/^#/, '');
@@ -123,6 +125,7 @@ function nav(page, arg, seekTo = null) {
     query = parts[1];
   }
   if (!PAGES[page]) page = 'live';
+  if (page === 'live' && isNarrow()) page = 'list'; // D58: スマホなど狭い画面ではライブ分析を使わない
   currentPage = page;
   if (arg) currentId = arg;
   pendingSeek = seekTo;
@@ -158,9 +161,11 @@ window.addEventListener('hashchange', () => {
     lastTrendQuery = q;
   }
   if (PAGES[p]) {
-    currentPage = p;
-    updateNavActive(p);
-    PAGES[p]();
+    const q2 = p === 'live' && isNarrow() ? 'list' : p;
+    if (q2 !== p) history.replaceState(null, '', '#list');
+    currentPage = q2;
+    updateNavActive(q2);
+    PAGES[q2]();
   }
 });
 
@@ -983,6 +988,7 @@ PAGES.list = async () => {
       </details>
     ` : ''}
 
+    <section id="cloud-panel" class="card learn-panel"></section>
     <section id="learn-panel" class="card learn-panel"></section>
     <section id="tune-panel" class="card learn-panel"></section>
 
@@ -1645,6 +1651,45 @@ PAGES.list = async () => {
     $('#tune-auto', el).onchange = e => DP.setAutoEnabled(e.target.checked);
   };
   await updateTunePanel();
+
+  // D58: クラウド同期パネル（アカウントに紐付けて、数値と時刻だけを同期する。画像・クリップ・信号は端末に残す）
+  let cloudMsg = '', cloudBusy = false;
+  const updateCloudPanel = async () => {
+    const el = $('#cloud-panel', page); if (!el) return;
+    const user = await Cloud.getUser().catch(() => null), st = Cloud.loadState();
+    const when = t => (t ? new Date(t).toLocaleString('ja-JP') : '—');
+    const remoteN = ms.filter(x => x.remote).length;
+    el.innerHTML = `
+      <div class="learn-panel-header"><div class="learn-panel-title-wrap"><h2 class="learn-panel-title">クラウド同期（スマホでも見る）</h2>
+        <span class="learn-badge ${user ? 'badge-active' : 'badge-neutral'}">${user ? 'ログイン中' : '未ログイン'}</span></div></div>
+      <div class="learn-panel-body">
+        <p class="muted">アカウントに紐付けて、<strong>数値と時刻だけ</strong>（勝敗・ルール・ステージ・キル/デス/スペシャルの時刻・確認画面の修正など）を同期します。静止画・クリップ・検出用の信号は送らず、この端末に残ります。他人の試合（検証用）も送りません。スマホでは同じ URL を開いてログインすると、一覧・詳細・傾向分析を見られます（スマホからの修正はできません）。</p>
+        ${user ? `
+          <table class="table"><tbody>
+            <tr><th>アカウント</th><td>${esc(user.email || user.id)}</td></tr>
+            <tr><th>最後の同期</th><td class="num">${esc(when(st.lastSync))}</td></tr>
+            <tr><th>この端末の試合</th><td class="num">${ms.length} 件（うち、クラウドから取り込んだ閲覧用 ${remoteN} 件）</td></tr>
+          </tbody></table>
+          <div class="learn-actions-row">
+            <button class="btn btn-primary" id="cloud-sync" type="button" ${cloudBusy ? 'disabled' : ''}>${cloudBusy ? '同期中…' : '今すぐ同期'}</button>
+            <button class="btn" id="cloud-out" type="button">ログアウト</button>
+            <label class="muted"><input type="checkbox" id="cloud-auto" ${Cloud.autoEnabled() ? 'checked' : ''}> 保存・修正のたびに自動で同期する</label>
+          </div>` : `
+          <div class="learn-actions-row">
+            <button class="btn btn-primary" id="cloud-google" type="button">Google でログイン</button>
+            <input class="input-sm" id="cloud-email" type="email" placeholder="メールアドレス" size="24" autocomplete="email">
+            <button class="btn" id="cloud-mail" type="button">メールでログイン</button>
+          </div>`}
+        ${cloudMsg ? `<p class="muted" id="cloud-msg">${esc(cloudMsg)}</p>` : ''}
+        ${st.lastError ? `<p class="muted" style="color:var(--lose)">直前の同期でエラー：${esc(st.lastError)}</p>` : ''}
+      </div>`;
+    const g = $('#cloud-google', el); if (g) g.onclick = async () => { const { error } = await Cloud.signInGoogle(); if (error) { cloudMsg = 'Google ログインを開始できませんでした：' + error.message; updateCloudPanel(); } };
+    const mb = $('#cloud-mail', el); if (mb) mb.onclick = async () => { const email = $('#cloud-email', el).value.trim(); if (!email) return; const { error } = await Cloud.signInEmail(email); cloudMsg = error ? 'メールを送れませんでした：' + error.message : `${email} にログイン用のリンクを送りました。メールのリンクを、この端末のブラウザで開いてください。`; updateCloudPanel(); };
+    const sy = $('#cloud-sync', el); if (sy) sy.onclick = async () => { cloudBusy = true; cloudMsg = ''; updateCloudPanel(); const r = await Cloud.syncNow(); cloudBusy = false; cloudMsg = r.ok ? `同期しました（取り込み ${r.pulled} 件・送信 ${r.pushed} 件${r.deleted || r.deletedSent ? `・削除 ${r.deleted + r.deletedSent} 件` : ''}）。` : (r.reason === 'busy' ? '同期中です。' : '同期できませんでした：' + (r.error || r.reason)); if (r.ok && (r.pulled || r.deleted)) PAGES.list(); else updateCloudPanel(); };
+    const so = $('#cloud-out', el); if (so) so.onclick = async () => { await Cloud.signOut(); cloudMsg = 'ログアウトしました（この端末の試合はそのまま残ります）。'; updateCloudPanel(); };
+    const au = $('#cloud-auto', el); if (au) au.onchange = e => Cloud.setAuto(e.target.checked);
+  };
+  await updateCloudPanel();
 };
 
 // ============================================================================
@@ -1866,6 +1911,7 @@ PAGES.match = async () => {
     if (st) st.textContent = `この試合：${EXPORT_STATE_LABEL[exportStateOf(m)]}（確認済み ${confirmedCount(m)}件）`;
   };
 
+  if (m.remote) reviewMode = false; // クラウドから取り込んだ試合は閲覧のみ（D58）
   const r = resultOf(m);
   const rsStat = resultStatus(m);
   const matchTypeLabel = (r.match_type && MATCH_TYPE_LABEL[r.match_type]) || '不明';
@@ -1929,11 +1975,11 @@ PAGES.match = async () => {
         </div>
       </div>
 
-      <label class="review-toggle-label" for="review-toggle">
+      ${m.remote ? '<div class="muted" id="remote-note" style="font-size:12px">クラウドから取り込んだ試合です（閲覧のみ）。画像・信号はこの端末に無いので、確認の修正はできません。修正は記録した端末で行ってください。</div>' : `<label class="review-toggle-label" for="review-toggle">
         <input type="checkbox" id="review-toggle" class="toggle-input" ${reviewMode ? 'checked' : ''}>
         <span class="toggle-switch" aria-hidden="true"></span>
         <span>レビューモード</span>
-      </label>
+      </label>`}
     </div>
 
     <div class="detail-body ${reviewMode ? 'review-on' : ''}" id="detail-body">
@@ -1991,7 +2037,7 @@ PAGES.match = async () => {
   mountPage(page, false);
 
   $('#pick', page).onchange = e => nav('match', e.target.value);
-  $('#review-toggle', page).onchange = e => {
+  if ($('#review-toggle', page)) $('#review-toggle', page).onchange = e => {
     reviewMode = e.target.checked;
     $('#detail-body', page).classList.toggle('review-on', reviewMode);
     if (!reviewMode && tlEl) tlEl.closePopover();
@@ -3214,5 +3260,9 @@ if (id0) currentId = decodeURIComponent(id0);
 if (p0 === 'trend' && q0) {
   lastTrendQuery = q0;
 }
-nav(PAGES[p0] ? (p0 === 'trend' && q0 ? `trend?${q0}` : p0) : 'live');
+// D58: スマホなど狭い画面ではライブ分析を使わない（キャプチャーできないので）。最初の画面は試合一覧にする
+const narrow = isNarrow();
+nav(PAGES[p0] ? (p0 === 'trend' && q0 ? `trend?${q0}` : (narrow && p0 === 'live' ? 'list' : p0)) : (narrow ? 'list' : 'live'));
+Cloud.startAutoSync();
+Cloud.onChange(r => { if (currentPage === 'list' && r && r.ok && (r.pulled || r.deleted)) PAGES.list(); });
 
