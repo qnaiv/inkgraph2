@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as db from '../db.js';
 import * as DP from '../detect_params.js';
 import { createSync } from './sync.js';
+import * as WL from '../weapon_lib.js';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 const STATE_KEY = 'inkgraph.cloud', AUTO_KEY = 'inkgraph.cloud.auto';
 let client = null, sync = null, timer = null, running = false; const listeners = new Set();
@@ -15,7 +16,7 @@ export function getClient() {
   return client;
 }
 const getSync = () => sync || (sync = createSync(getClient(), { allMatches: db.allMatches, getMatch: db.getMatch, putMatch: db.putMatch, delMatch: db.delMatch, pendingDeletes: db.pendingDeletes, clearPendingDeletes: db.clearPendingDeletes, loadState, saveState,
-  backendKey: SUPABASE_URL, getDetectParams: () => DP.activeParams(), setDetectParams: p => DP.applyParams(p, { note: 'クラウドから取り込み' }) }));
+  backendKey: SUPABASE_URL, getWeaponLib: () => WL.loadUserLib().items, mergeWeaponLib: items => WL.mergeIntoLocal(items), getDetectParams: () => DP.activeParams(), setDetectParams: p => DP.applyParams(p, { note: 'クラウドから取り込み' }) }));
 export const onChange = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 const emit = r => listeners.forEach(f => { try { f(r); } catch { /* ignore */ } });
 export async function getUser() { const { data: { session } } = await getClient().auth.getSession(); return session ? session.user : null; }

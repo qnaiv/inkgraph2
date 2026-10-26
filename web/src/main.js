@@ -3,7 +3,7 @@ import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
 import { recorrect, recorrectStatus, undoRecorrect } from './recorrect.js';
-import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows } from './analysis.js';
+import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows, unknownIconGroups } from './analysis.js';
 import { b64bytes } from './core/img.js';
 import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
@@ -17,6 +17,7 @@ import { CLIP, CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
 import * as DP from './detect_params.js';
 import * as Cloud from './cloud/index.js';
+import * as WL from './weapon_lib.js';
 import { TUNABLE } from './core/tuning.js';
 
 const app = document.getElementById('app');
@@ -67,6 +68,7 @@ function getEnemyIconLib() {
       const res = await fetch(new URL('assets/inkgraph_assets.json', document.baseURI).href);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json();
+      weaponNames = [...new Set([...(j.enemy_icon && j.enemy_icon.lib || []).map(e => e.name), ...((j.killer && j.killer.lib) || []).filter(e => e.kind === 'main').map(e => e.name)])].filter(Boolean);
       return prepEnemyIconLib(j.enemy_icon, b64bytes);
     } catch (e) {
       return { lib: [] };
@@ -74,6 +76,8 @@ function getEnemyIconLib() {
   })();
   return enemyIconLibPromise;
 }
+let weaponNames = [];
+async function getWeaponNames() { await getEnemyIconLib(); return weaponNames; }
 // 傾向画面の描画を見本の読み込みで待たせないよう、起動時に先読みする
 getEnemyIconLib();
 
@@ -2818,66 +2822,38 @@ PAGES.trend = async () => {
     ambiguous: '区別不可'
   };
 
-  const enemyIconLib = await getEnemyIconLib();
-  const presenceStats = enemyPresenceRows(filtered, enemyIconLib);
-  let presenceBodyHtml = '';
-  if (presenceStats.withIcons === 0) {
-    presenceBodyHtml = `
-      <div class="empty-state">
-        <p class="muted">まだ結果画面のアイコンを保存した試合がありません</p>
-      </div>
-      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
-        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
-        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
-        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
-      </div>
-    `;
-  } else {
-    const presenceRowsHtml = presenceStats.rows.map(r => {
+  const enemyIconLib = WL.combinedLib(await getEnemyIconLib()); // 静的な見本＋この端末で名前を付けた見本（D65）
+  // D65: 結果画面ボードのブキアイコン（敵・味方・自分）から「そのブキがいた試合」の勝敗を出す。武器別。全体の勝率との差が小さい（負けやすい）順に見られるよう「全体との差」を付ける
+  const presenceCard = (title, stats, noteLines) => {
+    const noteHtml = `<div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">${noteLines.map(l => `<div>${l}</div>`).join('')}<div>名前が付いた枠 ${stats.namedSlots}/${stats.totalSlots}</div></div>`;
+    if (stats.withIcons === 0) return `<div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)"><div class="card-title">${esc(title)}</div><div class="empty-state"><p class="muted">まだ結果画面のアイコンを保存した試合がありません</p></div>${noteHtml}</div>`;
+    const rowsHtml = stats.rows.map(r => {
       const kindLabel = PRESENCE_KIND_LABEL[r.kind] || r.kind || '—';
-      const winRateCell = r.low
-        ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>`
-        : pct(r.winRate);
-      return `
-        <tr class="${r.low ? 'trend-stage-low' : ''}">
-          <td>${esc(r.name)}</td>
-          <td>${esc(kindLabel)}</td>
-          <td class="num">${r.matches}</td>
-          <td class="num">${r.wins}勝${r.losses}敗</td>
-          <td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td>
-        </tr>
-      `;
+      const winRateCell = r.low ? `${pct(r.winRate)}<span class="trend-weapon-low-note">（${r.matches}試合・少数）</span>` : pct(r.winRate);
+      const dl = r.delta === null || r.delta === undefined ? '—' : `${r.delta > 0 ? '+' : ''}${Math.round(r.delta * 100)}pt`;
+      return `<tr class="${r.low ? 'trend-stage-low' : ''}"><td>${esc(r.name)}</td><td>${esc(kindLabel)}</td><td class="num">${r.matches}</td><td class="num">${r.wins}勝${r.losses}敗</td><td class="num ${r.low ? 'muted' : ''}">${winRateCell}</td><td class="num ${r.low ? 'muted' : (r.delta < 0 ? 'neg' : '')}" ${r.delta !== null && r.delta < 0 && !r.low ? 'style="color:var(--lose)"' : ''}>${dl}</td></tr>`;
     }).join('');
-
-    presenceBodyHtml = `
-      <div style="overflow-x:auto">
-        <table class="table trend-stage-table trend-weapon-table">
-          <thead>
-            <tr>
-              <th>ブキ</th>
-              <th>種類</th>
-              <th>いた試合</th>
-              <th>勝敗</th>
-              <th>いた試合の勝率</th>
-            </tr>
-          </thead>
-          <tbody>${presenceRowsHtml}</tbody>
-        </table>
-      </div>
-      <div class="trend-stage-note trend-weapon-note" style="margin-top:var(--sp-3);font-size:var(--fs-xs);color:var(--text-muted)">
-        <div>結果画面の敵 4 人のブキアイコンを見本と照合した名前です。見本に無いアイコンは『未登録のアイコン』としてまとめています</div>
-        <div>リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています</div>
-        <div>名前が付いた枠 ${presenceStats.namedSlots}/${presenceStats.totalSlots}</div>
-      </div>
-    `;
-  }
-
-  const enemyPresenceCardHtml = `
-    <div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)">
-      <div class="card-title">いた敵ブキ（結果画面のアイコン）</div>
-      ${presenceBodyHtml}
-    </div>
-  `;
+    return `<div class="card trend-weapon-card trend-presence-card" style="margin-bottom:var(--sp-6)"><div class="card-title">${esc(title)}</div>
+      <div style="overflow-x:auto"><table class="table trend-stage-table trend-weapon-table"><thead><tr><th>ブキ</th><th>種類</th><th>いた試合</th><th>勝敗</th><th>いた試合の勝率</th><th title="全試合の勝率との差。マイナスは、そのブキがいたとき負けやすい">全体との差</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>${noteHtml}</div>`;
+  };
+  const NOTE_COMMON = ['結果画面のブキのアイコンを見本と照合した名前です。見本に無いアイコンは『未登録』としてまとめています（下の「名前を付ける」で登録できます）', 'リッター4K と 4Kスコープはアイコンでほぼ区別できないため 1 つにまとめています', '「全体との差」は、そのブキがいた試合の勝率と全試合の勝率の差です。5試合未満は参考になりません'];
+  const presenceStats = enemyPresenceRows(filtered, enemyIconLib);
+  const allyStats = enemyPresenceRows(filtered, enemyIconLib, { field: 'ally_icons', pick: it => !it.own });
+  const ownStats = enemyPresenceRows(filtered, enemyIconLib, { field: 'ally_icons', pick: it => !!it.own });
+  const enemyPresenceCardHtml = presenceCard('いた敵ブキ（結果画面のアイコン）', presenceStats, NOTE_COMMON)
+    + presenceCard('いた味方ブキ（自分を除く）', allyStats, NOTE_COMMON.slice(0, 1).concat(['味方のアイコンは、このバージョン以降に記録した試合から貯まります']))
+    + presenceCard('自分のブキ', ownStats, NOTE_COMMON.slice(0, 1).concat(['自分のブキは、結果画面のボードの自分の行のアイコンです']));
+  // 未登録のアイコンに名前を付ける
+  const unknownGroups = unknownIconGroups(filtered, enemyIconLib);
+  const nameSuggest = [...new Set([...(await getWeaponNames()), ...WL.loadUserLib().items.map(x => x.name)])].sort((a, b) => a.localeCompare(b, 'ja'));
+  const namingCardHtml = unknownGroups.length === 0 ? '' : `<div class="card trend-weapon-card" id="weapon-naming" style="margin-bottom:var(--sp-6)"><div class="card-title">未登録のブキアイコンに名前を付ける（${unknownGroups.length} 種類）</div>
+      <p class="muted" style="font-size:var(--fs-xs)">絵を見てブキ名を入れると、この端末の見本に登録され、過去の試合にも反映されます（クラウド同期をしていれば他の端末にも届きます）。入力欄には、登録済みの名前の候補が出ます。</p>
+      <datalist id="weapon-names">${nameSuggest.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <div class="weapon-naming-list" style="display:flex;flex-direction:column;gap:var(--sp-2)">${unknownGroups.slice(0, 30).map((g, i) => `<div class="weapon-naming-row" data-i="${i}" style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
+        <canvas class="weapon-icon-canvas" width="112" height="68" data-icon="${esc(g.rep)}" style="background:#000;border-radius:4px"></canvas>
+        <span class="muted" style="font-size:var(--fs-xs)">${g.slots}枠・${g.matches}試合（敵 ${g.side.enemy}・味方 ${g.side.ally}）</span>
+        <input class="input-sm weapon-name-input" list="weapon-names" placeholder="ブキ名" size="22">
+        <button class="btn btn-sm weapon-name-save" type="button">名前を付ける</button></div>`).join('')}</div>${unknownGroups.length > 30 ? '<p class="muted" style="font-size:var(--fs-xs)">多い順に 30 種類まで出しています。名前を付けると次が出ます。</p>' : ''}</div>`;
 
   const WEAPON_KIND_LABEL = {
     main: 'メイン',
@@ -3159,6 +3135,7 @@ PAGES.trend = async () => {
 
     ${stageCardHtml}
     ${enemyPresenceCardHtml}
+    ${namingCardHtml}
     ${weaponCardHtml}
 
     <div class="trends-two-col">
@@ -3211,6 +3188,21 @@ PAGES.trend = async () => {
       }
       PAGES.trend();
     });
+  });
+
+  // D65: 未登録のブキアイコンの絵を描き、名前を付けたら見本に登録して描き直す
+  page.querySelectorAll('.weapon-icon-canvas').forEach(cv => {
+    const g = b64bytes(cv.dataset.icon), ctx = cv.getContext('2d'), im = ctx.createImageData(56, 34);
+    for (let i = 0; i < 56 * 34; i++) { im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = g[i]; im.data[i * 4 + 3] = 255; }
+    const tmp = document.createElement('canvas'); tmp.width = 56; tmp.height = 34; tmp.getContext('2d').putImageData(im, 0, 0);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(tmp, 0, 0, 112, 68);
+  });
+  page.querySelectorAll('.weapon-name-save').forEach(btn => {
+    btn.onclick = () => {
+      const row = btn.closest('.weapon-naming-row'), name = $('.weapon-name-input', row).value.trim(); if (!name) return;
+      const g = unknownGroups[+row.dataset.i], mates = [g.rep];
+      WL.addNamed(name, mates); PAGES.trend();
+    };
   });
 
   page.querySelectorAll('.wp-dot, .click-match').forEach(el => {

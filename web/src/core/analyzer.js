@@ -147,6 +147,8 @@ export class Analyzer {
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
     const ownRow = rs.board ? rs.board.find(b => b.own) : null;
     rec.enemy_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === (ownRow.group === 'top' ? 'bot' : 'top')).map(b => ({ slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
+    // D65: 味方 4 人（自分を含む）のブキのアイコンも同じ形で保存する。自分の行には own:true を付ける（自分のブキの集計用）
+    rec.ally_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === ownRow.group).map(b => (b.own ? { slot: `${b.group}${b.idx}`, icon: b.icon, own: true } : { slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
     if (isTowerRule(rs.mode) && m.tower.length) tagEvents(rec, T.series(m.tower));
     if (isTowerRule(rs.mode)) {
       rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));

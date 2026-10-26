@@ -592,7 +592,11 @@ export function enemyWeaponRows(matches) {
   };
 }
 
-export function enemyPresenceRows(matches, lib) {
+/** 結果画面ボードのブキアイコンから、「そのブキがいた試合」の勝敗を数える。
+ *  opts.field: 'enemy_icons'（既定。敵 4 人）／'ally_icons'（味方 4 人＋自分）。opts.pick: 数える枠の条件（例: 自分だけ・自分を除く）。
+ *  各行の delta は「全体の勝率との差」（負けやすい武器を見つけるための目安）。 */
+export function enemyPresenceRows(matches, lib, opts = {}) {
+  const field = opts.field || 'enemy_icons', pick = typeof opts.pick === 'function' ? opts.pick : () => true;
   if (!Array.isArray(matches)) {
     return { rows: [], nMatches: 0, withIcons: 0, namedSlots: 0, totalSlots: 0, overallWinRate: null };
   }
@@ -611,13 +615,14 @@ export function enemyPresenceRows(matches, lib) {
     if (isWin) overallWins++;
     else if (isLose) overallLosses++;
 
-    const hasIcons = Array.isArray(m.enemy_icons) && m.enemy_icons.length > 0;
+    const icons = Array.isArray(m[field]) ? m[field].filter(it => it && it.icon && pick(it)) : [];
+    const hasIcons = icons.length > 0;
     if (hasIcons) withIcons++;
     if (!hasIcons) continue;
 
     const matchWeapons = new Map();
 
-    for (const item of m.enemy_icons) {
+    for (const item of icons) {
       if (!item || !item.icon) continue;
       totalSlots++;
       const mr = matchIcon(iconLib, item.icon);
@@ -678,6 +683,8 @@ export function enemyPresenceRows(matches, lib) {
       low: wep.matches < 5
     });
   }
+  const baseWins = overallWins, baseN = overallWins + overallLosses, baseRate = baseN > 0 ? baseWins / baseN : null;
+  for (const r of rows) r.delta = (r.winRate !== null && baseRate !== null) ? r.winRate - baseRate : null;
 
   rows.sort((a, b) => {
     if (b.matches !== a.matches) return b.matches - a.matches;
@@ -697,3 +704,22 @@ export function enemyPresenceRows(matches, lib) {
   };
 }
 
+
+/** D65: 見本に無い（名前が付かない）ブキアイコンを、似た絵どうしにまとめて返す。名前を付ける画面用。
+ *  戻り値: [{ rep: アイコン(base64)、slots: 枠の数、matches: 試合の数、side: {enemy, ally} }]（枠の数の多い順）。区別不可（4K の組）は含めない。 */
+export function unknownIconGroups(matches, lib) {
+  const iconLib = Array.isArray(lib) ? lib : (lib && Array.isArray(lib.lib) ? lib.lib : []);
+  const groups = [];
+  for (const m of Array.isArray(matches) ? matches : []) {
+    for (const [field, side] of [['enemy_icons', 'enemy'], ['ally_icons', 'ally']]) {
+      for (const item of Array.isArray(m[field]) ? m[field] : []) {
+        if (!item || !item.icon) continue;
+        const mr = matchIcon(iconLib, item.icon); if (mr.name || (mr.ambiguous && mr.ambiguous.length)) continue;
+        const pg = prepIcon(item.icon); let g = groups.find(x => iconSimSym(pg, x.prep) >= BI.group_th);
+        if (!g) { g = { rep: item.icon, prep: pg, slots: 0, ids: new Set(), side: { enemy: 0, ally: 0 } }; groups.push(g); }
+        g.slots++; g.ids.add(m.id); g.side[side]++;
+      }
+    }
+  }
+  return groups.map(g => ({ rep: g.rep, slots: g.slots, matches: g.ids.size, side: g.side })).sort((a, b) => b.slots - a.slots);
+}

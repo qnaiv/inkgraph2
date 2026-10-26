@@ -45,12 +45,20 @@ export function createSync(client, deps) {
     return { pushed, deletedSent: dels.length, skipped };
   }
 
+  // 設定（検出の自動調整の値・名前を付けたブキアイコンの見本）。ブキの見本は、端末とクラウドの和集合にそろえる（名前＋絵が同じなら 1 つ）
+  const unionLib = (a, b) => { const out = [...a]; for (const x of b) if (!out.some(y => y.icon === x.icon && y.name === x.name)) out.push(x); return out; };
   async function settings(userId) {
     const local = getDetectParams(), { data, error } = await client.from(SETTINGS).select('data,updated_at').eq('user_id', userId).maybeSingle(); if (error) throw error;
-    const remote = data && data.data && data.data.detectParams || null;
-    if (!local && remote) { setDetectParams(remote); return 'pulled'; }
-    if (local && JSON.stringify(local) !== JSON.stringify(remote)) { const { error: e2 } = await client.from(SETTINGS).upsert({ user_id: userId, updated_at: new Date().toISOString(), data: { detectParams: local } }, { onConflict: 'user_id' }); if (e2) throw e2; return 'pushed'; }
-    return 'same';
+    const rd = (data && data.data) || {}, remote = rd.detectParams || null, remoteLib = (rd.weaponLib && rd.weaponLib.items) || [];
+    const localLib = deps.getWeaponLib ? deps.getWeaponLib() : [], union = unionLib(remoteLib, localLib);
+    let pulled = false, pushed = false;
+    if (!local && remote) { setDetectParams(remote); pulled = true; }
+    if (deps.mergeWeaponLib && union.length > localLib.length) { deps.mergeWeaponLib(union); pulled = true; }
+    const params = local || remote;
+    const needPush = (local && JSON.stringify(local) !== JSON.stringify(remote)) || (deps.getWeaponLib && union.length > remoteLib.length);
+    if (needPush) { const payload = { detectParams: params || null, ...(deps.getWeaponLib ? { weaponLib: { items: union } } : (rd.weaponLib ? { weaponLib: rd.weaponLib } : {})) };
+      const { error: e2 } = await client.from(SETTINGS).upsert({ user_id: userId, updated_at: new Date().toISOString(), data: payload }, { onConflict: 'user_id' }); if (e2) throw e2; pushed = true; }
+    return pushed ? 'pushed' : pulled ? 'pulled' : 'same';
   }
 
   /** 1 回の同期。失敗しても端末のデータは何も壊さない。戻り値: { ok, ... } */
