@@ -11,6 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'src'))
 
 from inkgraph.common import imread_unicode, imwrite_unicode, TPL
+STAGE_DX_MEASURED = ('ガチヤグラ', 'ガチエリア', 'ガチホコバトル')  # ステージ名の位置が分かっているルール（エリアは従来どおり補正なし）。ここに無いルール（ガチアサリなど）は実測するまでステージの見本を追加しない（D55）
 from inkgraph.result import classify, panel_offset, header_crops, _lib, _best
 
 
@@ -128,8 +129,12 @@ def main():
                     if sc_lobby >= 0.6: pk, dx, dy = s_kind, pdx, pdy
 
                 if pk in ('personal', 'board'):
-                    mc, sc = header_crops(img, dx, dy)
+                    mc, sc = header_crops(img, dx, dy, c_mode)
                     for sub, name_val, crop, lib in [('res_mode', c_mode, mc, lib_mode), ('res_stage', c_stage, sc, lib_stage)]:
+                        # D55: ステージ名の位置がまだ測れていないルール（ガチアサリなど）では、切り出す位置が合わず
+                        # 別の場所の画像をステージ名の見本にしてしまうので、ルール名の見本だけ追加する
+                        if sub == 'res_stage' and c_mode and c_mode not in STAGE_DX_MEASURED:
+                            continue
                         if name_val and crop.size > 0:
                             _, score = _best(crop, lib)
                             if score <= 0.9:

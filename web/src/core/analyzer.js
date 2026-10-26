@@ -139,7 +139,8 @@ export class Analyzer {
   finish() {
     const m = this.cur; if (!m) return; if (!m.th) this.fixHue();
     const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH, { own: rs.own, frames: m.RS.personal.length + m.RS.board.length });
-    rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
+    const readFrames = m.RS.personal.length + m.RS.board.length;
+    rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, mode_unknown: !rs.mode && readFrames > 0 ? true : undefined, mode_guess: !rs.mode ? (rs.mode_guess ?? null) : undefined, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
     rec.cues = packCues(m.F);
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);

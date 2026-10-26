@@ -36,6 +36,13 @@ export const MATCH_TYPE_BY_LABEL = {
 export const MODE_MARGIN = 0.1;
 // ステージ名の開始位置オフセット（実測：ホコはルール名が長いため+38px右にずれる。ガチエリア/ガチアサリ等は未計測のため今回追加しない）
 export const STAGE_DX_BY_MODE = { 'ガチホコバトル': 38 };
+// D55: 見本に無いルール（ガチアサリなど）の結果画面を、近い別ルール（ヤグラ・ホコ）と読み違えないための下限。
+// 正解クラスの照合スコアは 0.83〜1.0、別ルールの見本を当てると 0.61〜0.72（D43 の実測）なので、その間の 0.75 を下限にする。
+// 自己学習で調整する閾値（mThr）とは別に、常に両方を満たしたときだけルールを採用する。
+export const MODE_MIN_SCORE = 0.75;
+export function acceptMode(rule, score, margin, mThr = 0.5) { return !!rule && score > Math.max(mThr, MODE_MIN_SCORE) && (margin === null || margin >= MODE_MARGIN); }
+// ルール名の長さでステージ名の位置がずれる。測ってあるルールはその値、ガチアサリ・ルール不明は文字数の差から見込んだ 0/19/38 を試して最も合うものを使う（D55。実測は未）
+export function stageDxCandidates(mode) { if (mode in STAGE_DX_BY_MODE) return [STAGE_DX_BY_MODE[mode]]; return (mode === 'ガチアサリ' || mode == null) ? [0, 19, 38] : [0]; }
 function normText(c) { const b = bin(gray(c), 170); for (let i = 0; i < b.length; i++) b[i] *= 255; return resizeArea(b, c.w, c.h, 120, 32); }
 function pearson(a, b) { let ma = 0, mb = 0; const n = a.length; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n; let s = 0, sa = 0, sb = 0;
   for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) + 1e-6); }
@@ -65,12 +72,13 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR, panel = null
   const [bestRule, ms, margin] = bestMode(mc, A.lib.mode);
   const mThr = (thr && typeof thr.mode === 'number') ? thr.mode : 0.5;
   const sThr = (thr && typeof thr.stage === 'number') ? thr.stage : 0.5;
-  const mode = (ms > mThr && (margin === null || margin >= MODE_MARGIN)) ? bestRule : null;
+  const mode = acceptMode(bestRule, ms, margin, mThr) ? bestRule : null;
 
-  const stageDx = STAGE_DX_BY_MODE[mode] || 0;
-  const stageBox = [STAGE_BOX[0] + stageDx, STAGE_BOX[1], STAGE_BOX[2] + stageDx, STAGE_BOX[3]];
-  const sc = bx(stageBox);
-  const [sk, ss] = best(sc, A.lib.stage);
+  let sk = null, ss = -1;
+  for (const stageDx of stageDxCandidates(mode)) {
+    const stageBox = [STAGE_BOX[0] + stageDx, STAGE_BOX[1], STAGE_BOX[2] + stageDx, STAGE_BOX[3]];
+    const [k, sc2] = best(bx(stageBox), A.lib.stage); if (sc2 > ss) { sk = k; ss = sc2; }
+  }
   const strip = k => k ? k.split('__')[0] : null;
 
   let match_type = null, match_type_score = 0;
@@ -88,6 +96,7 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR, panel = null
   }
   return {
     mode,
+    mode_guess: mode ? null : bestRule, // 採用しなかった最良の見本（見本に無いルールの可能性の目印）
     mode_score: ms,
     mode_margin: margin !== null ? Math.round(margin * 100) / 100 : null,
     stage: ss > sThr ? strip(sk) : null,
@@ -129,7 +138,7 @@ export function finalizeResult(S) {
   const res = { result: celResult, mode: null, stage: null, match_type: null, own: null };
   if (celResult) resultSource = 'celebration';
   const hs = [...pick(S.board || []), ...pick(S.personal || [])].map(x => x.header);
-  res.mode = vote(hs.map(h => h.mode)); res.stage = vote(hs.map(h => h.stage));
+  res.mode = vote(hs.map(h => h.mode)); res.mode_guess = res.mode ? null : vote(hs.map(h => h.mode_guess)); res.stage = vote(hs.map(h => h.stage));
   res.match_type = vote(hs.map(h => h.match_type));
   res.confidence = { mode: Math.max(0, ...hs.map(h => h.mode_score)), stage: Math.max(0, ...hs.map(h => h.stage_score)), match_type: hs.length ? Math.max(0, ...hs.map(h => h.match_type_score ?? 0)) : 0 };
   const pers = pick(S.personal || []).map(x => x.personal).filter(Boolean);
