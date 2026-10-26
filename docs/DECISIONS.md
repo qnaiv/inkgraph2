@@ -725,3 +725,15 @@
 - 検証：サンプルの zip（`labels/feedback/feedback_sample.zip`）で、`ingest_feedback.py --apply` → `archive_training.py` を通して確認した（画像 3 枚・231KB、`training/index.json` に記録、既存の `eval_ci` は PASS）。Actions 上での実行（PR の作成まで）は、マージ後に最初の zip を上げて確認する。
 - 注意：zip そのものも一度は main の履歴に入る（アップロードは main へのコミットのため）。数 MB 程度なので当面は許容する。確認画面の静止画にはプレイヤー名が映ることがある（学習用画像にそのまま入る。公開リポジトリなので、気になる場合は非公開リポジトリへ移す）。
 - 今後：学習パック（見本・しきい値・モデル）を製品の既定として配る仕組みや、端末の中での見本の自動追加は、この取り込みの流れの上に載せる。
+
+## D61 (2026-10-26) クラウド同期を InkGraph 専用の Supabase プロジェクトに移し、ログインを ID／パスワードにする（D58 の変更）
+- 背景：D58 は別アプリ（fragments）と同居のプロジェクトを使ったが、実際に使うと、メールのリンクは CAPTCHA（ボット対策）で弾かれ、Google ログインは fragments のサイト（Site URL）に戻された。どちらもプロジェクト全体の設定で、InkGraph だけ変えられない。匿名ログインは、端末ごとに別のユーザーになりスマホから PC のデータが見えず、CAPTCHA が有効だと同じく弾かれ、同居のプロジェクトでは匿名ユーザーを InkGraph の表から除外していた。
+- 変更：
+  - 専用プロジェクト `inkgraph`（`mcbakoycsrijtohwipyb`、Singapore）を使う。`inkgraph_matches`・`inkgraph_settings` の 2 表と、自分の行だけ読み書きできる RLS を同じ形で作った（匿名ユーザーは除外）。接続先と publishable キーは `web/src/cloud/config.js`。fragments 側に作った 2 表は残っている（使わない。不要なら、fragments の SQL エディタで `drop table public.inkgraph_matches, public.inkgraph_settings;`）。
+  - ログインは **ID／パスワード**（`signUp`・`signInWithPassword`）。IDはメールアドレスの形（Supabase が形式を検査するため。確認メールは送らない設定にする）。パネルに ID・パスワードの入力欄と「ログイン」「新規登録」。8 文字未満は断り、12 文字以上を勧める。エラーは日本語の文にする（IDまたはパスワードが違う・すでに登録済み・新規登録が止めてある・パスワードが弱い・ID の形が違う・試しすぎ）。Google とメールのリンクの画面は外した（関数は残してある）。
+  - 「Confirm email」がオンのまま新規登録すると、セッションが返らず確認メールが要る。その場合は、画面に設定のしかたを出す。
+- 手元でやること（Supabase のダッシュボード、プロジェクト `inkgraph`）：
+  1. Authentication → Sign In / Providers → Email で「Confirm email」をオフにする。
+  2. 同じ画面（または Authentication → Sign In / Providers 上部の設定）で、アカウントを作ったあとに「Allow new users to sign up」をオフにする（身内に配るときだけ一時的にオンにして登録してもらう）。
+  3. Authentication → URL Configuration の Site URL を `https://qnaiv.github.io/inkgraph2/`、Redirect URLs に同じ URL と `http://localhost:5173/` を入れる（ID／パスワードでは使わないが、将来メール等を使うときのため）。
+- 検証：`cloud_ui_check`（未ログインのパネルが ID・パスワード・ログイン・新規登録になったこと）、`cloud_sync_check` が PASS。実際の Supabase への登録・ログインは、この環境から Supabase に接続できないため未確認。
