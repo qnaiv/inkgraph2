@@ -35,7 +35,7 @@ export class Session {
     const learnState = await db.getLearnState().catch(() => null);
     const activePack = await db.activeLearnPack(learnState).catch(() => null);
     const learnThresholds = activePack?.thresholds || null;
-    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds, detectParams: detectParams.activeParams() }); });
+    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds, detectParams: detectParams.activeParams(), verify: db.getVerifyOn() }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
 
     // visibilitychange リスナ: hidden 時はガードに通知、visible 復帰時に running なら resume()
@@ -145,6 +145,7 @@ export class Session {
     }
     else if (m.type === 'snapshot') this.pendingSnaps.push(m);
     else if (m.type === 'clip') this.pendingClips.push(m);
+    else if (m.type === 'verify') this.pendingVerify = m;
     else if (m.type === 'match') this.saving = (this.saving || Promise.resolve()).then(() => this.saveMatch(m.rec));
     else if (m.type === 'flushed') this.flushed?.();
   }
@@ -155,6 +156,7 @@ export class Session {
         const battleStart = rec.battle?.[0] ?? 0;
         this.pendingSnaps = this.pendingSnaps.filter(s => !(s.t >= battleStart - 30));
         this.pendingClips = this.pendingClips.filter(c => !(c.t >= battleStart - 30));
+        this.pendingVerify = null;
         this.stats.discarded = (this.stats.discarded || 0) + 1;
         this.cb.discarded?.({ rec, interrupted: v.interrupted });
         return;
@@ -198,6 +200,7 @@ export class Session {
     }
     rec.learnFeatures = matchLearnFeats;
     await db.putMatch(rec);
+    if (this.pendingVerify) { const v = this.pendingVerify; this.pendingVerify = null; try { await db.putVerify(id, v.frames); rec.verify = { count: v.frames.length }; await db.putMatch(rec); } catch (e) { console.warn('putVerify failed', e); } }
     for (const { snap: s, feat } of snapFeatPairs) {
       await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob, features: feat });
     }

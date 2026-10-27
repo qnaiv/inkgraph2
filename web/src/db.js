@@ -1,6 +1,6 @@
 // IndexedDB: matches (records), videos (recorded clips), snaps (still frames), learn (learning packs)
 import { CAP_BYTES, TARGET_RATIO, getCapBytes, matchStillsBytes, summarizeCapacity, planCapacityCleanup } from './capacity.js';
-const DB = 'inkgraph', VER = 2; let dbp = null;
+const DB = 'inkgraph', VER = 3; let dbp = null;
 function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r = indexedDB.open(DB, VER);
   r.onupgradeneeded = () => {
     const d = r.result;
@@ -11,6 +11,7 @@ function open() { if (dbp) return dbp; dbp = new Promise((res, rej) => { const r
       s.createIndex('match', 'matchId');
     }
     if (!d.objectStoreNames.contains('learn')) d.createObjectStore('learn', { keyPath: 'key' });
+    if (!d.objectStoreNames.contains('verify')) { const v = d.createObjectStore('verify', { keyPath: 'id', autoIncrement: true }); v.createIndex('match', 'matchId'); } // D67: 検証録画（直近1試合ぶんの全コマ）
   };
   r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); return dbp; }
 const tx = async (store, mode, fn) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction(store, mode); const s = t.objectStore(store); const r = fn(s); t.oncomplete = () => res(r instanceof IDBRequest ? r.result : r); t.onerror = () => rej(t.error); }); };
@@ -24,7 +25,7 @@ export const pendingDeletes = () => { try { return JSON.parse(localStorage.getIt
 export const clearPendingDeletes = ids => { try { localStorage.setItem(DEL_KEY, JSON.stringify(pendingDeletes().filter(d => !ids.includes(d.id)))); } catch { /* ignore */ } };
 export const delMatch = async (id, opts = {}) => {
   if (!opts.fromCloud) { try { localStorage.setItem(DEL_KEY, JSON.stringify([...pendingDeletes().filter(d => d.id !== id), { id, at: new Date().toISOString() }])); if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inkgraph:dirty')); } catch { /* ignore */ } }
-  await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); };
+  await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); if ((await verifyInfo())?.matchId === id) await clearVerify(); };
 export async function snapsCount(id) { return (await snapsOf(id)).length; }
 // m.favorite: boolean / m.stillsState: 'kept'|'deleted'|'none' (旧レコードはフィールド無し可)
 export function stillsStateOf(m, snapCount) {
@@ -285,3 +286,20 @@ export async function setMatchLearnFeatures(matchId, list) {
   await putMatch(m);
   return m;
 }
+
+// D67: 検証録画。直近1試合の全コマ（約0.4秒おき）だけを持つ。新しい試合を保存すると前のぶんは消す（容量の整理・同期の対象外）
+export const clearVerify = () => tx('verify', 'readwrite', s => s.clear());
+export async function putVerify(matchId, frames) {
+  await clearVerify();
+  for (const f of frames) await tx('verify', 'readwrite', s => s.add({ matchId, t: f.t, blob: f.blob }));
+}
+export const verifyOf = async matchId => (await tx('verify', 'readonly', s => s.index('match').getAll(matchId))).sort((a, b) => a.t - b.t);
+export async function verifyInfo() {
+  const all = await tx('verify', 'readonly', s => s.getAll());
+  if (!all.length) return null;
+  let bytes = 0; for (const f of all) bytes += f.blob?.size || 0;
+  return { matchId: all[0].matchId, count: all.length, bytes };
+}
+const VERIFY_KEY = 'inkgraph.verifyRec';
+export function getVerifyOn() { try { return localStorage.getItem(VERIFY_KEY) === '1'; } catch { return false; } }
+export function setVerifyOn(on) { try { localStorage.setItem(VERIFY_KEY, on ? '1' : '0'); } catch { /* ignore */ } }

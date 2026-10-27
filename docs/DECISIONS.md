@@ -778,3 +778,10 @@
 - 保存：見本に `type` を持たせた（`weapon_lib.js` の `addNamed(名前, 絵, 種類)`、`userTypes()`）。クラウド同期（D58）の見本の和集合は名前＋絵で判定するので、種類つきでもそのまま動く。
 - 表示：「いた敵ブキ／味方ブキ／自分のブキ」の表の「種類」の列を、従来の「メイン」から、ブキの種類（シューター等）に変えた（未登録の行は「未登録」のまま）。
 - 検証：`web/tools/weapon_stats_check.mjs` を更新（種類の決まり方 4 件の単体、選ぶまでボタンが押せない・選ぶと種類が自動で入る・リストにない武器（名前＋種類）・表の「種類」の列、計 17 件 ALL PASS）。`enemy_icon_check`・`trends_filter_check`・`cloud_ui_check`・`mobile_list_check`・`cloud_sync_check` も PASS。
+
+## D67 (2026-10-27) 検証録画（直近 1 試合の全コマ＋ソフトの分析結果を zip に）
+- 目的：検出できなかった場所（見逃し）にデス・キル・スペシャルがあるかを、Claude Code（定額プランの範囲）に読ませて確かめ、検出ロジックの改善材料にする。API 課金は使わない（AI 実行は人が Claude Code に zip を渡す手動方式＝「A 案」）。
+- 録画：リスト画面の「検証録画」パネルでオンにすると、解析中の試合の**全コマを約 0.4 秒おき**（720p WebP）で残す（`worker.js` の `VERIFY_STEP`。既存の 0.2 秒おきの輪（クリップ用）から間引くので追加の変換は無い）。1 試合約 750 枚・約 20MB。保存先は IndexedDB の新ストア `verify`（DB v3）で、**直近 1 試合だけ**（新しい試合を保存すると上書き）。静止画の容量整理・直近 N 試合の整理・クラウド同期（`rec.verify` は LOCAL_ONLY）の対象外。その試合を消すと一緒に消える。
+- 書き出し：「直近 1 試合の検証 zip を書き出す」。中身は `software.json`（rec そのもの）・`summary.json`（デス／キル／スペシャルの時刻・結果画面の数・補正の履歴・人の確認内容）・`detect_params.json`・`manifest.json`（全画像の時刻とファイル名）・`frames/full/`（全コマ）・`frames/clips/`（検出箇所の前後 5fps）・`stills/`（結果画面など）・`README.txt`（Claude Code への頼み方）。`web/src/verify_pack.js` が名前付けと要約を持つ。
+- 検証：`web/tools/verify_pack_check.mjs`（純関数 6 件）、`web/tools/verify_rec_check.mjs`（実ブラウザ 9 件：上書き・別試合の削除で残る・パネル・設定・zip の中身）、`clip_ui_check`・`cloud_ui_check`・`stills_retention_check`・`cloud_sync_check` も PASS。実映像での確認は未。
+- 今後：フレームから Claude Code が見逃し候補を出す手順（突合ツール）。1 試合ずつ録画ファイルに分ける機能（D68）。

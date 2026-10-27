@@ -8,6 +8,7 @@ import { b64bytes } from './core/img.js';
 import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
+import * as VP from './verify_pack.js';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
 import * as CP from './capacity.js';
@@ -994,6 +995,7 @@ PAGES.list = async () => {
     ` : ''}
 
     <section id="retention-panel" class="card learn-panel"></section>
+    <section id="verify-panel" class="card learn-panel"></section>
     <section id="cloud-panel" class="card learn-panel"></section>
     <section id="learn-panel" class="card learn-panel"></section>
     <section id="tune-panel" class="card learn-panel"></section>
@@ -1727,6 +1729,23 @@ PAGES.list = async () => {
     $('#retention-now', el).onclick = async () => { if (await run(db.getRetentionKeep())) PAGES.list(); };
   };
   await updateRetentionPanel();
+  const updateVerifyPanel = async () => {
+    const el = $('#verify-panel', page); if (!el) return;
+    const on = db.getVerifyOn(), info = await db.verifyInfo().catch(() => null), m = info ? ms.find(x => x.id === info.matchId) : null;
+    el.innerHTML = `<h3>検証録画（精度の検証用）</h3>
+      <p class="muted">オンにすると、次に解析する試合から<strong>全コマ</strong>（約0.4秒おき）を直近1試合ぶんだけ残します。ソフトの分析結果と一緒にzipで書き出して Claude Code に渡し、見逃しや誤検出の洗い出しに使います（クラウド同期の対象外・新しい試合で上書き）。</p>
+      <label class="row"><input type="checkbox" id="verify-on" ${on ? 'checked' : ''}> 検証録画をオンにする</label>
+      <p class="muted" id="verify-info">${info ? `保存中: ${esc(m ? (m.created || '').slice(0, 16).replace('T', ' ') + ' 試合' + m.match : info.matchId)}・${info.count}コマ・約${fmtBytes(info.bytes)}` : '保存中の検証録画はありません'}</p>
+      <button class="btn" id="verify-export" type="button" ${info ? '' : 'disabled'}>直近1試合の検証zipを書き出す</button>`;
+    $('#verify-on', el).onchange = e => { db.setVerifyOn(e.target.checked); };
+    $('#verify-export', el).onclick = async () => {
+      const btn = $('#verify-export', el); btn.disabled = true; btn.textContent = '作成中…';
+      try { const { blob, filename } = await buildVerifyZip(info.matchId); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); }
+      catch (e) { alert('書き出しに失敗しました: ' + (e?.message || e)); }
+      btn.disabled = false; btn.textContent = '直近1試合の検証zipを書き出す';
+    };
+  };
+  await updateVerifyPanel();
 };
 
 // ============================================================================
@@ -1793,6 +1812,25 @@ async function buildBatchZip(matches, { mode = 'diff', batchId = FB.makeBatchId(
   files['README.txt'] = strToU8(FB.feedbackReadme(meta));
   const zip = zipSync(files, { level: 0 });
   return { blob: new Blob([zip], { type: 'application/zip' }), filename: FB.batchFilename(mode, now), meta };
+}
+
+// D67: 検証パック（直近1試合の全コマ＋ソフトの分析結果）。Claude Code に読ませて検出ロジックの改善材料にする。
+async function buildVerifyZip(matchId) {
+  const rec = await db.getMatch(matchId); if (!rec) throw new Error('試合が見つかりません');
+  const files = {}, full = [], clips = [], stills = [], now = new Date();
+  for (const f of await db.verifyOf(matchId)) { const name = VP.fullName(f.t); files[name] = new Uint8Array(await f.blob.arrayBuffer()); full.push({ time: f.t, file: name }); }
+  const snaps = await db.snapsOf(matchId);
+  for (const c of await db.clipsOf(matchId)) for (const f of c.frames || []) { const name = VP.clipName(c.idx ?? 0, f.t); files[name] = new Uint8Array(await f.blob.arrayBuffer()); clips.push({ time: f.t, file: name, clip_events: c.events || [] }); }
+  for (const s of snaps.filter(x => x.kind !== 'clip').sort((a, b) => a.t - b.t)) { const name = VP.stillName(s.kind, s.t, s.id); files[name] = new Uint8Array(await s.blob.arrayBuffer()); stills.push({ time: s.t, file: name, kind: s.kind || null, reason: s.reason || null }); }
+  const params = DP.activeParams?.() ?? null;
+  const meta = VP.buildVerifyMeta(rec, { full, clips, stills, params, exportedAt: now.toISOString(), step: 0.4 });
+  files['manifest.json'] = strToU8(JSON.stringify(meta, null, 1));
+  files['software.json'] = strToU8(JSON.stringify(rec));
+  files['summary.json'] = strToU8(JSON.stringify(VP.softwareSummary(rec), null, 1));
+  files['detect_params.json'] = strToU8(JSON.stringify(params, null, 1));
+  files['README.txt'] = strToU8(VP.verifyReadme(meta));
+  const zip = zipSync(files, { level: 0 });
+  return { blob: new Blob([zip], { type: 'application/zip' }), filename: VP.verifyFilename(rec, now), meta };
 }
 
 async function showFeedbackExportDialog(initialMode = 'diff') {
