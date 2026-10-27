@@ -778,3 +778,18 @@
 - 保存：見本に `type` を持たせた（`weapon_lib.js` の `addNamed(名前, 絵, 種類)`、`userTypes()`）。クラウド同期（D58）の見本の和集合は名前＋絵で判定するので、種類つきでもそのまま動く。
 - 表示：「いた敵ブキ／味方ブキ／自分のブキ」の表の「種類」の列を、従来の「メイン」から、ブキの種類（シューター等）に変えた（未登録の行は「未登録」のまま）。
 - 検証：`web/tools/weapon_stats_check.mjs` を更新（種類の決まり方 4 件の単体、選ぶまでボタンが押せない・選ぶと種類が自動で入る・リストにない武器（名前＋種類）・表の「種類」の列、計 17 件 ALL PASS）。`enemy_icon_check`・`trends_filter_check`・`cloud_ui_check`・`mobile_list_check`・`cloud_sync_check` も PASS。
+
+## D67 (2026-10-27) 検証録画（直近 1 試合の全コマ＋ソフトの分析結果を zip に）
+- 目的：検出できなかった場所（見逃し）にデス・キル・スペシャルがあるかを、Claude Code（定額プランの範囲）に読ませて確かめ、検出ロジックの改善材料にする。API 課金は使わない（AI 実行は人が Claude Code に zip を渡す手動方式＝「A 案」）。
+- 録画：リスト画面の「検証録画」パネルでオンにすると、解析中の試合の**全コマを約 0.4 秒おき**（720p WebP）で残す（`worker.js` の `VERIFY_STEP`。既存の 0.2 秒おきの輪（クリップ用）から間引くので追加の変換は無い）。1 試合約 750 枚・約 20MB。保存先は IndexedDB の新ストア `verify`（DB v3）で、**直近 1 試合だけ**（新しい試合を保存すると上書き）。静止画の容量整理・直近 N 試合の整理・クラウド同期（`rec.verify` は LOCAL_ONLY）の対象外。その試合を消すと一緒に消える。
+- 書き出し：「直近 1 試合の検証 zip を書き出す」。中身は `software.json`（rec そのもの）・`summary.json`（デス／キル／スペシャルの時刻・結果画面の数・補正の履歴・人の確認内容）・`detect_params.json`・`manifest.json`（全画像の時刻とファイル名）・`frames/full/`（全コマ）・`frames/clips/`（検出箇所の前後 5fps）・`stills/`（結果画面など）・`README.txt`（Claude Code への頼み方）。`web/src/verify_pack.js` が名前付けと要約を持つ。
+- 検証：`web/tools/verify_pack_check.mjs`（純関数 6 件）、`web/tools/verify_rec_check.mjs`（実ブラウザ 9 件：上書き・別試合の削除で残る・パネル・設定・zip の中身）、`clip_ui_check`・`cloud_ui_check`・`stills_retention_check`・`cloud_sync_check` も PASS。実映像での確認は未。
+- 今後：フレームから Claude Code が見逃し候補を出す手順（突合ツール）。1 試合ずつ録画ファイルに分ける機能（D68）。
+
+## D68 (2026-10-27) 試合ごとの録画ファイル（ルール・ステージ入りの名前で 1 試合 1 ファイル）
+- 機能：リスト画面の「試合ごとの録画ファイル」パネルでオンにすると、**配信映像／キャプチャー映像**の解析中、バトル開始（`battle_start`）から結果画面（`battle_end` の 25 秒後）までを `MediaRecorder` で録り、1 試合 = 1 ファイル（WebM・3Mbps ≒ 5 分で約 110MB）で保存する。録画ファイルを読み込んでの解析（file モード）では録画しない。
+- ファイル名：`日時_ルール_ステージ_勝敗.webm`（例 `20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.webm`。regular 以外のマッチ種別は勝敗の前に入る）。名前は**試合が終わって結果画面を読めたあと**に決まる（録画自体は結果画面が出る前から始まっているため）。読めなかった項目は「ルール不明／ステージ不明／勝敗不明」。使えない文字は除く。日時は解析開始の時刻＋バトル開始の秒数（試合の始まった時刻）。`rec.videoFile` に名前を持つ（クラウド同期の対象外）。
+- 保存先：Chrome／Edge の File System Access API で**保存先フォルダ**を選ぶ（ハンドルは IndexedDB の `learn` ストアの `videoDir`）。再読み込み後は書き込み許可が切れるので、パネルの「保存先を選び直す」で再許可する（許可が無い間・非対応ブラウザは、ダウンロードで保存）。メモリには 1 試合ぶん（約 100MB）を持つ。ライブ画面のイベント一覧に「録画を保存: …」と出る。
+- 動作：バトル開始で録画開始 → 試合が捨てられた（`battle_discard`／ガードで保存しない判定）ら録画も捨てる → 試合が保存されるときに先頭の録画と対にして保存（先入れ先出し）。
+- 検証：`web/tools/video_rec_check.mjs`（名前付け 4 件・パネル 2 件・実ブラウザで canvas を MediaRecorder で WebM にする・ダウンロード保存・ページエラー無し、計 9 件 PASS）。`session_keepalive_check`・`stream_capture_check`・`clip_ui_check`・`cloud_ui_check` も PASS。**実際のキャプチャー映像での通し（バトルをまたいだ録画・フォルダ保存）は未確認。**
+- 音声（D68 追記）：パネルの「ゲーム音も録音する」（`inkgraph.videoRec.audio`）。画面共有（stream）は `getDisplayMedia` の `audio` を要求（共有ダイアログで音声共有にチェックが要る。Windows の Chrome／Edge はシステム音、Mac はタブ音のみ）。キャプチャー映像（device）は映像と同じ `groupId` の音声入力を探して `getUserMedia` で足す（無ければ名前が capture／Elgato／AVerMedia／HDMI／USB に合う入力、それも無ければ音声なしで続行）。エコー・ノイズ抑制・自動音量は切る。コーデックは opus（128kbps）。録画中に二重に聞こえないよう、解析用の `<video>` は常にミュート。次に解析を始めるときから有効。`video_rec_check` に音声つき録画と設定保存を追加（計 11 件 PASS）。実際のキャプチャーボードの音声入力の自動検出は実機で未確認。

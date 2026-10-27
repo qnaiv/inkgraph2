@@ -6,6 +6,7 @@ import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
 import * as detectParams from './detect_params.js';
+import { MatchRecorder, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo } from './video_rec.js';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
@@ -18,15 +19,24 @@ export class Session {
     this.guard = new CaptureGuard();
   }
   async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
+    const wantAudio = getVideoOn() && getAudioOn();
     this.mode = mode; this.owner = owner || 'self'; this.fast = fast; this.sessionId = new Date().toISOString();
     if (mode === 'stream') {
       this.sourceName = '配信映像（画面共有）';
-      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
-      this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
+      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: wantAudio });
+      this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
     } else if (mode === 'device') {
       this.sourceName = 'キャプチャー映像';
       this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
-      this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
+      // D68: ゲーム音。キャプチャーボードの音声入力（映像と同じ groupId）を足す。見つからなければ音声なしで続ける
+      if (wantAudio) {
+        try {
+          const gid = this.stream.getVideoTracks()[0]?.getSettings?.()?.groupId, ins = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+          const ain = ins.find(d => gid && d.groupId === gid) || ins.find(d => /cam ?link|capture|elgato|av ?io|hdmi|usb/i.test(d.label));
+          if (ain) (await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: ain.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } })).getAudioTracks().forEach(t => this.stream.addTrack(t));
+        } catch (e) { console.warn('audio device failed', e); }
+      }
+      this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
     } else {
       this.sourceName = file ? file.name : 'キャプチャー映像';
       this.video.srcObject = null; this.video.src = URL.createObjectURL(file); this.video.muted = true; await new Promise(r => this.video.onloadedmetadata = r); this.srcH = this.video.videoHeight;
@@ -35,7 +45,7 @@ export class Session {
     const learnState = await db.getLearnState().catch(() => null);
     const activePack = await db.activeLearnPack(learnState).catch(() => null);
     const learnThresholds = activePack?.thresholds || null;
-    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds, detectParams: detectParams.activeParams() }); });
+    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds, detectParams: detectParams.activeParams(), verify: db.getVerifyOn() }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
 
     // visibilitychange リスナ: hidden 時はガードに通知、visible 復帰時に running なら resume()
@@ -138,15 +148,32 @@ export class Session {
     if (m.type === 'ack') { this.busy = false; this.stats.ms += m.ms; this.lastState = m.state; this.cb.status?.(m); if (this.ackWait) { const f = this.ackWait; this.ackWait = null; f(); } }
     else if (m.type === 'event') {
       if (!this.fast && m.e) {
-        if (m.e.type === 'battle_start') this.guard.battleStart(performance.now());
-        else if (m.e.type === 'battle_discard') this.guard.battleDiscard();
+        if (m.e.type === 'battle_start') { this.guard.battleStart(performance.now()); this.videoStart(); }
+        else if (m.e.type === 'battle_discard') { this.guard.battleDiscard(); this.videoDrop(); }
+        else if (m.e.type === 'battle_end') this.videoEndSoon();
       }
       this.cb.event?.(m.e);
     }
     else if (m.type === 'snapshot') this.pendingSnaps.push(m);
     else if (m.type === 'clip') this.pendingClips.push(m);
+    else if (m.type === 'verify') this.pendingVerify = m;
     else if (m.type === 'match') this.saving = (this.saving || Promise.resolve()).then(() => this.saveMatch(m.rec));
     else if (m.type === 'flushed') this.flushed?.();
+  }
+  // D68: 試合ごとの録画。バトル開始で録り始め、終了の 25 秒後（結果画面ぶん）に止めて、試合の保存時に名前を付けて保存する
+  videoStart() {
+    if (this.mode === 'file' || !this.stream || !videoSupported() || !getVideoOn()) return;
+    this.videoQueue = this.videoQueue || [];
+    try { const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null }; this.videoQueue.push(this.vcur); } catch (e) { console.warn('video start failed', e); this.vcur = null; }
+  }
+  videoEndSoon() { const c = this.vcur; if (c && !c.timer) c.timer = setTimeout(() => c.r.stop(), 25000); }
+  videoDrop() { const c = this.vcur; if (!c) return; clearTimeout(c.timer); c.r.stop(); this.videoQueue = (this.videoQueue || []).filter(x => x !== c); this.vcur = null; }
+  async videoFinalize(rec, keep) {
+    const c = (this.videoQueue || []).shift(); if (!c) return;
+    clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
+    const blob = await c.r.stop(); if (!keep || !blob || !blob.size) return;
+    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = name; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
+    catch (e) { console.warn('video save failed', e); }
   }
   async saveMatch(rec) {
     if (!this.fast) {
@@ -155,12 +182,14 @@ export class Session {
         const battleStart = rec.battle?.[0] ?? 0;
         this.pendingSnaps = this.pendingSnaps.filter(s => !(s.t >= battleStart - 30));
         this.pendingClips = this.pendingClips.filter(c => !(c.t >= battleStart - 30));
+        this.pendingVerify = null; await this.videoFinalize(rec, false);
         this.stats.discarded = (this.stats.discarded || 0) + 1;
         this.cb.discarded?.({ rec, interrupted: v.interrupted });
         return;
       }
     }
     if (rec.match_type === undefined) rec.match_type = null;
+    await this.videoFinalize(rec, true).catch(() => {});
     if (!rec.power) rec.power = powerForMatchType(rec.match_type);
     const id = `${this.sessionId}#${rec.match}`; rec.id = id; rec.created = new Date().toISOString(); rec.session = this.sessionId; rec.source = { kind: this.mode, name: this.sourceName, height: this.srcH, owner: this.owner || 'self' };
     rec.review = rec.review || { marks: {}, added: [], fix: {} };
@@ -198,6 +227,7 @@ export class Session {
     }
     rec.learnFeatures = matchLearnFeats;
     await db.putMatch(rec);
+    if (this.pendingVerify) { const v = this.pendingVerify; this.pendingVerify = null; try { await db.putVerify(id, v.frames); rec.verify = { count: v.frames.length }; await db.putMatch(rec); } catch (e) { console.warn('putVerify failed', e); } }
     for (const { snap: s, feat } of snapFeatPairs) {
       await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob, features: feat });
     }

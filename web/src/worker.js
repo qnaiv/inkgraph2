@@ -45,6 +45,9 @@ function toClipBlob(fr) {
 const STILL_CAP = 48, RESULT_EXTRA = 8, MOMENT_DEDUP_SEC = 5, RING_SEC = 6;
 let ring = [], lastRingT = -1e9, stillCount = 0, ringGen = 0; const lastKindT = {};
 let pendingClips = [];
+// D67: 検証録画（約0.4秒おきに試合の全コマを残す。init の verify が真のときだけ）
+const VERIFY_STEP = 0.4;
+let verifyOn = false, verifyFrames = [], lastVerifyT = -1e9;
 
 function openClip(kind, t) {
   const from = t - CLIP.BEFORE;
@@ -97,6 +100,7 @@ function resetMatchState() {
   }
   pendingClips = [];
   ring = [];
+  verifyFrames = []; lastVerifyT = -1e9;
   lastRingT = -1e9;
   stillCount = 0;
   ringGen++;
@@ -121,11 +125,14 @@ self.onmessage = async (ev) => {
   const m = ev.data;
   if (m.type === 'init') {
     if (m.detectParams) setParams(m.detectParams);
+    verifyOn = !!m.verify;
     configureYolo(m.assetsUrl.replace(/[^/]*$/, ''));
     if (!A) { const r = await fetch(m.assetsUrl); A = prepAssets(await r.json()); }
     an = new Analyzer(A, { srcH: m.srcH || 1080, matchNo: m.matchNo || 1, learnThresholds: m.learnThresholds || null,
       onMatch: rec => {
-        const pend = yoloPending, reads = yoloReads; resetMatchState();
+        const pend = yoloPending, reads = yoloReads;
+        if (verifyOn && verifyFrames.length) postMessage({ type: 'verify', battle: rec.battle, frames: verifyFrames });
+        resetMatchState();
         // YOLO の読み取りを待ってから試合を送る。flush（停止）はこの完了を待つので、待っている間に Worker が止められて試合が消えることはない
         matchChain = matchChain.then(async () => {
           try { await Promise.allSettled(pend); const filled = mergeYoloHeader(rec, reads, powerForMatchType); if (filled.length) rec.yolo_filled = filled; } catch (e) { console.warn('yolo merge failed', e); }
@@ -148,8 +155,10 @@ self.onmessage = async (ev) => {
       // keep a 0.5 s grid on average even when frames come every 0.2 s (0.6/0.4 s alternation instead of a fixed 0.6 s)
       lastRingT = m.t - lastRingT < 2 * CLIP.STEP ? lastRingT + CLIP.STEP : m.t;
       const p = toClipBlob(fr), gen = ringGen, t = m.t;
+      const wantVerify = verifyOn && m.t - lastVerifyT >= VERIFY_STEP - 1e-6; if (wantVerify) lastVerifyT = m.t;
       if (p) p.then(blob => {
         if (gen !== ringGen) return;
+        if (wantVerify && blob) verifyFrames.push({ t, blob });
         ring.push({ t, blob });
         while (ring.length && ring[0].t < t - RING_SEC) ring.shift();
         for (const clip of pendingClips) {
