@@ -303,3 +303,7 @@ export async function verifyInfo() {
 const VERIFY_KEY = 'inkgraph.verifyRec';
 export function getVerifyOn() { try { return localStorage.getItem(VERIFY_KEY) === '1'; } catch { return false; } }
 export function setVerifyOn(on) { try { localStorage.setItem(VERIFY_KEY, on ? '1' : '0'); } catch { /* ignore */ } }
+
+// D68: 録画の保存先フォルダのハンドル（File System Access API）。learn ストアに持つ
+export const getVideoDir = async () => (await tx('learn', 'readonly', s => s.get('videoDir')).catch(() => null))?.handle || null;
+export const setVideoDir = handle => tx('learn', 'readwrite', s => s.put({ key: 'videoDir', handle }));

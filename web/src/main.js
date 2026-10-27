@@ -9,6 +9,7 @@ import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as VP from './verify_pack.js';
+import * as VR from './video_rec.js';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
 import * as CP from './capacity.js';
@@ -85,6 +86,7 @@ getEnemyIconLib();
 
 window.inkgraph = {
   db,
+  VR,
   learn,
   analysis: AN,
   capacity: CP,
@@ -686,6 +688,7 @@ PAGES.live = async () => {
     const vEmpty = $('#video-empty', page);
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
+      videoSaved: r => { try { addEventRow('', '🎬', `録画を保存: ${r.filename}（${r.where === 'folder' ? 'フォルダ「' + r.folder + '」' : 'ダウンロード'}・${fmtBytes(r.bytes)}）`, null); } catch { /* ignore */ } },
       event: e => {
         if (e.type === 'special_end') return;
         const tt = mss(e.t - t0);
@@ -996,6 +999,7 @@ PAGES.list = async () => {
 
     <section id="retention-panel" class="card learn-panel"></section>
     <section id="verify-panel" class="card learn-panel"></section>
+    <section id="video-panel" class="card learn-panel"></section>
     <section id="cloud-panel" class="card learn-panel"></section>
     <section id="learn-panel" class="card learn-panel"></section>
     <section id="tune-panel" class="card learn-panel"></section>
@@ -1746,6 +1750,20 @@ PAGES.list = async () => {
     };
   };
   await updateVerifyPanel();
+  const updateVideoPanel = async () => {
+    const el = $('#video-panel', page); if (!el) return;
+    const sup = VR.videoSupported(), on = VR.getVideoOn(), dir = await db.getVideoDir().catch(() => null), canPick = typeof window.showDirectoryPicker === 'function';
+    const perm = dir ? await dir.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt') : null;
+    el.innerHTML = `<h3>試合ごとの録画ファイル</h3>
+      <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>（WebM・音声なし）で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.webm</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.webm）。1 試合 約 100MB。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
+      ${sup ? '' : '<p class="muted">このブラウザは録画（MediaRecorder）に対応していません。</p>'}
+      <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''} ${sup ? '' : 'disabled'}> 試合ごとに録画する</label>
+      <p class="muted" id="video-dir">保存先: ${dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）'}</p>
+      <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${canPick ? '' : '<span class="muted"> このブラウザはフォルダ指定に未対応（Chrome／Edge なら可）。ダウンロードで保存します。</span>'}`;
+    $('#video-on', el).onchange = e => VR.setVideoOn(e.target.checked);
+    $('#video-pick', el).onclick = async () => { try { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); await updateVideoPanel(); } catch { /* cancelled */ } };
+  };
+  await updateVideoPanel();
 };
 
 // ============================================================================

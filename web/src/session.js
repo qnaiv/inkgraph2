@@ -6,6 +6,7 @@ import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
 import * as detectParams from './detect_params.js';
+import { MatchRecorder, videoSupported, getVideoOn, videoFilename, saveVideo } from './video_rec.js';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
@@ -138,8 +139,9 @@ export class Session {
     if (m.type === 'ack') { this.busy = false; this.stats.ms += m.ms; this.lastState = m.state; this.cb.status?.(m); if (this.ackWait) { const f = this.ackWait; this.ackWait = null; f(); } }
     else if (m.type === 'event') {
       if (!this.fast && m.e) {
-        if (m.e.type === 'battle_start') this.guard.battleStart(performance.now());
-        else if (m.e.type === 'battle_discard') this.guard.battleDiscard();
+        if (m.e.type === 'battle_start') { this.guard.battleStart(performance.now()); this.videoStart(); }
+        else if (m.e.type === 'battle_discard') { this.guard.battleDiscard(); this.videoDrop(); }
+        else if (m.e.type === 'battle_end') this.videoEndSoon();
       }
       this.cb.event?.(m.e);
     }
@@ -149,6 +151,21 @@ export class Session {
     else if (m.type === 'match') this.saving = (this.saving || Promise.resolve()).then(() => this.saveMatch(m.rec));
     else if (m.type === 'flushed') this.flushed?.();
   }
+  // D68: 試合ごとの録画。バトル開始で録り始め、終了の 25 秒後（結果画面ぶん）に止めて、試合の保存時に名前を付けて保存する
+  videoStart() {
+    if (this.mode === 'file' || !this.stream || !videoSupported() || !getVideoOn()) return;
+    this.videoQueue = this.videoQueue || [];
+    try { const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null }; this.videoQueue.push(this.vcur); } catch (e) { console.warn('video start failed', e); this.vcur = null; }
+  }
+  videoEndSoon() { const c = this.vcur; if (c && !c.timer) c.timer = setTimeout(() => c.r.stop(), 25000); }
+  videoDrop() { const c = this.vcur; if (!c) return; clearTimeout(c.timer); c.r.stop(); this.videoQueue = (this.videoQueue || []).filter(x => x !== c); this.vcur = null; }
+  async videoFinalize(rec, keep) {
+    const c = (this.videoQueue || []).shift(); if (!c) return;
+    clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
+    const blob = await c.r.stop(); if (!keep || !blob || !blob.size) return;
+    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = name; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
+    catch (e) { console.warn('video save failed', e); }
+  }
   async saveMatch(rec) {
     if (!this.fast) {
       const v = this.guard.matchEnd();
@@ -156,13 +173,14 @@ export class Session {
         const battleStart = rec.battle?.[0] ?? 0;
         this.pendingSnaps = this.pendingSnaps.filter(s => !(s.t >= battleStart - 30));
         this.pendingClips = this.pendingClips.filter(c => !(c.t >= battleStart - 30));
-        this.pendingVerify = null;
+        this.pendingVerify = null; await this.videoFinalize(rec, false);
         this.stats.discarded = (this.stats.discarded || 0) + 1;
         this.cb.discarded?.({ rec, interrupted: v.interrupted });
         return;
       }
     }
     if (rec.match_type === undefined) rec.match_type = null;
+    await this.videoFinalize(rec, true).catch(() => {});
     if (!rec.power) rec.power = powerForMatchType(rec.match_type);
     const id = `${this.sessionId}#${rec.match}`; rec.id = id; rec.created = new Date().toISOString(); rec.session = this.sessionId; rec.source = { kind: this.mode, name: this.sourceName, height: this.srcH, owner: this.owner || 'self' };
     rec.review = rec.review || { marks: {}, added: [], fix: {} };
