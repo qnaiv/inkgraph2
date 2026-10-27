@@ -28,6 +28,16 @@ try {
   check(r.size > 500 && /webm/.test(r.type), '(7) MediaRecorder で WebM の Blob ができる', JSON.stringify(r));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.evaluate(() => window.inkgraph.VR.saveVideo(window.__blob, 'テスト.webm', { getDir: async () => null }))]);
   check(!!dl, '(8) 保存先未設定ならダウンロードで保存される');
-  check(!errs.length, '(9) ページエラー無し', errs.join('|'));
+  const a = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 160; c.height = 90; const g = c.getContext('2d'); let n = 0; const iv = setInterval(() => { g.fillStyle = `hsl(${n++ * 20},80%,50%)`; g.fillRect(0, 0, 160, 90); }, 50);
+    const ac = new AudioContext(), o = ac.createOscillator(), d = ac.createMediaStreamDestination(); o.connect(d); o.start();
+    const st = c.captureStream(20); d.stream.getAudioTracks().forEach(t => st.addTrack(t));
+    const rec = new window.inkgraph.VR.MatchRecorder(st).start(); await new Promise(r => setTimeout(r, 1500)); const blob = await rec.stop(); clearInterval(iv); o.stop();
+    return { size: blob.size, mime: rec.mime, audioTracks: st.getAudioTracks().length };
+  });
+  check(a.size > 500 && a.audioTracks === 1 && /opus/.test(a.mime), '(9) 音声つきのストリームも録れる（opus）', JSON.stringify(a));
+  await page.reload(); await page.waitForSelector('#video-audio'); await page.check('#video-audio');
+  check(await page.evaluate(() => window.inkgraph.VR.getAudioOn()), '(10) 「ゲーム音も録音する」の設定が保存される');
+  check(!errs.length, '(11) ページエラー無し', errs.join('|'));
 } finally { await browser.close(); srv.kill?.(); }
 process.exit(fails ? 1 : 0);

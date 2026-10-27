@@ -15,7 +15,7 @@ export function videoFilename(rec, ext = 'webm') {
   return parts.filter(Boolean).join('_') + '.' + ext;
 }
 
-const MIMES = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+const MIMES = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
 export const videoSupported = () => typeof MediaRecorder !== 'undefined';
 export function pickMime() { if (!videoSupported()) return null; return MIMES.find(m => MediaRecorder.isTypeSupported?.(m)) || ''; }
 export const VIDEO_BPS = 3_000_000; // 3Mbps ≒ 5 分で約 110MB
@@ -24,7 +24,7 @@ export const VIDEO_BPS = 3_000_000; // 3Mbps ≒ 5 分で約 110MB
 export class MatchRecorder {
   constructor(stream, { bps = VIDEO_BPS } = {}) {
     const mimeType = pickMime();
-    this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps });
+    this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps, ...(stream.getAudioTracks?.().length ? { audioBitsPerSecond: 128_000 } : {}) });
     this.mime = this.rec.mimeType || mimeType || 'video/webm'; this.chunks = []; this.state = 'idle';
     this.rec.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
     this.done = new Promise(res => { this.rec.onstop = () => { this.state = 'stopped'; res(new Blob(this.chunks, { type: this.mime.split(';')[0] })); }; });
@@ -36,6 +36,8 @@ export class MatchRecorder {
 // ---- 保存先 ----
 const KEY = 'inkgraph.videoRec';
 export const getVideoOn = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
+export const getAudioOn = () => { try { return localStorage.getItem(KEY + '.audio') === '1'; } catch { return false; } };
+export const setAudioOn = on => { try { localStorage.setItem(KEY + '.audio', on ? '1' : '0'); } catch { /* ignore */ } };
 export const setVideoOn = on => { try { localStorage.setItem(KEY, on ? '1' : '0'); } catch { /* ignore */ } };
 
 /** 保存先フォルダ（File System Access API）。ハンドルは IndexedDB の learn ストア（key: videoDir）に持つ。使えないときはダウンロード */

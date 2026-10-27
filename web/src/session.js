@@ -6,7 +6,7 @@ import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
 import * as detectParams from './detect_params.js';
-import { MatchRecorder, videoSupported, getVideoOn, videoFilename, saveVideo } from './video_rec.js';
+import { MatchRecorder, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo } from './video_rec.js';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
@@ -19,15 +19,24 @@ export class Session {
     this.guard = new CaptureGuard();
   }
   async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
+    const wantAudio = getVideoOn() && getAudioOn();
     this.mode = mode; this.owner = owner || 'self'; this.fast = fast; this.sessionId = new Date().toISOString();
     if (mode === 'stream') {
       this.sourceName = '配信映像（画面共有）';
-      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
-      this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
+      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: wantAudio });
+      this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
     } else if (mode === 'device') {
       this.sourceName = 'キャプチャー映像';
       this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
-      this.video.srcObject = this.stream; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
+      // D68: ゲーム音。キャプチャーボードの音声入力（映像と同じ groupId）を足す。見つからなければ音声なしで続ける
+      if (wantAudio) {
+        try {
+          const gid = this.stream.getVideoTracks()[0]?.getSettings?.()?.groupId, ins = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+          const ain = ins.find(d => gid && d.groupId === gid) || ins.find(d => /cam ?link|capture|elgato|av ?io|hdmi|usb/i.test(d.label));
+          if (ain) (await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: ain.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } })).getAudioTracks().forEach(t => this.stream.addTrack(t));
+        } catch (e) { console.warn('audio device failed', e); }
+      }
+      this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
     } else {
       this.sourceName = file ? file.name : 'キャプチャー映像';
       this.video.srcObject = null; this.video.src = URL.createObjectURL(file); this.video.muted = true; await new Promise(r => this.video.onloadedmetadata = r); this.srcH = this.video.videoHeight;
