@@ -12,8 +12,9 @@ app.whenReady().then(async () => {
   try {
     await sleep(4500); const w = BrowserWindow.getAllWindows()[0], js = c => w.webContents.executeJavaScript(c, true);
     check(await js(`!!window.inkgraphDesktop && !!window.inkgraph?.db && location.protocol === 'app:'`), '(1) app:// で開き、デスクトップ版として動く');
-    await js(`localStorage.setItem('inkgraph.videoRec', '1'); location.hash = '#list'`); await sleep(2500);
-    check(await js(`!!document.querySelector('#video-on') && /保存先/.test(document.querySelector('#video-panel').textContent)`), '(2) 録画の設定パネルが出る（保存先・チェックボックス）');
+    await js(`localStorage.setItem('inkgraph.videoRec', '1'); location.hash = '#live'`); await sleep(2500);
+    check(await js(`!!document.querySelector('#video-on') && !!document.querySelector('#live-video-settings') && /保存先/.test(document.querySelector('#live-video-panel').textContent)`), '(2) 録画の設定が、ライブ画面に出る（保存先・チェックボックス）');
+    check(await js(`!document.querySelector('#file') && !document.querySelector('#fast') && !document.querySelector('input[name=src][value=file]') && !document.querySelector('input[name=src][value=stream]')`), '(2c) 録画ファイル・配信映像（画面共有）の取り込みの入口は無い');
     check(await js(`!document.querySelector('#live-browser-note')`) || true, '(2b) （ライブ画面の注意はブラウザ版のみ）');
     // 2) ウィンドウを隠しても、タイマー駆動で映像を取り込み続けられる
     const probe = `new Promise(async res => {
@@ -74,6 +75,18 @@ app.whenReady().then(async () => {
     // 録画ファイルが無くなったら、静止画の表示に戻る
     await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[1].id)}).then(m => { m.recording.path += '.missing'; return window.inkgraph.db.putMatch(m, { keepUpdated: true }); })`); await js(`window.inkgraph.nav('match', ${JSON.stringify(ms[1].id)})`); await sleep(2500);
     const gone = await js(`({ v: !!document.querySelector('#rec-video'), t: document.querySelector('#rec-box')?.textContent.slice(0, 60), err: document.querySelector('#rec-video')?.error?.code })`); check(!gone.v && /開けません/.test(gone.t || ''), '(14) 録画ファイルが無くなったら、静止画の確認に戻る（理由を表示）', JSON.stringify(gone));
+    // ライブ画面: 結果画面の識別（暫定）が、「この試合」のボックスとログに出る
+    await js(`location.hash = '#live'`); await sleep(1500);
+    await js(`(async () => { const c = document.createElement('canvas'); c.width = 640; c.height = 360; const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#345'; g.fillRect(0, 0, 640, 360); }, 50);
+      navigator.mediaDevices.getUserMedia = async () => c.captureStream(30); navigator.mediaDevices.enumerateDevices = async () => [{ kind: 'videoinput', label: 'Fake Capture', deviceId: 'f', groupId: 'g' }];
+      document.querySelector('#reload').click(); await new Promise(r => setTimeout(r, 300)); document.querySelector('#start').click(); })()`); await sleep(2500);
+    const lv = await js(`(() => { const s = window.inkgraph.getSession(); s.onMsg({ type: 'event', e: { type: 'battle_start', t: 0 } }); s.onMsg({ type: 'event', e: { type: 'battle_end', t: 30 } });
+      s.onMsg({ type: 'event', e: { type: 'result_info', t: 40, result: 'WIN', mode: null, mode_guess: null, stage: null, match_type: null, own: null } });
+      const a = { shown: !document.querySelector('#live-result').hidden, main: document.querySelector('#live-result-main').textContent };
+      s.onMsg({ type: 'event', e: { type: 'result_info', t: 43, result: 'WIN', mode: 'ガチエリア', stage: 'ヒラメが丘団地', match_type: 'x', own: { ka: 5, deaths: 2, specials: 1 } } });
+      return { a, main: document.querySelector('#live-result-main').textContent, sub: document.querySelector('#live-result-sub').textContent, log: [...document.querySelectorAll('#log .live-event-item')].map(x => x.textContent.replace(/\s+/g, ' ').trim()).filter(x => x.includes('🏁')) }; })()`);
+    check(lv.a.shown && /勝ち/.test(lv.a.main) && lv.main === '勝ち · ガチエリア · ヒラメが丘団地' && /Xマッチ/.test(lv.sub) && /K\+A 5 \/ デス 2 \/ SP 1/.test(lv.sub) && lv.log.length === 1 && /🏁/.test(lv.log[0]) && /ヒラメが丘団地/.test(lv.log[0]), '(16) ライブ画面の「この試合」とログに、勝敗・ルール・ステージ・マッチ種別・成績が出る（ログは 1 回だけ）', JSON.stringify(lv));
+    await js(`(async () => { await window.inkgraph.getSession().stop(); })()`); await sleep(500);
     // rec:// は、録画を保存したフォルダの .mp4/.webm だけを返す（それ以外は 404）
     fs.writeFileSync(path.join(dir, 'memo.txt'), 'x'); fs.writeFileSync(path.join(os.tmpdir(), 'outside.mp4'), 'x');
     const st = await js(`Promise.all([${JSON.stringify(path.join(dir, 'memo.txt'))}, ${JSON.stringify(path.join(os.tmpdir(), 'outside.mp4'))}, '/etc/passwd', ${JSON.stringify(ms[0].rec.path)}].map(p => fetch('rec://local/' + encodeURIComponent(p)).then(r => r.status)))`);

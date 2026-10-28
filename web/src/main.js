@@ -84,16 +84,6 @@ async function getWeaponNames() { await getEnemyIconLib(); return weaponNames; }
 // 傾向画面の描画を見本の読み込みで待たせないよう、起動時に先読みする
 getEnemyIconLib();
 
-// D71: デスクトップ版の画面共有の選択（Electron のメインから一覧が届く）
-if (window.inkgraphDesktop) window.inkgraphDesktop.onPickSource(list => {
-  document.querySelector('.src-pick-overlay')?.remove();
-  const ov = document.createElement('div'); ov.className = 'src-pick-overlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
-  ov.innerHTML = `<div class="card" style="max-width:900px;max-height:80vh;overflow:auto;padding:var(--sp-4)"><h3>解析する画面・ウィンドウを選んでください</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--sp-3)">${list.map(s => `<button class="btn src-pick-item" data-id="${esc(s.id)}" type="button" style="display:flex;flex-direction:column;gap:6px;padding:8px;text-align:left"><img src="${s.thumb}" style="width:100%;border-radius:4px;background:#000"><span style="font-size:var(--fs-xs)">${s.screen ? '🖥 ' : ''}${esc(s.name)}</span></button>`).join('')}</div><p style="margin-top:var(--sp-3)"><button class="btn" id="src-pick-cancel" type="button">キャンセル</button></p></div>`;
-  const done = id => { ov.remove(); window.inkgraphDesktop.replyPickSource(id || null); };
-  ov.querySelectorAll('.src-pick-item').forEach(b => { b.onclick = () => done(b.dataset.id); }); ov.querySelector('#src-pick-cancel').onclick = () => done(null);
-  document.body.appendChild(ov);
-});
-
 window.inkgraph = {
   db,
   VR,
@@ -415,57 +405,13 @@ PAGES.live = async () => {
     </div>
 
     <div class="card live-source-card">
-      <div class="pill-tabs" role="tablist" aria-label="入力元の切り替え">
-        <label class="pill-tab active" data-src-tab="device">
-          <input type="radio" name="src" value="device" checked>
-          キャプチャーボード
-        </label>
-        <label class="pill-tab" data-src-tab="file">
-          <input type="radio" name="src" value="file">
-          録画ファイル
-        </label>
-        <label class="pill-tab" data-src-tab="stream">
-          <input type="radio" name="src" value="stream">
-          配信映像（画面共有）
-        </label>
-      </div>
-
       <div class="live-source-controls">
         <div id="device-controls" style="display:flex;align-items:center;gap:8px;flex:1">
           <select id="dev" class="input" style="min-width:220px"><option value="">（機器を読み込み中…）</option></select>
           <button class="btn" id="reload" type="button">再検出</button>
         </div>
-        <div id="file-controls" style="display:none;align-items:center;gap:8px;flex:1">
-          <label class="btn" for="file">ファイルを選ぶ</label>
-          <input type="file" id="file" accept="video/*" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
-          <span id="file-name" class="muted">ファイル未選択</span>
-        </div>
-        <div id="stream-controls" style="display:none;flex-direction:column;gap:12px;width:100%">
-          <div class="stream-control-row" style="display:flex;align-items:center;gap:12px">
-            <span class="stream-control-label" style="font-weight:var(--fw-bold);font-size:var(--fs-sm)">対象プレイヤー：</span>
-            <div class="stream-owner-options" style="display:inline-flex;gap:16px;align-items:center">
-              <label class="stream-radio-label" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="stream-owner" value="self"> 自分</label>
-              <label class="stream-radio-label" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="stream-owner" value="other"> 他人（検証用）</label>
-            </div>
-          </div>
-          <div class="stream-control-row" style="display:flex;flex-direction:column;gap:6px">
-            <span class="stream-control-label" style="font-weight:var(--fw-bold);font-size:var(--fs-sm)">開始前の確認事項：</span>
-            <div class="stream-checks" style="display:flex;flex-wrap:wrap;gap:12px">
-              <label class="stream-check-item" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="stream-check" value="1080p"> 配信の画質を1080pに設定している</label>
-              <label class="stream-check-item" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="stream-check" value="fullscreen"> プレーヤーを全画面表示にしている</label>
-              <label class="stream-check-item" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="stream-check" value="nocaption"> 画面の字幕やオーバーレイをオフにしている</label>
-            </div>
-          </div>
-        </div>
       </div>
-
-      <details class="details-popover">
-        <summary>詳細設定 ▸</summary>
-        <div class="details-popover-body">
-          <label><input type="checkbox" id="fast" checked> ファイルは早送りで解析（再生しない）</label>
-          <p class="muted" id="still-note" style="margin:6px 0 0">映像は保存しません。確認用に、リザルトやキル・デス・スペシャル発動などの要所の静止画だけを保存します。</p>
-        </div>
-      </details>
+      <p class="muted" id="still-note" style="margin:6px 0 0">映像は保存しません。確認用に、リザルトやキル・デス・スペシャル発動などの要所の静止画だけを保存します。</p>
 
       <div class="live-source-actions">
         <button class="btn btn-primary" id="start" type="button" ${isBlocked ? 'disabled' : ''}>解析を開始</button>
@@ -474,6 +420,11 @@ PAGES.live = async () => {
       ${isBlocked ? `<div class="capacity-block-reason">⚠ 使用量${capUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます</div>` : ''}
     </div>
 
+    <details class="card live-video-settings" id="live-video-settings">
+      <summary style="cursor:pointer;font-weight:var(--fw-bold)">録画の設定 <span class="muted" id="live-video-summary" style="font-weight:normal;font-size:var(--fs-xs)"></span></summary>
+      <div id="live-video-panel" style="margin-top:var(--sp-3)"></div>
+    </details>
+
     <div class="live-grid">
       <div class="card video-card">
         <div class="video-status-overlay">
@@ -481,8 +432,7 @@ PAGES.live = async () => {
           <span id="state">待機中（映像を選択して開始）</span>
         </div>
         <div class="video-empty-state" id="video-empty">
-          <p>キャプチャーボードを接続するか、録画ファイルを選んで解析を開始してください</p>
-          <button class="btn" id="video-pick-file" type="button">録画ファイルを選ぶ</button>
+          <p>キャプチャーボードを接続して、解析を開始してください</p>
         </div>
         <video id="v" playsinline muted></video>
       </div>
@@ -491,6 +441,10 @@ PAGES.live = async () => {
         <div class="live-match-header">
           <div class="card-title" style="margin-bottom:0">この試合</div>
           <span id="live-count-badge" class="live-count-badge is-provisional" title="試合中の数字は速報です。試合後に映像全体を数え直して確定します">速報</span>
+        </div>
+        <div id="live-result" class="live-result" hidden style="margin:var(--sp-2) 0;padding:var(--sp-3);border-radius:8px;background:var(--surface-2,rgba(255,255,255,.05))">
+          <div id="live-result-main" style="font-size:var(--fs-lg,18px);font-weight:var(--fw-bold)"></div>
+          <div id="live-result-sub" class="muted" style="font-size:var(--fs-xs);margin-top:2px"></div>
         </div>
         <div id="live-recount-note" class="live-recount-note" hidden></div>
         ${window.inkgraphDesktop ? '' : '<div id="live-browser-note" class="muted" style="font-size:var(--fs-xs);margin:var(--sp-2) 0">ブラウザ版: 解析中は、このウィンドウを<strong>隠さないで</strong>ください（最小化・別のタブへの切り替え・他のウィンドウで完全に覆うと、その試合は保存されません）。録画はデスクトップ版（Windows）のみ対応です。</div>'}
@@ -554,68 +508,14 @@ PAGES.live = async () => {
   `;
   mountPage(page, true);
   wireCapacityBanner(page, capUsage);
+  renderVideoSettings($('#live-video-panel', page)).then(() => { const sm = $('#live-video-summary', page); if (sm) sm.textContent = window.inkgraphDesktop ? (VR.getVideoOn() ? '（オン）' : '（オフ）') : '（デスクトップ版のみ）'; }).catch(() => {});
 
   $('#to-list', page).onclick = e => { e.preventDefault(); nav('list'); };
 
-  const isStreamReady = () => {
-    const ownerEl = page.querySelector('input[name="stream-owner"]:checked');
-    if (!ownerEl) return false;
-    const streamChecks = Array.from(page.querySelectorAll('.stream-check'));
-    return streamChecks.length > 0 && streamChecks.every(c => c.checked);
-  };
-
   const syncStartDisabled = () => {
     if (session && session.running) return;
-    const mode = page.querySelector('input[name="src"]:checked')?.value || 'device';
-    const needStreamReady = mode === 'stream' && !isStreamReady();
-    $('#start', page).disabled = isBlocked || needStreamReady;
+    $('#start', page).disabled = isBlocked;
   };
-
-  const syncSourceTabs = () => {
-    const mode = page.querySelector('input[name="src"]:checked')?.value || 'device';
-    page.querySelectorAll('.pill-tab').forEach(lbl => {
-      lbl.classList.toggle('active', lbl.dataset.srcTab === mode);
-    });
-    $('#device-controls', page).style.display = mode === 'device' ? 'flex' : 'none';
-    $('#file-controls', page).style.display = mode === 'file' ? 'flex' : 'none';
-    $('#stream-controls', page).style.display = mode === 'stream' ? 'flex' : 'none';
-    const emptyP = $('#video-empty p', page);
-    if (emptyP) {
-      emptyP.textContent = mode === 'stream'
-        ? '共有する画面を選んでください'
-        : 'キャプチャーボードを接続するか、録画ファイルを選んで解析を開始してください';
-    }
-    const pickBtn = $('#video-pick-file', page);
-    if (pickBtn) {
-      pickBtn.style.display = mode === 'stream' ? 'none' : '';
-    }
-    syncStartDisabled();
-  };
-  page.querySelectorAll('input[name="src"]').forEach(r => r.addEventListener('change', syncSourceTabs));
-  page.querySelectorAll('input[name="stream-owner"], .stream-check').forEach(el => {
-    el.addEventListener('change', syncStartDisabled);
-  });
-
-  $('#video-pick-file', page).onclick = () => {
-    const fileRadio = page.querySelector('input[name="src"][value="file"]');
-    if (fileRadio && !fileRadio.checked) {
-      fileRadio.checked = true;
-      syncSourceTabs();
-    }
-    $('#file', page).click();
-  };
-
-  $('#file', page).addEventListener('change', e => {
-    const f = e.target.files?.[0];
-    if (f) {
-      $('#file-name', page).textContent = f.name;
-      const fileRadio = page.querySelector('input[name="src"][value="file"]');
-      if (fileRadio && !fileRadio.checked) {
-        fileRadio.checked = true;
-        syncSourceTabs();
-      }
-    }
-  });
 
   const fillDevices = async () => {
     const ds = await listDevices();
@@ -662,26 +562,6 @@ PAGES.live = async () => {
       alert(`使用量${curUsage.pct}%で、解析を始められる上限（95%）を超えています。古い試合の静止画を消すと始められます`);
       return;
     }
-    const mode = page.querySelector('input[name="src"]:checked').value;
-    const file = $('#file', page).files[0];
-    if (mode === 'file' && !file) {
-      alert('録画ファイルを選んでください');
-      return;
-    }
-    let owner = 'self';
-    if (mode === 'stream') {
-      const ownerEl = page.querySelector('input[name="stream-owner"]:checked');
-      if (!ownerEl) {
-        alert('「自分」または「他人（検証用）」を選択してください');
-        return;
-      }
-      owner = ownerEl.value;
-      const streamChecks = Array.from(page.querySelectorAll('.stream-check'));
-      if (streamChecks.some(c => !c.checked)) {
-        alert('配信映像の開始前確認（1080p・全画面・字幕オフ）をすべてチェックしてください');
-        return;
-      }
-    }
     let k = 0, d = 0, sp = 0, t0 = 0, estWp = 0.5, justSaved = false;
     $('#k', page).textContent = '0';
     $('#d', page).textContent = '0';
@@ -697,6 +577,18 @@ PAGES.live = async () => {
       if (n) { n.textContent = note; n.hidden = !note; }
     };
     setCountBadge('provisional');
+    // D74: 試合終了の識別（結果画面を読めた分）をライブ画面に出す。勝敗・ルール・ステージ・マッチ種別・成績
+    let resultLogged = false, battleActive = false; // 次のバトルが始まっていたら、前の試合の確定値でボックスを上書きしない
+    const RES_JA = { WIN: '勝ち', LOSE: '負け' };
+    const showResult = (info, final) => {
+      const box = $('#live-result', page); if (!box) return;
+      const own = info.own, ownTxt = own && Number.isInteger(own.ka) ? `K+A ${own.ka} / デス ${own.deaths ?? '?'} / SP ${own.specials ?? '?'}` : '';
+      const head = [RES_JA[info.result] || (info.result ? info.result : '結果を読み取り中…'), info.mode || (info.stage || final ? 'ルール不明' : ''), info.stage].filter(Boolean).join(' · ');
+      const sub = [MATCH_TYPE_LABEL[info.match_type] || '', ownTxt, final ? '確定' : '暫定（結果画面の読み取り中）'].filter(Boolean).join(' · ');
+      box.hidden = false; $('#live-result-main', page).textContent = head; $('#live-result-sub', page).textContent = sub;
+      box.style.borderLeft = `4px solid ${info.result === 'WIN' ? 'var(--kill, #4ade80)' : info.result === 'LOSE' ? 'var(--death, #f87171)' : 'var(--border, #555)'}`;
+      if (!resultLogged && info.result && (info.mode || final) && info.stage && (info.own || final)) { resultLogged = true; addEventRow('', '🏁', `結果: ${head}${ownTxt ? '（' + ownTxt + '）' : ''}`, null); }
+    };
     const vEmpty = $('#video-empty', page);
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
@@ -704,9 +596,10 @@ PAGES.live = async () => {
       videoStatus: r => { try { addEventRow('', r.level === 'error' ? '⚠' : '🎬', r.msg, null); } catch { /* ignore */ } },
       event: e => {
         if (e.type === 'special_end') return;
+        if (e.type === 'result_info') { showResult(e, false); return; }
         const tt = mss(e.t - t0);
         if (e.type === 'battle_start') {
-          t0 = e.t; k = d = sp = 0; estWp = 0.5;
+          t0 = e.t; k = d = sp = 0; estWp = 0.5; resultLogged = false; battleActive = true; { const rb = $('#live-result', page); if (rb) rb.hidden = true; }
           const warn = $('#live-capture-warn', page); if (warn) warn.hidden = true;
           $('.live-stats-row', page)?.classList.remove('is-void');
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
@@ -715,6 +608,7 @@ PAGES.live = async () => {
           addEventRow('0:00', '▶', 'バトル開始', null);
         } else if (e.type === 'battle_end') {
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
+          battleActive = false;
           addEventRow(tt, '■', 'バトル終了', null);
         } else if (e.type === 'special_ready') {
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = false;
@@ -753,10 +647,7 @@ PAGES.live = async () => {
           return;
         }
         dot.className = 'pulse-dot'; dot.style.background = '';
-        const dur = $('#v', page).duration;
-        st.textContent = session?.mode === 'file'
-          ? `解析中 · ${mss($('#v', page).currentTime)}${isFinite(dur) ? ' / ' + mss(dur) : ''}`
-          : `解析中 · 経過 ${mss(session ? session.now() : 0)}`;
+        st.textContent = `解析中 · 経過 ${mss(session ? session.now() : 0)}`;
       },
       interrupted: info => {
         const warn = $('#live-capture-warn', page);
@@ -798,6 +689,7 @@ PAGES.live = async () => {
       match: rec => {
         savedCount++;
         justSaved = true;
+        if (!battleActive) { const rs = rec.result_screen || {}; showResult({ result: rs.result, mode: rs.mode ?? null, stage: rs.stage, match_type: rec.match_type, own: rs.own }, true); }
         const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
         $('#live-dot', page).className = 'status-dot-idle';
         $('#live-dot', page).style.background = 'var(--kill)';
@@ -852,13 +744,7 @@ PAGES.live = async () => {
     $('#live-dot', page).style.background = '';
     $('#state', page).textContent = '解析中';
     try {
-      await session.start({
-        mode,
-        deviceId: $('#dev', page).value,
-        file,
-        fast: $('#fast', page).checked,
-        owner
-      });
+      await session.start({ deviceId: $('#dev', page).value });
     } catch (e) {
       alert('開始できませんでした：' + e.message);
       syncStartDisabled();
@@ -1012,7 +898,6 @@ PAGES.list = async () => {
 
     <section id="retention-panel" class="card learn-panel"></section>
     <section id="verify-panel" class="card learn-panel"></section>
-    <section id="video-panel" class="card learn-panel"></section>
     <section id="reset-panel" class="card learn-panel"></section>
     <section id="cloud-panel" class="card learn-panel"></section>
     <section id="learn-panel" class="card learn-panel"></section>
@@ -1764,33 +1649,6 @@ PAGES.list = async () => {
     };
   };
   await updateVerifyPanel();
-  const updateVideoPanel = async () => {
-    const el = $('#video-panel', page); if (!el) return;
-    const D = window.inkgraphDesktop || null;
-    if (!VR.videoSupported()) { // ブラウザ版: 録画は非対応（デスクトップ版のみ）
-      el.innerHTML = `<h3>試合ごとの録画ファイル</h3>
-        <p class="muted">試合ごとの録画（ルール・ステージ入りのファイル名で 1 試合 1 ファイル）は<strong>デスクトップ版（Windows）だけ</strong>の機能です。ブラウザ版は、ウィンドウが隠れると映像の取り込みが止まるため、録画には対応していません。</p>`;
-      return;
-    }
-    const on = VR.getVideoOn();
-    const dirInfo = D ? await D.getVideoDir().catch(() => null) : null, dir = D ? null : await db.getVideoDir().catch(() => null), canPick = D || typeof window.showDirectoryPicker === 'function';
-    const perm = dir ? await dir.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt') : null;
-    el.innerHTML = `<h3>試合ごとの録画ファイル</h3>
-      <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.mp4</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.mp4）。録画した試合は、試合の詳細（レビュー）画面で録画を見ながら確認・修正できます。60fps・音声 192kbps。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
-      <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''}> 試合ごとに録画する</label>
-      <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''}> ゲーム音も録音する（次に解析を始めるときから）</label>
-      <label class="row">画質（60fps） <select id="video-bitrate" class="input-sm">${VR.BITRATE_CHOICES.map(m => `<option value="${m}" ${VR.getBitrateMbps() === m ? 'selected' : ''}>${m} Mbps（1 試合 約 ${Math.round(m * 6 * 60 / 8 + 6 * 60 * 192 / 8000)}MB${m === 8 ? '・おすすめ' : ''}）</option>`).join('')}</select></label>
-      <p class="muted">${D ? '画面共有: ウィンドウ／画面を選ぶと、Windows ではシステム音も録れます。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。' : '配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください。キャプチャー映像: ボードの音声入力を自動で探して足します。'} 見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
-      <p class="muted" id="video-dir">保存先: ${D ? esc(dirInfo?.dir || '') + (dirInfo?.custom ? '' : '（既定）') : (dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）')}</p>
-      <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${D || dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${D ? ' <button class="btn" id="video-open" type="button">保存先を開く</button>' : ''}${!D && dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}`;
-    $('#video-on', el).onchange = e => VR.setVideoOn(e.target.checked);
-    $('#video-audio', el).onchange = e => VR.setAudioOn(e.target.checked);
-    $('#video-bitrate', el).onchange = e => VR.setBitrateMbps(+e.target.value);
-    const rg = $('#video-regrant', el); if (rg) rg.onclick = async () => { await VR.ensureDirPermission(dir); await updateVideoPanel(); };
-    const op = $('#video-open', el); if (op) op.onclick = () => D.openVideoDir();
-    $('#video-pick', el).onclick = async () => { try { if (D) { await D.pickVideoDir(); } else { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); } await updateVideoPanel(); } catch { /* cancelled */ } };
-  };
-  await updateVideoPanel();
   const updateResetPanel = () => {
     const el = $('#reset-panel', page); if (!el) return;
     el.innerHTML = `<h3>記録をすべて消す（リセット）</h3>
@@ -1892,6 +1750,35 @@ async function buildVerifyZip(matchId) {
   const zip = zipSync(files, { level: 0 });
   return { blob: new Blob([zip], { type: 'application/zip' }), filename: VP.verifyFilename(rec, now), meta };
 }
+
+// D74: 録画の設定（ライブ画面に出す）
+async function renderVideoSettings(el) {
+    if (!el) return;
+    const updateVideoPanel = () => renderVideoSettings(el);
+    const D = window.inkgraphDesktop || null;
+    if (!VR.videoSupported()) { // ブラウザ版: 録画は非対応（デスクトップ版のみ）
+      el.innerHTML = `<h3 style="margin:0 0 6px">試合ごとの録画</h3>
+        <p class="muted">試合ごとの録画（ルール・ステージ入りのファイル名で 1 試合 1 ファイル）は<strong>デスクトップ版（Windows）だけ</strong>の機能です。ブラウザ版は、ウィンドウが隠れると映像の取り込みが止まるため、録画には対応していません。</p>`;
+      return;
+    }
+    const on = VR.getVideoOn();
+    const dirInfo = D ? await D.getVideoDir().catch(() => null) : null, dir = D ? null : await db.getVideoDir().catch(() => null), canPick = D || typeof window.showDirectoryPicker === 'function';
+    const perm = dir ? await dir.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt') : null;
+    el.innerHTML = `<h3 style="margin:0 0 6px">試合ごとの録画</h3>
+      <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.mp4</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.mp4）。録画した試合は、試合の詳細（レビュー）画面で録画を見ながら確認・修正できます。60fps・音声 192kbps。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
+      <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''}> 試合ごとに録画する</label>
+      <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''}> ゲーム音も録音する（次に解析を始めるときから）</label>
+      <label class="row">画質（60fps） <select id="video-bitrate" class="input-sm">${VR.BITRATE_CHOICES.map(m => `<option value="${m}" ${VR.getBitrateMbps() === m ? 'selected' : ''}>${m} Mbps（1 試合 約 ${Math.round(m * 6 * 60 / 8 + 6 * 60 * 192 / 8000)}MB${m === 8 ? '・おすすめ' : ''}）</option>`).join('')}</select></label>
+      <p class="muted">${D ? '画面共有: ウィンドウ／画面を選ぶと、Windows ではシステム音も録れます。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。' : '配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください。キャプチャー映像: ボードの音声入力を自動で探して足します。'} 見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
+      <p class="muted" id="video-dir">保存先: ${D ? esc(dirInfo?.dir || '') + (dirInfo?.custom ? '' : '（既定）') : (dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）')}</p>
+      <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${D || dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${D ? ' <button class="btn" id="video-open" type="button">保存先を開く</button>' : ''}${!D && dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}`;
+    $('#video-on', el).onchange = e => { VR.setVideoOn(e.target.checked); const sm = document.querySelector('#live-video-summary'); if (sm) sm.textContent = e.target.checked ? '（オン）' : '（オフ）'; };
+    $('#video-audio', el).onchange = e => VR.setAudioOn(e.target.checked);
+    $('#video-bitrate', el).onchange = e => VR.setBitrateMbps(+e.target.value);
+    const rg = $('#video-regrant', el); if (rg) rg.onclick = async () => { await VR.ensureDirPermission(dir); await updateVideoPanel(); };
+    const op = $('#video-open', el); if (op) op.onclick = () => D.openVideoDir();
+    $('#video-pick', el).onclick = async () => { try { if (D) { await D.pickVideoDir(); } else { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); } await updateVideoPanel(); } catch { /* cancelled */ } };
+  }
 
 async function showFeedbackExportDialog(initialMode = 'diff') {
   document.querySelector('.fb-dialog-overlay')?.remove();

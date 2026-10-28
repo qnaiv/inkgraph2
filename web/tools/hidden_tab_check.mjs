@@ -1,6 +1,7 @@
 import { chromium } from 'playwright-core';
 import { execSync } from 'node:child_process';
 import { startPreview } from './lib/preview_server.mjs';
+import { fakeDevice } from './lib/fake_device.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -12,16 +13,6 @@ const check = (name, ok, info = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`);
 };
 
-// 1. テスト用動画の一時生成（約30秒、1280x720）および短い動画（約6秒）
-const tmpVideoPath = path.join(os.tmpdir(), `hidden_tab_test_${Date.now()}.mp4`);
-const tmpShortVideoPath = path.join(os.tmpdir(), `hidden_tab_test_short_${Date.now()}.mp4`);
-try {
-  execSync(`ffmpeg -y -f lavfi -i testsrc2=size=1280x720:rate=30 -t 30 -c:v libx264 -pix_fmt yuv420p "${tmpVideoPath}"`, { stdio: 'ignore' });
-  execSync(`ffmpeg -y -f lavfi -i testsrc2=size=1280x720:rate=30 -t 6 -c:v libx264 -pix_fmt yuv420p "${tmpShortVideoPath}"`, { stdio: 'ignore' });
-} catch (e) {
-  console.error('Failed to create test video with ffmpeg:', e);
-  process.exit(1);
-}
 
 const PORT = 4219;
 const U = `http://127.0.0.1:${PORT}/`;
@@ -55,15 +46,8 @@ try {
     for (const m of ms) await db.deleteMatch(m.id);
   });
 
-  // ファイル入力を設定
-  await page.setInputFiles('#file', tmpVideoPath);
-  await page.waitForTimeout(300);
-
-  // #fast のチェックを外す（通常再生で解析）
-  const fastChecked = await page.$eval('#fast', el => el.checked);
-  if (fastChecked) {
-    await page.$eval('#fast', el => { el.checked = false; el.dispatchEvent(new Event('change')); });
-  }
+  // キャプチャーボードの代わりに、canvas の映像を使う
+  await fakeDevice(page);
 
   // 解析開始
   await page.click('#start');
@@ -203,86 +187,6 @@ try {
   const stallReasonText = await page.$eval('#live-capture-warn-reason', el => el.textContent);
   check('Stall discard: reason mentions 映像の取り込みが約', stallReasonText.includes('映像の取り込みが約') || stallReasonText.includes('秒止まったため'), stallReasonText);
 
-  // --- Case 4: ファイル通常再生で動画末尾まで再生 → 自動停止・先頭に戻らない・interruptedなし ---
-  // 前のセッションを停止
-  await page.evaluate(async () => {
-    const s = window.inkgraph.getSession?.();
-    if (s && s.running) await s.stop();
-  });
-  await page.waitForFunction(() => {
-    const s = window.inkgraph.getSession?.();
-    return !s || !s.running;
-  }, null, { timeout: 5000 });
-
-  // 警告表示をリセット
-  await page.evaluate(() => {
-    const warn = document.getElementById('live-capture-warn');
-    if (warn) warn.hidden = true;
-  });
-
-  // 6秒のテスト用動画を設定
-  await page.setInputFiles('#file', tmpShortVideoPath);
-  await page.waitForTimeout(300);
-
-  // #fast がオフであることを確認
-  const isFastNow = await page.$eval('#fast', el => el.checked);
-  if (isFastNow) {
-    await page.$eval('#fast', el => { el.checked = false; el.dispatchEvent(new Event('change')); });
-  }
-
-  // 開始
-  await page.click('#start');
-  await page.waitForFunction(() => {
-    const s = window.inkgraph.getSession?.();
-    return s && s.running && s.stats && s.stats.frames >= 1;
-  }, null, { timeout: 10000 });
-
-  // interrupted 監視と、試合中状態（battle_start）を設定
-  await page.evaluate(() => {
-    window.__case4Interrupted = [];
-    const s = window.inkgraph.getSession();
-    const origInterrupted = s.cb.interrupted;
-    s.cb.interrupted = (info) => {
-      window.__case4Interrupted.push(info);
-      if (origInterrupted) origInterrupted(info);
-    };
-    s.onMsg({ type: 'event', e: { type: 'battle_start', t: s.now() } });
-  });
-
-  // 動画末尾（約6秒）に達してセッションが自動停止するのを待つ
-  const stoppedAuto = await page.waitForFunction(() => {
-    const s = window.inkgraph.getSession?.();
-    return s && !s.running;
-  }, null, { timeout: 15000 }).then(() => true).catch(() => false);
-  check('Case 4 Video end: session stopped automatically (running is false)', stoppedAuto);
-
-  // 少し待っても再生が先頭に戻らないか確認（ウォッチドッグや遅延 resume が play() しないか確認）
-  await page.waitForTimeout(1000);
-
-  const videoState = await page.evaluate(() => {
-    const v = document.getElementById('v');
-    const s = window.inkgraph.getSession?.();
-    return {
-      currentTime: v.currentTime,
-      duration: v.duration,
-      ended: v.ended,
-      running: s?.running,
-      guardInterrupted: s?.guard?.interrupted,
-      interruptedCalls: window.__case4Interrupted?.length || 0
-    };
-  });
-
-  check('Case 4 Video end: currentTime is near duration (not reset to beginning)',
-    videoState.currentTime >= videoState.duration - 0.5 && videoState.currentTime >= 5.0,
-    `currentTime=${videoState.currentTime}, duration=${videoState.duration}`);
-
-  check('Case 4 Video end: interrupted was not notified',
-    videoState.interruptedCalls === 0 && !videoState.guardInterrupted,
-    `calls=${videoState.interruptedCalls}, guardInterrupted=${JSON.stringify(videoState.guardInterrupted)}`);
-
-  const warnHiddenCase4 = await page.$eval('#live-capture-warn', el => el.hidden);
-  check('Case 4 Video end: #live-capture-warn remained hidden', warnHiddenCase4);
-
   check('No uncaught page errors', errors.length === 0, errors.join('; '));
 } catch (e) {
   console.error('FAIL exception:', e);
@@ -298,8 +202,6 @@ try {
   } catch {}
   await browser.close().catch(() => {});
   srv.kill();
-  try { fs.unlinkSync(tmpVideoPath); } catch {}
-  try { fs.unlinkSync(tmpShortVideoPath); } catch {}
 }
 
 const failed = results.filter(x => !x).length;
