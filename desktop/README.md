@@ -7,7 +7,7 @@ Web 版（`../web`）を Electron で包んだものです。解析・保存・�
 - 画面共有は、アプリ内の一覧からウィンドウ／画面を選びます（Windows ではシステム音も録れます）。キャプチャーボードの映像はブラウザ版と同じく使えます。
 
 ## 使い方（配る側）
-- Actions の「Build desktop (Windows)」を手動で実行するか、`desktop-v0.1.0` のようなタグを push すると、`InkGraph-…-win-x64.exe`（インストーラー）と `…-portable.exe`（インストール不要）ができます（Artifacts／Release）。
+- main に `desktop/` か `web/` の変更が入ると、Actions の「Build desktop (Windows)」が自動で動き、`InkGraph-…-win-x64.exe`（インストーラー）と `…-portable.exe`（インストール不要）を作ります。成果物は Artifacts と、**固定のリリース「desktop-latest」**（いつも最新）に出ます。手動実行や、`desktop-v0.1.0` のようなタグでも動きます。
 - コード署名はしていないので、初回は Windows の「PC を保護しました」が出ます（「詳細情報」→「実行」）。
 
 ## 開発
