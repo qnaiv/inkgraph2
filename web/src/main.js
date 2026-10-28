@@ -10,6 +10,8 @@ import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as VP from './verify_pack.js';
 import * as VR from './video_rec.js';
+import * as FP from './fix_pack.js';
+import { extractFrames } from './rec_frames.js';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
 import * as CP from './capacity.js';
@@ -96,6 +98,8 @@ window.inkgraph = {
   AN,
   recountDiff,
   buildBatchZip: (...a) => buildBatchZip(...a),
+  buildFixPack: (...a) => buildFixPack(...a),
+  showFixExportDialog: () => showFixExportDialog(),
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
   showCapacityCleanupDialog: (...a) => showCapacityCleanupDialog(...a),
@@ -446,6 +450,11 @@ PAGES.live = async () => {
           <div id="live-result-main" style="font-size:var(--fs-lg,18px);font-weight:var(--fw-bold)"></div>
           <div id="live-result-sub" class="muted" style="font-size:var(--fs-xs);margin-top:2px"></div>
         </div>
+        <div id="live-flag" class="live-flag" style="margin:var(--sp-2) 0">
+          <button class="btn btn-sm" id="live-flag-btn" type="button" disabled>⚑ この試合を要修正にする</button>
+          <span id="live-flag-note" class="muted" style="font-size:var(--fs-xs);margin-left:6px">分析結果が間違っていたら押しておくと、あとで一覧から見つけて、レビューモードで直せます</span>
+          <div id="live-flag-reasons" style="display:none;flex-wrap:wrap;gap:6px;margin-top:6px">${Object.entries(FP.FIX_REASONS).map(([k, lab]) => `<button class="chip" type="button" data-reason="${k}">${lab}</button>`).join('')}<span class="muted" style="font-size:var(--fs-xs);align-self:center">どこが間違い？（任意）</span></div>
+        </div>
         <div id="live-recount-note" class="live-recount-note" hidden></div>
         ${window.inkgraphDesktop ? '' : '<div id="live-browser-note" class="muted" style="font-size:var(--fs-xs);margin:var(--sp-2) 0">ブラウザ版: 解析中は、このウィンドウを<strong>隠さないで</strong>ください（最小化・別のタブへの切り替え・他のウィンドウで完全に覆うと、その試合は保存されません）。録画はデスクトップ版（Windows）のみ対応です。</div>'}
 
@@ -589,6 +598,24 @@ PAGES.live = async () => {
       box.style.borderLeft = `4px solid ${info.result === 'WIN' ? 'var(--kill, #4ade80)' : info.result === 'LOSE' ? 'var(--death, #f87171)' : 'var(--border, #555)'}`;
       if (!resultLogged && info.result && (info.mode || final) && info.stage && (info.own || final)) { resultLogged = true; addEventRow('', '🏁', `結果: ${head}${ownTxt ? '（' + ownTxt + '）' : ''}`, null); }
     };
+    // D75: 要修正マーク。試合の保存は次のバトル開始まで待つので、保存前に押した印は覚えておき、保存されたときに付ける
+    let battleSeq = 0, curOrd = 0; let pendingOrd = []; const flags = new Map(), savedIds = new Map();
+    const flagBtn = $('#live-flag-btn', page), flagReasons = $('#live-flag-reasons', page), flagNote = $('#live-flag-note', page);
+    const flagUI = () => {
+      const f = flags.get(curOrd);
+      flagBtn.disabled = !curOrd; flagBtn.textContent = f ? '⚑ 要修正にしました（取り消す）' : '⚑ この試合を要修正にする';
+      flagReasons.style.display = f ? 'flex' : 'none';
+      flagReasons.querySelectorAll('[data-reason]').forEach(b => b.classList.toggle('active', !!f && f.has(b.dataset.reason)));
+      if (curOrd) flagNote.textContent = f ? (savedIds.has(curOrd) ? '一覧に「⚑ 要修正」と出ます' : '試合が保存されたときに付きます（次のバトル開始か停止のとき）') : `対象: 今回の ${curOrd} 試合目`;
+    };
+    const applyFlag = async ord => {
+      const id = savedIds.get(ord); if (!id) return;
+      const m = await db.getMatch(id); if (!m) return;
+      const f = flags.get(ord); FP.flagMatch(m, !!f, f ? [...f] : []); await db.putMatch(m);
+    };
+    flagBtn.onclick = async () => { if (!curOrd) return; if (flags.has(curOrd)) flags.delete(curOrd); else flags.set(curOrd, new Set()); flagUI(); await applyFlag(curOrd); };
+    flagReasons.querySelectorAll('[data-reason]').forEach(b => { b.onclick = async () => { const f = flags.get(curOrd); if (!f) return; f.has(b.dataset.reason) ? f.delete(b.dataset.reason) : f.add(b.dataset.reason); flagUI(); await applyFlag(curOrd); }; });
+    flagUI();
     const vEmpty = $('#video-empty', page);
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
@@ -597,9 +624,10 @@ PAGES.live = async () => {
       event: e => {
         if (e.type === 'special_end') return;
         if (e.type === 'result_info') { showResult(e, false); return; }
+        if (e.type === 'battle_discard') { pendingOrd = pendingOrd.filter(o => o !== curOrd); flags.delete(curOrd); curOrd = pendingOrd.length ? pendingOrd[pendingOrd.length - 1] : 0; flagUI(); }
         const tt = mss(e.t - t0);
         if (e.type === 'battle_start') {
-          t0 = e.t; k = d = sp = 0; estWp = 0.5; resultLogged = false; battleActive = true; { const rb = $('#live-result', page); if (rb) rb.hidden = true; }
+          t0 = e.t; k = d = sp = 0; estWp = 0.5; resultLogged = false; battleActive = true; curOrd = ++battleSeq; pendingOrd.push(curOrd); flagUI(); { const rb = $('#live-result', page); if (rb) rb.hidden = true; }
           const warn = $('#live-capture-warn', page); if (warn) warn.hidden = true;
           $('.live-stats-row', page)?.classList.remove('is-void');
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
@@ -669,6 +697,7 @@ PAGES.live = async () => {
         addEventRow(tt, '⚠', label, null);
       },
       discarded: ({ rec, interrupted }) => {
+        { const ord = pendingOrd.shift(); if (ord) flags.delete(ord); flagUI(); }
         justSaved = true;
         const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
         setCountBadge('discarded');
@@ -689,6 +718,7 @@ PAGES.live = async () => {
       match: rec => {
         savedCount++;
         justSaved = true;
+        { const ord = pendingOrd.shift(); if (ord) { savedIds.set(ord, rec.id); if (flags.get(ord)) applyFlag(ord).then(flagUI); } }
         if (!battleActive) { const rs = rec.result_screen || {}; showResult({ result: rs.result, mode: rs.mode ?? null, stage: rs.stage, match_type: rec.match_type, own: rs.own }, true); }
         const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
         $('#live-dot', page).className = 'status-dot-idle';
@@ -762,7 +792,7 @@ PAGES.live = async () => {
 // ============================================================================
 // 2. 試合一覧
 // ============================================================================
-let listFilters = { mode: 'ALL', stage: 'ALL', result: 'ALL' };
+let listFilters = { mode: 'ALL', stage: 'ALL', result: 'ALL', fix: 'ALL' };
 
 // 表示用: 静止画の状態キー (旧レコードは stills.count から推定)
 function stillsStateKey(m) {
@@ -822,10 +852,12 @@ PAGES.list = async () => {
     if (listFilters.mode !== 'ALL' && (r.mode || '不明') !== listFilters.mode) return false;
     if (listFilters.stage !== 'ALL' && (r.stage || '不明') !== listFilters.stage) return false;
     if (listFilters.result !== 'ALL' && r.result !== listFilters.result) return false;
+    if (listFilters.fix === 'FIX' && !m.needs_fix) return false;
     return true;
   }).sort((a, b) => (b.created || '').localeCompare(a.created || '') || (b.match || 0) - (a.match || 0)); // 日時の降順（最新が一番上）
 
   const hasMatches = ms.length > 0;
+  const fixCount = ms.filter(m => m.needs_fix).length;
   const pending = FB.pendingMatches(ms);
   const pendingConfirmed = pending.reduce((a, m) => a + FB.confirmedCount(m), 0);
   const recentHist = [...FB.getFeedbackHistory()].slice(-5).reverse();
@@ -928,7 +960,16 @@ PAGES.list = async () => {
           <button class="chip ${listFilters.result === 'WIN' ? 'active' : ''}" data-fkind="result" data-fval="WIN">勝ち</button>
           <button class="chip ${listFilters.result === 'LOSE' ? 'active' : ''}" data-fkind="result" data-fval="LOSE">負け</button>
         </div>
+        <div class="filter-group">
+          <span class="filter-label">修正</span>
+          <button class="chip ${listFilters.fix === 'ALL' ? 'active' : ''}" data-fkind="fix" data-fval="ALL">すべて</button>
+          <button class="chip ${listFilters.fix === 'FIX' ? 'active' : ''}" data-fkind="fix" data-fval="FIX">⚑ 要修正（${fixCount}）</button>
+        </div>
       </div>
+      ${fixCount ? `<div class="card fix-bar" id="fix-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)">
+        <span><strong>⚑ 要修正 ${fixCount} 件</strong>　試合を開くと、録画を見ながらレビューモードで直せます。</span>
+        <button class="btn btn-sm" id="fix-export" type="button">要修正の試合を AI 用に書き出す（zip）</button>
+      </div>` : ''}
 
       <div class="match-list">
         ${filtered.map(m => {
@@ -963,6 +1004,7 @@ PAGES.list = async () => {
                 <button class="fav-btn" data-id="${esc(m.id)}" type="button" aria-label="お気に入り" title="お気に入り">${m.favorite === true ? '★' : '☆'}</button>
                 <span class="${badgeCls(r.result)}">${resJa(r.result)}</span>
                 ${isVerificationMatch(m) ? '<span class="verify-badge">検証用</span>' : ''}
+                ${m.needs_fix ? `<span class="badge" style="background:rgba(250,204,21,.15);color:#facc15" title="${esc((m.needs_fix.reasons || []).map(k => FP.FIX_REASONS[k] || k).join('・') || '要修正')}">⚑ 要修正</span>` : ''}
                 <span class="match-row-date num">${esc(dtStr)}</span>
               </div>
 
@@ -1016,6 +1058,8 @@ PAGES.list = async () => {
       PAGES.list();
     };
   });
+
+  const fixExportBtn = $('#fix-export', page); if (fixExportBtn) fixExportBtn.onclick = () => showFixExportDialog();
 
   page.querySelectorAll('.row-menu').forEach(menu => {
     menu.addEventListener('click', e => e.stopPropagation());
@@ -1780,6 +1824,67 @@ async function renderVideoSettings(el) {
     $('#video-pick', el).onclick = async () => { try { if (D) { await D.pickVideoDir(); } else { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); } await updateVideoPanel(); } catch { /* cancelled */ } };
   }
 
+// D75: 要修正パック（AI 用）。要修正の試合ごとに、ソフトの分析結果・人の修正・差分・（録画があれば）差分の前後のコマを zip にする
+async function buildFixPack(matches, { whole = false, onProgress = () => {} } = {}) {
+  const files = {}, index = [], now = new Date(), D = window.inkgraphDesktop;
+  let n = 0;
+  for (const m of matches) {
+    n++;
+    const dir = `matches/${FP.safeId(m.id)}/`, d = FP.diffOf(m);
+    const times = FP.frameTimes(m, d, { whole }), frames = [];
+    const put = (name, blob) => blob.arrayBuffer().then(b => { files[dir + name] = new Uint8Array(b); });
+    let source = 'none';
+    if (m.recording && D && Number.isFinite(m.recording.t0) && times.length) {
+      try {
+        onProgress(`試合 ${n}/${matches.length}: 録画から ${times.length} コマを切り出し中…`);
+        const got = await extractFrames(`rec://local/${encodeURIComponent(m.recording.path)}`, times.map(t => t - m.recording.t0), { onProgress: (i, tot) => onProgress(`試合 ${n}/${matches.length}: 録画からコマを切り出し中 ${i}/${tot}`) });
+        for (let i = 0; i < got.length; i++) { const name = `frames/t${times[i].toFixed(1).padStart(7, '0')}.webp`; await put(name, got[i].blob); frames.push({ t: times[i], rel: Math.round((times[i] - m.battle[0]) * 10) / 10, file: dir + name }); }
+        source = 'recording';
+      } catch (e) { console.warn('frame extraction failed', e); source = 'recording-failed: ' + (e?.message || e); }
+    }
+    if (source !== 'recording') { // 録画が無い／開けない: 保存してある静止画・場面クリップ
+      onProgress(`試合 ${n}/${matches.length}: 静止画・場面クリップを入れています…`);
+      for (const sn of (await db.snapsOf(m.id)).sort((a, b) => a.t - b.t)) { const name = `frames/${sn.kind === 'clip' ? 'clip' : 'still'}_t${sn.t.toFixed(1).padStart(7, '0')}_${sn.id}.${sn.kind === 'clip' ? 'webp' : 'jpg'}`; await put(name, sn.blob); frames.push({ t: sn.t, rel: Math.round((sn.t - m.battle[0]) * 10) / 10, file: dir + name, kind: sn.kind || null }); }
+      if (source === 'none') source = frames.length ? 'stills' : 'none';
+    }
+    files[dir + 'summary.json'] = strToU8(JSON.stringify(FP.matchSummary(m), null, 1));
+    files[dir + 'diff.json'] = strToU8(JSON.stringify({ ...d, frame_source: source, frames }, null, 1));
+    files[dir + 'human_review.json'] = strToU8(JSON.stringify(m.review ?? null, null, 1));
+    files[dir + 'software.json'] = strToU8(JSON.stringify(m));
+    index.push({ id: m.id, dir, counts: { false_positives: d.false_positives.length, misses: d.misses.length, result_fixes: d.result_fixes.length, unreviewed: d.unreviewed }, frame_source: source, frames: frames.length, reasons: (m.needs_fix?.reasons || []).map(k => FP.FIX_REASONS[k] || k) });
+  }
+  const params = DP.activeParams?.() ?? null;
+  files['INDEX.json'] = strToU8(JSON.stringify({ app: 'InkGraph', kind: 'fix-pack', format: 1, exported: now.toISOString(), matches: index }, null, 1));
+  files['detect_params.json'] = strToU8(JSON.stringify(params, null, 1));
+  files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording') }));
+  return { blob: new Blob([zipSync(files, { level: 0 })], { type: 'application/zip' }), filename: FP.fixPackFilename(now), index };
+}
+
+async function showFixExportDialog() {
+  document.querySelector('.fix-dialog-overlay')?.remove();
+  const all = (await db.allMatches()).filter(m => m.needs_fix);
+  const ov = document.createElement('div'); ov.className = 'fix-dialog-overlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  const rows = all.map(m => { const d = FP.diffOf(m), r = resultOf(m); return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" class="fixsel" value="${esc(m.id)}" checked> <span>${esc((m.created || '').slice(0, 16).replace('T', ' '))} ${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="muted">誤検出 ${d.false_positives.length}・見逃し ${d.misses.length}・読み違い ${d.result_fixes.length}${d.unreviewed ? `・未確認 ${d.unreviewed}` : ''}${m.recording ? '・録画あり' : ''}</span></span></label>`; }).join('');
+  ov.innerHTML = `<div class="card" style="max-width:720px;width:92vw;max-height:84vh;overflow:auto;padding:var(--sp-4)"><h3>要修正の試合を AI 用に書き出す</h3>
+    <p class="muted" style="font-size:var(--fs-xs)">ソフトの分析結果と、人の修正（✓／✗・追加した見逃し・直した値）、差分の前後のコマ（録画があれば録画から）を zip にします。Claude Code に渡して、検出ロジックの修正に生かせます。レビューモードで直してから書き出すと、差分が正しく入ります。</p>
+    <div>${rows || '<p class="muted">要修正の試合がありません</p>'}</div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="fix-whole"> 試合全体も 1 秒おきのコマで入れる（大きくなります）</label>
+    <p id="fix-progress" class="muted" style="min-height:1.4em;font-size:var(--fs-xs)"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${all.length ? '' : 'disabled'}>書き出す</button></div></div>`;
+  document.body.appendChild(ov);
+  $('#fix-cancel', ov).onclick = () => ov.remove();
+  $('#fix-go', ov).onclick = async () => {
+    const ids = [...ov.querySelectorAll('.fixsel:checked')].map(x => x.value), sel = all.filter(m => ids.includes(m.id)); if (!sel.length) return;
+    const go = $('#fix-go', ov); go.disabled = true; const prog = $('#fix-progress', ov);
+    try {
+      const { blob, filename, index } = await buildFixPack(sel, { whole: $('#fix-whole', ov).checked, onProgress: t => { prog.textContent = t; } });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      prog.textContent = `書き出しました: ${filename}（${sel.length} 試合・${(blob.size / 1024 / 1024).toFixed(1)}MB）`;
+    } catch (e) { prog.textContent = '書き出しに失敗しました: ' + (e?.message || e); }
+    go.disabled = false;
+  };
+}
+
 async function showFeedbackExportDialog(initialMode = 'diff') {
   document.querySelector('.fb-dialog-overlay')?.remove();
   const all = await db.allMatches();
@@ -1915,6 +2020,7 @@ PAGES.match = async () => {
   };
 
   if (m.remote) reviewMode = false; // クラウドから取り込んだ試合は閲覧のみ（D58）
+  else if (m.needs_fix) reviewMode = true; // D75: 要修正の試合は、レビューモードで開く
   const r = resultOf(m);
   const rsStat = resultStatus(m);
   const matchTypeLabel = (r.match_type && MATCH_TYPE_LABEL[r.match_type]) || '不明';
@@ -1983,6 +2089,7 @@ PAGES.match = async () => {
         <span class="toggle-switch" aria-hidden="true"></span>
         <span>レビューモード</span>
       </label>`}
+      ${m.remote ? '' : `<span class="fix-flag-ctl" style="display:inline-flex;gap:6px;align-items:center;margin-left:12px"><button class="btn btn-sm" id="fix-toggle" type="button">${m.needs_fix ? '⚑ 修正完了にする（要修正を外す）' : '⚑ 要修正にする'}</button></span>`}
     </div>
 
     <div class="detail-body ${reviewMode ? 'review-on' : ''}" id="detail-body">
@@ -2036,6 +2143,7 @@ PAGES.match = async () => {
   mountPage(page, false);
 
   $('#pick', page).onchange = e => nav('match', e.target.value);
+  const fixBtn = $('#fix-toggle', page); if (fixBtn) fixBtn.onclick = async () => { FP.flagMatch(m, !m.needs_fix, m.needs_fix?.reasons || []); await db.putMatch(m); fixBtn.textContent = m.needs_fix ? '⚑ 修正完了にする（要修正を外す）' : '⚑ 要修正にする'; };
   if ($('#review-toggle', page)) $('#review-toggle', page).onchange = e => {
     reviewMode = e.target.checked;
     $('#detail-body', page).classList.toggle('review-on', reviewMode);
