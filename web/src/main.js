@@ -84,6 +84,16 @@ async function getWeaponNames() { await getEnemyIconLib(); return weaponNames; }
 // 傾向画面の描画を見本の読み込みで待たせないよう、起動時に先読みする
 getEnemyIconLib();
 
+// D71: デスクトップ版の画面共有の選択（Electron のメインから一覧が届く）
+if (window.inkgraphDesktop) window.inkgraphDesktop.onPickSource(list => {
+  document.querySelector('.src-pick-overlay')?.remove();
+  const ov = document.createElement('div'); ov.className = 'src-pick-overlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  ov.innerHTML = `<div class="card" style="max-width:900px;max-height:80vh;overflow:auto;padding:var(--sp-4)"><h3>解析する画面・ウィンドウを選んでください</h3><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--sp-3)">${list.map(s => `<button class="btn src-pick-item" data-id="${esc(s.id)}" type="button" style="display:flex;flex-direction:column;gap:6px;padding:8px;text-align:left"><img src="${s.thumb}" style="width:100%;border-radius:4px;background:#000"><span style="font-size:var(--fs-xs)">${s.screen ? '🖥 ' : ''}${esc(s.name)}</span></button>`).join('')}</div><p style="margin-top:var(--sp-3)"><button class="btn" id="src-pick-cancel" type="button">キャンセル</button></p></div>`;
+  const done = id => { ov.remove(); window.inkgraphDesktop.replyPickSource(id || null); };
+  ov.querySelectorAll('.src-pick-item').forEach(b => { b.onclick = () => done(b.dataset.id); }); ov.querySelector('#src-pick-cancel').onclick = () => done(null);
+  document.body.appendChild(ov);
+});
+
 window.inkgraph = {
   db,
   VR,
@@ -483,6 +493,7 @@ PAGES.live = async () => {
           <span id="live-count-badge" class="live-count-badge is-provisional" title="試合中の数字は速報です。試合後に映像全体を数え直して確定します">速報</span>
         </div>
         <div id="live-recount-note" class="live-recount-note" hidden></div>
+        ${window.inkgraphDesktop ? '' : '<div id="live-browser-note" class="muted" style="font-size:var(--fs-xs);margin:var(--sp-2) 0">ブラウザ版: 解析中は、このウィンドウを<strong>隠さないで</strong>ください（最小化・別のタブへの切り替え・他のウィンドウで完全に覆うと、その試合は保存されません）。録画はデスクトップ版（Windows）のみ対応です。</div>'}
 
         <div id="live-capture-warn" class="live-capture-warn" role="status" hidden>
           <div style="font-weight:var(--fw-bold)">この試合は保存しません</div>
@@ -1755,20 +1766,27 @@ PAGES.list = async () => {
   await updateVerifyPanel();
   const updateVideoPanel = async () => {
     const el = $('#video-panel', page); if (!el) return;
-    const sup = VR.videoSupported(), on = VR.getVideoOn(), dir = await db.getVideoDir().catch(() => null), canPick = typeof window.showDirectoryPicker === 'function';
+    const D = window.inkgraphDesktop || null;
+    if (!VR.videoSupported()) { // ブラウザ版: 録画は非対応（デスクトップ版のみ）
+      el.innerHTML = `<h3>試合ごとの録画ファイル</h3>
+        <p class="muted">試合ごとの録画（ルール・ステージ入りのファイル名で 1 試合 1 ファイル）は<strong>デスクトップ版（Windows）だけ</strong>の機能です。ブラウザ版は、ウィンドウが隠れると映像の取り込みが止まるため、録画には対応していません。</p>`;
+      return;
+    }
+    const on = VR.getVideoOn();
+    const dirInfo = D ? await D.getVideoDir().catch(() => null) : null, dir = D ? null : await db.getVideoDir().catch(() => null), canPick = D || typeof window.showDirectoryPicker === 'function';
     const perm = dir ? await dir.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt') : null;
     el.innerHTML = `<h3>試合ごとの録画ファイル</h3>
-      <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>（WebM。音声は「ゲーム音も録音する」をオンにしたとき）で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.webm</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.webm）。1 試合 約 100MB。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
-      ${sup ? '' : '<p class="muted">このブラウザは録画（MediaRecorder）に対応していません。</p>'}
-      <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''} ${sup ? '' : 'disabled'}> 試合ごとに録画する</label>
-      <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''} ${sup ? '' : 'disabled'}> ゲーム音も録音する（次に解析を始めるときから）</label>
-      <p class="muted">配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください（Windows の Chrome／Edge。Mac は「タブ」の音声のみ）。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
-      <p class="muted" id="video-dir">保存先: ${dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）'}</p>
-      <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}${canPick ? '' : '<span class="muted"> このブラウザはフォルダ指定に未対応（Chrome／Edge なら可）。ダウンロードで保存します。</span>'}`;
+      <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>（WebM）で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.webm</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.webm）。1 試合 約 100MB。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
+      <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''}> 試合ごとに録画する</label>
+      <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''}> ゲーム音も録音する（次に解析を始めるときから）</label>
+      <p class="muted">${D ? '画面共有: ウィンドウ／画面を選ぶと、Windows ではシステム音も録れます。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。' : '配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください。キャプチャー映像: ボードの音声入力を自動で探して足します。'} 見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
+      <p class="muted" id="video-dir">保存先: ${D ? esc(dirInfo?.dir || '') + (dirInfo?.custom ? '' : '（既定）') : (dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）')}</p>
+      <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${D || dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${D ? ' <button class="btn" id="video-open" type="button">保存先を開く</button>' : ''}${!D && dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}`;
     $('#video-on', el).onchange = e => VR.setVideoOn(e.target.checked);
     $('#video-audio', el).onchange = e => VR.setAudioOn(e.target.checked);
     const rg = $('#video-regrant', el); if (rg) rg.onclick = async () => { await VR.ensureDirPermission(dir); await updateVideoPanel(); };
-    $('#video-pick', el).onclick = async () => { try { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); await updateVideoPanel(); } catch { /* cancelled */ } };
+    const op = $('#video-open', el); if (op) op.onclick = () => D.openVideoDir();
+    $('#video-pick', el).onclick = async () => { try { if (D) { await D.pickVideoDir(); } else { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); } await updateVideoPanel(); } catch { /* cancelled */ } };
   };
   await updateVideoPanel();
   const updateResetPanel = () => {

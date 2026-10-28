@@ -1,0 +1,46 @@
+{
+  "name": "inkgraph-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "InkGraph デスクトップ版（Windows）。Web 版（../web）を包み、ウィンドウが隠れても解析・録画が止まらないようにする",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "xvfb-run -a electron --no-sandbox tools/desktop_check.js",
+    "web": "cd ../web && npm ci && npm run build",
+    "dist": "npm run web && electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "jp.inkgraph.desktop",
+    "productName": "InkGraph",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "artifactName": "InkGraph-${version}-${os}-${arch}.${ext}"
+  }
+}
