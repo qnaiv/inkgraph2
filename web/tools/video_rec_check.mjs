@@ -38,6 +38,56 @@ try {
   check(a.size > 500 && a.audioTracks === 1 && /opus/.test(a.mime), '(9) 音声つきのストリームも録れる（opus）', JSON.stringify(a));
   await page.reload(); await page.waitForSelector('#video-audio'); await page.check('#video-audio');
   check(await page.evaluate(() => window.inkgraph.VR.getAudioOn()), '(10) 「ゲーム音も録音する」の設定が保存される');
-  check(!errs.length, '(11) ページエラー無し', errs.join('|'));
+  // 保存先フォルダ: 許可が切れていたら聞き直す／許可されなければダウンロード（理由つき）／許可済みならフォルダに書く
+  const f = await page.evaluate(async () => {
+    const VR = window.inkgraph.VR, written = [];
+    const mk = perm => { let p = perm; return { name: 'テスト', queryPermission: async () => p, requestPermission: async () => { p = 'granted'; return p; }, getFileHandle: async n => ({ createWritable: async () => ({ write: async b => written.push([n, b.size]), close: async () => {} }) }) }; };
+    const lapsed = mk('prompt'), r1 = await VR.ensureDirPermission(lapsed);
+    const denied = { name: 'x', queryPermission: async () => 'prompt', requestPermission: async () => 'denied', getFileHandle: async () => { throw new Error('no'); } };
+    const r2 = await VR.ensureDirPermission(denied), blob = new Blob([new Uint8Array(100)], { type: 'video/webm' });
+    const s1 = await VR.saveVideo(blob, 'a.webm', { getDir: async () => mk('granted') });
+    const s2 = await VR.saveVideo(blob, 'b.webm', { getDir: async () => denied });
+    const s3 = await VR.saveVideo(blob, 'c.webm', { getDir: async () => null });
+    return { r1, r2, s1, s2: s2.where + ':' + s2.why, s3: s3.where + ':' + s3.why, written, none: await VR.ensureDirPermission(null) };
+  });
+  check(f.r1 === 'granted' && f.r2 === 'denied' && f.none === null, '(11) 許可が切れていたら聞き直す（granted／denied／未設定）', JSON.stringify([f.r1, f.r2, f.none]));
+  check(f.s1.where === 'folder' && f.written[0][0] === 'a.webm' && f.s2.startsWith('download:') && /許可/.test(f.s2) && f.s3 === 'download:フォルダ未設定', '(12) 許可済みはフォルダに保存・許可が無ければ理由つきでダウンロード', f.s2 + ' / ' + f.s3);
+  // Session の配線: バトル開始で録画開始 → 試合の保存で名前を付けて保存 → 画面向けの状況通知が出る
+  await page.evaluate(() => { localStorage.setItem('inkgraph.videoRec', '1'); });
+  const [dl2] = await Promise.all([page.waitForEvent('download'), page.evaluate(async () => {
+    const { Session, db } = window.inkgraph, log = [], saved = [];
+    const v = document.createElement('video'), s = new Session(v, { videoStatus: r => log.push(r.msg), videoSaved: r => saved.push(r.filename) });
+    const c = document.createElement('canvas'); c.width = 160; c.height = 90; const g = c.getContext('2d'); let n = 0; const iv = setInterval(() => { g.fillStyle = `hsl(${n++ * 20},80%,50%)`; g.fillRect(0, 0, 160, 90); }, 50);
+    s.mode = 'stream'; s.stream = c.captureStream(20); s.sessionId = new Date(2026, 9, 27, 21, 0).toISOString(); s.fast = false; s.running = true;
+    s.onMsg({ type: 'event', e: { type: 'battle_start', t: 0 } });
+    await new Promise(r => setTimeout(r, 1500));
+    s.onMsg({ type: 'event', e: { type: 'battle_end', t: 1.5 } });
+    clearInterval(iv); clearTimeout(s.vcur?.timer);
+    await new Promise(r => setTimeout(r, 4200)); // CaptureGuard の最短時間を越える
+    await s.saveMatch({ match: 1, battle: [5, 10], squid_down: {}, own_deaths: [], own_kills: [], special: [], result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'ヒラメが丘団地', own: { ka: 1, deaths: 1, specials: 0 } }, review: { marks: {}, added: [], fix: {} } });
+    window.__sess = { log, saved, queue: (s.videoQueue || []).length };
+  })]);
+  const ss = await page.evaluate(() => window.__sess);
+  check(ss.log[0]?.startsWith('録画: 開始'), '(14) バトル開始で録画が始まり、状況が画面に出る', JSON.stringify(ss.log));
+  check(ss.saved.length === 1 && /_ガチエリア_ヒラメが丘団地_勝ち\.webm$/.test(ss.saved[0]) && ss.queue === 0, '(15) 試合の保存で、ルール・ステージ入りの名前で保存される', ss.saved.join(','));
+  check(!!dl2, '(16) 保存先が無ければダウンロードされる');
+  // 2 試合続けて：2 つのファイルに分かれる（実際の順序どおり、次のバトル開始のイベントが前の試合の保存より先に届く）
+  const two = await page.evaluate(async () => {
+    const { Session } = window.inkgraph, saved = [], sizes = [];
+    const s = new Session(document.createElement('video'), { videoSaved: r => { saved.push(r.filename); sizes.push(r.bytes); } });
+    const c = document.createElement('canvas'); c.width = 160; c.height = 90; const g = c.getContext('2d'); let n = 0; setInterval(() => { g.fillStyle = `hsl(${n++ * 20},80%,50%)`; g.fillRect(0, 0, 160, 90); }, 50);
+    s.mode = 'stream'; s.stream = c.captureStream(20); s.sessionId = new Date(2026, 9, 27, 21, 0).toISOString(); s.fast = false; s.running = true;
+    const rec = (no, stage, result, t0) => ({ match: no, battle: [t0, t0 + 5], squid_down: {}, own_deaths: [], own_kills: [], special: [], result_screen: { result, mode: 'ガチエリア', stage, own: { ka: 1, deaths: 1, specials: 0 } }, review: { marks: {}, added: [], fix: {} } });
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    s.onMsg({ type: 'event', e: { type: 'battle_start', t: 0 } }); await wait(1200);
+    s.onMsg({ type: 'event', e: { type: 'battle_end', t: 1.2 } }); clearTimeout(s.vcur.timer); s.vcur.r.stop(); await wait(4200);
+    s.onMsg({ type: 'event', e: { type: 'battle_start', t: 100 } }); // 2 試合目の開始が先に届く
+    await s.saveMatch(rec(1, 'ヒラメが丘団地', 'WIN', 0)); await wait(1200);
+    s.onMsg({ type: 'event', e: { type: 'battle_end', t: 101.2 } }); clearTimeout(s.vcur.timer); await wait(4200);
+    await s.saveMatch(rec(2, 'マテガイ放水路', 'LOSE', 100));
+    return { saved, sizes, queue: (s.videoQueue || []).length };
+  });
+  check(two.saved.length === 2 && /ヒラメが丘団地_勝ち/.test(two.saved[0]) && /マテガイ放水路_負け/.test(two.saved[1]) && two.queue === 0, '(17) 2 試合続けると、試合ごとの 2 つのファイルに分かれて保存される', two.saved.join(' | '));
+  check(!errs.length, '(13) ページエラー無し', errs.join('|'));
 } finally { await browser.close(); srv.kill?.(); }
 process.exit(fails ? 1 : 0);

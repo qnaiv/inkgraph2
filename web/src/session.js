@@ -6,7 +6,7 @@ import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
 import * as detectParams from './detect_params.js';
-import { MatchRecorder, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo } from './video_rec.js';
+import { MatchRecorder, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo, ensureDirPermission } from './video_rec.js';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
@@ -20,6 +20,12 @@ export class Session {
   }
   async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
     const wantAudio = getVideoOn() && getAudioOn();
+    // D70: 録画の状況を画面に出す。保存先の書き込み許可は、開始ボタンを押した直後（ユーザー操作の中）に聞き直す（再読み込みのあとは切れている）
+    if (getVideoOn()) {
+      if (mode === 'file') this.videoNote('録画: 録画ファイルの解析では録画しません（配信映像／キャプチャー映像のときだけ録画します）');
+      else if (!videoSupported()) this.videoNote('録画: このブラウザは録画（MediaRecorder）に対応していません');
+      else { const h = await db.getVideoDir().catch(() => null), p = await ensureDirPermission(h); this.videoNote(h ? (p === 'granted' ? `録画: オン（保存先: ${h.name}）。次のバトル開始から録画します` : '録画: オン。保存先フォルダの書き込みが許可されなかったので、ダウンロードで保存します') : '録画: オン（保存先フォルダ未設定のため、ダウンロードで保存します）。次のバトル開始から録画します'); }
+    }
     this.mode = mode; this.owner = owner || 'self'; this.fast = fast; this.sessionId = new Date().toISOString();
     if (mode === 'stream') {
       this.sourceName = '配信映像（画面共有）';
@@ -161,19 +167,20 @@ export class Session {
     else if (m.type === 'flushed') this.flushed?.();
   }
   // D68: 試合ごとの録画。バトル開始で録り始め、終了の 25 秒後（結果画面ぶん）に止めて、試合の保存時に名前を付けて保存する
+  videoNote(msg, level = 'info') { try { this.cb.videoStatus?.({ msg, level }); } catch { /* ignore */ } }
   videoStart() {
     if (this.mode === 'file' || !this.stream || !videoSupported() || !getVideoOn()) return;
     this.videoQueue = this.videoQueue || [];
-    try { const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null }; this.videoQueue.push(this.vcur); } catch (e) { console.warn('video start failed', e); this.vcur = null; }
+    try { const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null }; this.videoQueue.push(this.vcur); this.videoNote('録画: 開始しました（バトル終了と結果画面のあとに保存します）'); } catch (e) { console.warn('video start failed', e); this.vcur = null; this.videoNote('録画: 開始できませんでした（' + (e?.message || e) + '）', 'error'); }
   }
   videoEndSoon() { const c = this.vcur; if (c && !c.timer) c.timer = setTimeout(() => c.r.stop(), 25000); }
   videoDrop() { const c = this.vcur; if (!c) return; clearTimeout(c.timer); c.r.stop(); this.videoQueue = (this.videoQueue || []).filter(x => x !== c); this.vcur = null; }
   async videoFinalize(rec, keep) {
     const c = (this.videoQueue || []).shift(); if (!c) return;
     clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
-    const blob = await c.r.stop(); if (!keep || !blob || !blob.size) return;
+    const blob = await c.r.stop(); if (!keep) return; if (!blob || !blob.size) { this.videoNote('録画: 映像が空だったので保存しませんでした', 'error'); return; }
     try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = name; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
-    catch (e) { console.warn('video save failed', e); }
+    catch (e) { console.warn('video save failed', e); this.videoNote('録画: 保存に失敗しました（' + (e?.message || e) + '）', 'error'); }
   }
   async saveMatch(rec) {
     if (!this.fast) {

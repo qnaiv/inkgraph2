@@ -87,6 +87,7 @@ getEnemyIconLib();
 window.inkgraph = {
   db,
   VR,
+  Session,
   learn,
   analysis: AN,
   capacity: CP,
@@ -688,7 +689,8 @@ PAGES.live = async () => {
     const vEmpty = $('#video-empty', page);
     if (vEmpty) vEmpty.style.display = 'none';
     session = new Session($('#v', page), {
-      videoSaved: r => { try { addEventRow('', '🎬', `録画を保存: ${r.filename}（${r.where === 'folder' ? 'フォルダ「' + r.folder + '」' : 'ダウンロード'}・${fmtBytes(r.bytes)}）`, null); } catch { /* ignore */ } },
+      videoSaved: r => { try { addEventRow('', '🎬', `録画を保存: ${r.filename}（${r.where === 'folder' ? 'フォルダ「' + r.folder + '」' : 'ダウンロード' + (r.why ? '・理由: ' + r.why : '')}・${fmtBytes(r.bytes)}）`, null); } catch { /* ignore */ } },
+      videoStatus: r => { try { addEventRow('', r.level === 'error' ? '⚠' : '🎬', r.msg, null); } catch { /* ignore */ } },
       event: e => {
         if (e.type === 'special_end') return;
         const tt = mss(e.t - t0);
@@ -1762,9 +1764,10 @@ PAGES.list = async () => {
       <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''} ${sup ? '' : 'disabled'}> ゲーム音も録音する（次に解析を始めるときから）</label>
       <p class="muted">配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください（Windows の Chrome／Edge。Mac は「タブ」の音声のみ）。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
       <p class="muted" id="video-dir">保存先: ${dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）'}</p>
-      <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${canPick ? '' : '<span class="muted"> このブラウザはフォルダ指定に未対応（Chrome／Edge なら可）。ダウンロードで保存します。</span>'}`;
+      <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}${canPick ? '' : '<span class="muted"> このブラウザはフォルダ指定に未対応（Chrome／Edge なら可）。ダウンロードで保存します。</span>'}`;
     $('#video-on', el).onchange = e => VR.setVideoOn(e.target.checked);
     $('#video-audio', el).onchange = e => VR.setAudioOn(e.target.checked);
+    const rg = $('#video-regrant', el); if (rg) rg.onclick = async () => { await VR.ensureDirPermission(dir); await updateVideoPanel(); };
     $('#video-pick', el).onclick = async () => { try { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); await updateVideoPanel(); } catch { /* cancelled */ } };
   };
   await updateVideoPanel();
