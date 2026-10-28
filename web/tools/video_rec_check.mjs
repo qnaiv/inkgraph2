@@ -15,7 +15,13 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME || un
 try {
   const ctx = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 1000 } }); const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForFunction(() => window.inkgraph && window.inkgraph.VR);
-  await page.evaluate(() => localStorage.removeItem('inkgraph.videoRec'));
+  // ブラウザ版では録画は非対応: パネルは「デスクトップ版だけ」と出し、録画のオプションは出ない
+  await page.evaluate(() => { localStorage.removeItem('inkgraph.videoBrowser'); localStorage.removeItem('inkgraph.videoRec'); });
+  await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForFunction(() => document.querySelector('#video-panel')?.textContent.includes('試合ごとの録画ファイル'));
+  check(/デスクトップ版（Windows）だけ/.test(await page.textContent('#video-panel')) && !(await page.$('#video-on')) && !(await page.evaluate(() => window.inkgraph.VR.videoSupported())), '(0) ブラウザ版では録画の設定が出ない（デスクトップ版だけの旨が出る）');
+  await page.goto(`http://127.0.0.1:${PORT}/#live`); check(/ブラウザ版: 解析中は/.test(await page.textContent('#live-browser-note')), '(0b) ブラウザ版のライブ画面に「ウィンドウを隠さないで」の注意が出る');
+  // 以降は、サポート外の実験フラグで、ブラウザ録画の仕組み（MediaRecorder・保存・Session の配線）を確認する
+  await page.evaluate(() => localStorage.setItem('inkgraph.videoBrowser', '1'));
   await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForSelector('#video-on');
   check(!(await page.isChecked('#video-on')) && /未設定/.test(await page.textContent('#video-dir')), '(5) パネル: 既定はオフ・保存先は未設定');
   await page.check('#video-on'); check(await page.evaluate(() => window.inkgraph.VR.getVideoOn()), '(6) オンの設定が保存される');

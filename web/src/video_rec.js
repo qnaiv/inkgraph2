@@ -1,5 +1,6 @@
 // D68: 試合ごとの録画ファイル。配信映像／キャプチャー映像の MediaStream を、バトル開始から結果画面までを 1 試合 = 1 ファイルで録る。
 // ファイル名は試合が終わって結果画面を読めてから決まる（日時_ルール_ステージ_勝敗）。DOM 非依存の部分（名前付け）と、MediaRecorder の薄い包み。
+import { desktop, recordingAvailable } from './desktop.js';
 const p2 = n => String(n).padStart(2, '0');
 const bad = /[\\/:*?"<>|\u0000-\u001f]/g;
 const clean = s => String(s ?? '').replace(bad, '').replace(/\s+/g, '').trim();
@@ -16,18 +17,24 @@ export function videoFilename(rec, ext = 'webm') {
 }
 
 const MIMES = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-export const videoSupported = () => typeof MediaRecorder !== 'undefined';
+export const videoSupported = () => typeof MediaRecorder !== 'undefined' && recordingAvailable();
 export function pickMime() { if (!videoSupported()) return null; return MIMES.find(m => MediaRecorder.isTypeSupported?.(m)) || ''; }
 export const VIDEO_BPS = 3_000_000; // 3Mbps ≒ 5 分で約 110MB
 
-/** 1 試合ぶんの録画。start() → stop() で Blob */
+/** 1 試合ぶんの録画。start() → stop() で Blob（ブラウザ）／ディスク上のファイルの控え（デスクトップ版: 2 秒ごとに保存先へ直接書く） */
 export class MatchRecorder {
   constructor(stream, { bps = VIDEO_BPS } = {}) {
-    const mimeType = pickMime();
+    const mimeType = pickMime(), D = desktop();
     this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps, ...(stream.getAudioTracks?.().length ? { audioBitsPerSecond: 128_000 } : {}) });
-    this.mime = this.rec.mimeType || mimeType || 'video/webm'; this.chunks = []; this.state = 'idle';
-    this.rec.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
-    this.done = new Promise(res => { this.rec.onstop = () => { this.state = 'stopped'; res(new Blob(this.chunks, { type: this.mime.split(';')[0] })); }; });
+    this.mime = this.rec.mimeType || mimeType || 'video/webm'; this.chunks = []; this.state = 'idle'; this.D = D;
+    if (D) { this.idP = D.recOpen(); this.chain = this.idP.then(() => 0); this.bytes = 0; }
+    this.rec.ondataavailable = e => {
+      if (!e.data || !e.data.size) return;
+      if (!D) { this.chunks.push(e.data); return; }
+      this.chain = this.chain.then(async () => { const buf = new Uint8Array(await e.data.arrayBuffer()); this.bytes += buf.length; await D.recWrite(await this.idP, buf); });
+    };
+    this.done = new Promise((res, rej) => { this.rec.onstop = () => { this.state = 'stopped'; if (!D) return res(new Blob(this.chunks, { type: this.mime.split(';')[0] }));
+      this.chain.then(() => res({ disk: true, size: this.bytes, finalize: async name => ({ where: 'folder', ...(await D.recClose(await this.idP, name)) }), discard: async () => D.recDiscard(await this.idP) }), rej); }; });
   }
   start() { this.rec.start(2000); this.state = 'recording'; return this; }
   stop() { if (this.state === 'recording') { try { this.rec.stop(); } catch { this.state = 'stopped'; } } return this.done; }
@@ -48,6 +55,7 @@ export async function ensureDirPermission(h) {
 
 /** 保存先フォルダ（File System Access API）。ハンドルは IndexedDB の learn ストア（key: videoDir）に持つ。使えないときはダウンロード */
 export async function saveVideo(blob, filename, store) {
+  if (blob && blob.disk) return blob.finalize(filename); // デスクトップ版: すでに保存先に書いてある。名前を付けて確定するだけ
   const h = await store.getDir?.();
   let why = h ? null : 'フォルダ未設定';
   if (h) {

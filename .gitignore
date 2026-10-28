@@ -12,3 +12,5 @@ upload/
 out/**/frames/
 *.npy
 out/
+desktop/node_modules/
+desktop/release/
