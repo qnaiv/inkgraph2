@@ -1,6 +1,6 @@
 // D58: クラウドに送る試合データ（数値と時刻だけ）の切り出しと、取り込み時の統合。DOM・ネットワーク非依存の純粋関数。
 // 送らないもの：静止画・クリップ・録画・検出用の信号（cues）・ヤグラの生データ・自己学習用の特徴量（端末にだけ残す）。
-export const LOCAL_ONLY = ['cues', 'tower_rows', 'tower_raw', 'learnFeatures', 'stills', 'clips', 'verify', 'videoFile', 'video', 'stillsState', 'pre_recorrect', 'remote', 'synced', 'updated', 'favorite_local'];
+export const LOCAL_ONLY = ['cues', 'tower_rows', 'tower_raw', 'learnFeatures', 'stills', 'clips', 'verify', 'videoFile', 'recording', 'video', 'stillsState', 'pre_recorrect', 'remote', 'synced', 'updated', 'favorite_local'];
 export const MAX_BYTES = 400 * 1024; // 1 試合の上限（超えたら送らない。通常は 10〜30KB）
 
 /** 同期の対象か：自分の試合だけ（配信映像などの「検証用」＝他人の試合は送らない） */

@@ -178,7 +178,7 @@ export class Session {
     if (!this.stream) return this.videoNote('録画: 映像ストリームが無いので録画できません', 'error');
     if (!videoSupported()) return this.videoNote('録画: この環境では録画できません（ブラウザ版は録画に対応していません）', 'error');
     this.videoQueue = this.videoQueue || [];
-    try { const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null }; this.videoQueue.push(this.vcur); this.videoNote('録画: 開始しました（バトル終了と結果画面のあとに保存します）'); } catch (e) { console.warn('video start failed', e); this.vcur = null; this.videoNote('録画: 開始できませんでした（' + (e?.message || e) + '）', 'error'); }
+    try { const t0 = this.now(); const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null, t0 }; this.videoQueue.push(this.vcur); this.videoNote('録画: 開始しました（バトル終了と結果画面のあとに保存します）'); } catch (e) { console.warn('video start failed', e); this.vcur = null; this.videoNote('録画: 開始できませんでした（' + (e?.message || e) + '）', 'error'); }
   }
   videoEndSoon() { const c = this.vcur; if (!c) { if (getVideoOn() && this.mode !== 'file') this.videoNote('録画: バトルが終わりましたが、この試合の録画は始まっていませんでした', 'error'); return; } if (!c.timer) { c.timer = setTimeout(() => c.r.stop(), 25000); this.videoNote('録画: バトル終了。結果画面ぶん（約25秒）を録ってから、試合の保存時に名前を付けて保存します'); } }
   videoDrop() { const c = this.vcur; if (!c) return; this.videoNote('録画: 試合として確定しなかったので、録画を捨てました'); clearTimeout(c.timer); c.r.stop().then(b => b?.discard?.()).catch(() => {}); this.videoQueue = (this.videoQueue || []).filter(x => x !== c); this.vcur = null; }
@@ -187,7 +187,7 @@ export class Session {
     if (!keep) this.videoNote('録画: 試合を保存しなかったので、録画も捨てました');
     clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
     const blob = await c.r.stop(); if (!keep) { await blob?.discard?.(); return; } if (!blob || !blob.size) { this.videoNote('録画: 映像が空だったので保存しませんでした', 'error'); return; }
-    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = name; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
+    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = res.filename || name; if (res.path) rec.recording = { path: res.path, file: res.filename, t0: Math.round(c.t0 * 100) / 100, bytes: blob.size }; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
     catch (e) { console.warn('video save failed', e); this.videoNote('録画: 保存に失敗しました（' + (e?.message || e) + '）', 'error'); }
   }
   async saveMatch(rec) {

@@ -21,11 +21,8 @@ const MIMES = {
   mp4: ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E,opus', 'video/mp4;codecs=avc1,opus', 'video/mp4;codecs=avc1'],
   webm: ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
 };
-const FORMAT_KEY = 'inkgraph.videoFormat';
-export const getFormat = () => { try { return localStorage.getItem(FORMAT_KEY) === 'webm' ? 'webm' : 'mp4'; } catch { return 'mp4'; } };
-export const setFormat = f => { try { localStorage.setItem(FORMAT_KEY, f === 'webm' ? 'webm' : 'mp4'); } catch { /* ignore */ } };
 export const videoSupported = () => typeof MediaRecorder !== 'undefined' && recordingAvailable();
-export function pickMime(format = getFormat()) {
+export function pickMime(format = 'mp4') {
   if (typeof MediaRecorder === 'undefined') return null;
   const ok = m => MediaRecorder.isTypeSupported?.(m);
   return MIMES[format].find(ok) || (format === 'mp4' ? MIMES.webm.find(ok) : null) || '';

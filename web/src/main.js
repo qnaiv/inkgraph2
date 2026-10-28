@@ -1776,18 +1776,16 @@ PAGES.list = async () => {
     const dirInfo = D ? await D.getVideoDir().catch(() => null) : null, dir = D ? null : await db.getVideoDir().catch(() => null), canPick = D || typeof window.showDirectoryPicker === 'function';
     const perm = dir ? await dir.queryPermission?.({ mode: 'readwrite' }).catch(() => 'prompt') : null;
     el.innerHTML = `<h3>試合ごとの録画ファイル</h3>
-      <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.mp4</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.mp4）。60fps・音声 192kbps。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
+      <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.mp4</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.mp4）。録画した試合は、試合の詳細（レビュー）画面で録画を見ながら確認・修正できます。60fps・音声 192kbps。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
       <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''}> 試合ごとに録画する</label>
       <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''}> ゲーム音も録音する（次に解析を始めるときから）</label>
       <label class="row">画質（60fps） <select id="video-bitrate" class="input-sm">${VR.BITRATE_CHOICES.map(m => `<option value="${m}" ${VR.getBitrateMbps() === m ? 'selected' : ''}>${m} Mbps（1 試合 約 ${Math.round(m * 6 * 60 / 8 + 6 * 60 * 192 / 8000)}MB${m === 8 ? '・おすすめ' : ''}）</option>`).join('')}</select></label>
-      <label class="row">録画形式 <select id="video-format" class="input-sm"><option value="mp4" ${VR.getFormat() === 'mp4' ? 'selected' : ''}>MP4（H.264・おすすめ。ほとんどのプレーヤーで再生できます）</option><option value="webm" ${VR.getFormat() === 'webm' ? 'selected' : ''}>WebM（MP4 で録画できないときに）</option></select></label>
       <p class="muted">${D ? '画面共有: ウィンドウ／画面を選ぶと、Windows ではシステム音も録れます。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。' : '配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください。キャプチャー映像: ボードの音声入力を自動で探して足します。'} 見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
       <p class="muted" id="video-dir">保存先: ${D ? esc(dirInfo?.dir || '') + (dirInfo?.custom ? '' : '（既定）') : (dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）')}</p>
       <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${D || dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${D ? ' <button class="btn" id="video-open" type="button">保存先を開く</button>' : ''}${!D && dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}`;
     $('#video-on', el).onchange = e => VR.setVideoOn(e.target.checked);
     $('#video-audio', el).onchange = e => VR.setAudioOn(e.target.checked);
     $('#video-bitrate', el).onchange = e => VR.setBitrateMbps(+e.target.value);
-    $('#video-format', el).onchange = e => VR.setFormat(e.target.value);
     const rg = $('#video-regrant', el); if (rg) rg.onclick = async () => { await VR.ensureDirPermission(dir); await updateVideoPanel(); };
     const op = $('#video-open', el); if (op) op.onclick = () => D.openVideoDir();
     $('#video-pick', el).onclick = async () => { try { if (D) { await D.pickVideoDir(); } else { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); } await updateVideoPanel(); } catch { /* cancelled */ } };
@@ -1796,7 +1794,7 @@ PAGES.list = async () => {
   const updateResetPanel = () => {
     const el = $('#reset-panel', page); if (!el) return;
     el.innerHTML = `<h3>記録をすべて消す（リセット）</h3>
-      <p class="muted">この端末の<strong>試合の記録・静止画・場面クリップ・検証録画</strong>をすべて消します（${ms.length} 試合）。元に戻せません。クラウド同期（ログイン中）をしていると、次の同期で<strong>クラウドの記録も消えます</strong>。必要なら先に「バックアップを書き出す」で保存してください。</p>
+      <p class="muted">この端末の<strong>試合の記録・静止画・場面クリップ・検証録画</strong>をすべて消します（${ms.length} 試合）。元に戻せません（録画ファイルは消えません）。クラウド同期（ログイン中）をしていると、次の同期で<strong>クラウドの記録も消えます</strong>。必要なら先に「バックアップを書き出す」で保存してください。</p>
       <label class="row"><input type="checkbox" id="reset-learn"> 学習結果・検出パラメータの調整・ブキの名前・各種の設定も初期化する</label>
       <button class="btn btn-stop" id="reset-all" type="button">すべての記録を消す</button>`;
     $('#reset-all', el).onclick = async () => {
@@ -2113,7 +2111,8 @@ PAGES.match = async () => {
 
       <aside class="review-panel" id="review-panel">
         <div class="card">
-          <div class="card-title">確認用の静止画</div>
+          <div class="card-title">確認用の映像</div>
+          <div id="rec-box" class="rec-box" style="display:none"></div>
           <div class="review-video-wrap" style="position:relative">
             <img id="still-img" alt="確認用の静止画" style="width:100%;height:100%;object-fit:contain;display:none">
             <div id="still-empty" class="muted" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:12px">静止画なし（この試合では静止画が保存されていません）</div>
@@ -2192,6 +2191,8 @@ PAGES.match = async () => {
 
   pageCleanup = () => {
     stopClipPlayback();
+    if (recKeyHandler) document.removeEventListener('keydown', recKeyHandler);
+    if (recVideo) { try { recVideo.pause(); } catch { /* ignore */ } }
     if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
     if (stillUrl) { URL.revokeObjectURL(stillUrl); stillUrl = null; }
   };
@@ -2331,6 +2332,44 @@ PAGES.match = async () => {
     }
   }
 
+
+  // D73: 録画（デスクトップ版）があれば、静止画・場面クリップの代わりに録画を見ながら確認・修正する。見ている時刻が「見逃しを追加」の時刻になる
+  const rcd = (m.recording && window.inkgraphDesktop && Number.isFinite(m.recording.t0)) ? m.recording : null;
+  const recBox = $('#rec-box', page);
+  let recVideo = null, recKeyHandler = null;
+  const setVideoMode = on => { for (const sel of ['.review-video-wrap', '#still-cap', '#clip-box']) { const el = $(sel, page); if (el) el.style.display = on ? 'none' : ''; } recBox.style.display = on ? '' : 'none'; };
+  const recSeekTo = (t, play) => { if (!recVideo) return; recVideo.currentTime = Math.max(0, t - rcd.t0); lastSeekTime = t; if (play) recVideo.play().catch(() => {}); };
+  if (rcd) {
+    recBox.innerHTML = `<div class="muted" style="font-size:var(--fs-xs);margin-bottom:4px">${esc(rcd.file || '')}</div>
+      <video id="rec-video" controls preload="metadata" src="rec://local/${encodeURIComponent(rcd.path)}" style="width:100%;background:#000;border-radius:6px"></video>
+      <div class="rec-controls" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
+        <button class="btn btn-sm rec-step" data-d="-5" type="button">−5秒</button><button class="btn btn-sm rec-step" data-d="-1" type="button">−1秒</button>
+        <button class="btn btn-sm rec-step" data-d="-0.0167" type="button" title="1コマ戻る（, キー）">◀ コマ</button><button class="btn btn-sm rec-step" data-d="0.0167" type="button" title="1コマ進む（. キー）">コマ ▶</button>
+        <button class="btn btn-sm rec-step" data-d="1" type="button">+1秒</button><button class="btn btn-sm rec-step" data-d="5" type="button">+5秒</button>
+        <select id="rec-speed" class="input-sm" title="再生速度"><option value="0.25">1/4</option><option value="0.5">1/2</option><option value="1" selected>等倍</option><option value="2">2倍</option></select>
+      </div>
+      <div id="rec-cap" class="muted" style="margin-top:6px;font-size:var(--fs-xs)"></div>
+      <div class="muted" style="font-size:var(--fs-xs)">キー: Space 再生/停止・←→ 1秒・, . 1コマ・K キー／D デス／S スペシャルを、いま見ている時刻に追加（レビューモード中）</div>`;
+    recVideo = $('#rec-video', page); setVideoMode(true);
+    const cap = $('#rec-cap', page);
+    recVideo.ontimeupdate = () => { const t = rcd.t0 + recVideo.currentTime; lastSeekTime = t; cap.textContent = `${mss1(t)}（バトル開始から）`; if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(t); };
+    recVideo.onloadedmetadata = () => { recSeekTo(Math.max(rcd.t0, m.battle[0]), false); };
+    recVideo.onerror = () => { recVideo = null; setVideoMode(false); recBox.style.display = ''; recBox.innerHTML = '<div class="muted">録画ファイルを開けません（移動・削除された可能性があります）。静止画で確認します。</div>'; showStill(lastSeekTime, Infinity); };
+    page.querySelectorAll('.rec-step').forEach(b => { b.onclick = () => { if (!recVideo) return; recVideo.pause(); recVideo.currentTime = Math.max(0, recVideo.currentTime + parseFloat(b.dataset.d)); }; });
+    $('#rec-speed', page).onchange = e => { if (recVideo) recVideo.playbackRate = +e.target.value; };
+    recKeyHandler = e => {
+      if (!recVideo || e.target.closest?.('input, select, textarea, button, [contenteditable]') || e.ctrlKey || e.metaKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === ' ') { e.preventDefault(); recVideo.paused ? recVideo.play() : recVideo.pause(); }
+      else if (k === 'arrowleft') { e.preventDefault(); recVideo.currentTime = Math.max(0, recVideo.currentTime - (e.shiftKey ? 5 : 1)); }
+      else if (k === 'arrowright') { e.preventDefault(); recVideo.currentTime += e.shiftKey ? 5 : 1; }
+      else if (k === ',') { recVideo.pause(); recVideo.currentTime = Math.max(0, recVideo.currentTime - 1 / 60); }
+      else if (k === '.') { recVideo.pause(); recVideo.currentTime += 1 / 60; }
+      else if (reviewMode && ['k', 'd', 's'].includes(k)) page.querySelector(`.add[data-k="${{ k: 'kill', d: 'death', s: 'special' }[k]}"]`)?.click();
+    };
+    document.addEventListener('keydown', recKeyHandler);
+  }
+
   const showStill = (t, near = 15) => {
     stopClipPlayback();
     if (!stills.length) { stillCap.textContent = ''; showEmpty('静止画なし（この試合では静止画が保存されていません）'); return; }
@@ -2349,6 +2388,7 @@ PAGES.match = async () => {
 
   const seek = t => {
     lastSeekTime = t;
+    if (recVideo) { recSeekTo(t - 2, true); lastSeekTime = t; return; } // 録画: 2 秒前から再生
     const clip = clipAt(clips, t);
     if (clip) {
       playClip(clip, 0);
@@ -2579,7 +2619,7 @@ PAGES.match = async () => {
 
   rtab();
   refresh();
-  showStill(lastSeekTime, Infinity);
+  if (!recVideo) showStill(lastSeekTime, Infinity);
 
   if (pendingSeek !== null) {
     const t = pendingSeek;
