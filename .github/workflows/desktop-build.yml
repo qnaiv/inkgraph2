@@ -43,6 +43,10 @@ jobs:
           npm ci
           npx electron-builder --win --publish never
 
+      - name: Show sizes
+        shell: pwsh
+        run: Get-ChildItem desktop/release/*.exe | ForEach-Object { '{0}  {1:N1} MB' -f $_.Name, ($_.Length / 1MB) }
+
       - uses: actions/upload-artifact@v4
         with:
           name: InkGraph-windows
