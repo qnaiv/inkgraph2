@@ -1000,6 +1000,7 @@ PAGES.list = async () => {
     <section id="retention-panel" class="card learn-panel"></section>
     <section id="verify-panel" class="card learn-panel"></section>
     <section id="video-panel" class="card learn-panel"></section>
+    <section id="reset-panel" class="card learn-panel"></section>
     <section id="cloud-panel" class="card learn-panel"></section>
     <section id="learn-panel" class="card learn-panel"></section>
     <section id="tune-panel" class="card learn-panel"></section>
@@ -1767,6 +1768,21 @@ PAGES.list = async () => {
     $('#video-pick', el).onclick = async () => { try { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); await updateVideoPanel(); } catch { /* cancelled */ } };
   };
   await updateVideoPanel();
+  const updateResetPanel = () => {
+    const el = $('#reset-panel', page); if (!el) return;
+    el.innerHTML = `<h3>記録をすべて消す（リセット）</h3>
+      <p class="muted">この端末の<strong>試合の記録・静止画・場面クリップ・検証録画</strong>をすべて消します（${ms.length} 試合）。元に戻せません。クラウド同期（ログイン中）をしていると、次の同期で<strong>クラウドの記録も消えます</strong>。必要なら先に「バックアップを書き出す」で保存してください。</p>
+      <label class="row"><input type="checkbox" id="reset-learn"> 学習結果・検出パラメータの調整・ブキの名前・各種の設定も初期化する</label>
+      <button class="btn btn-stop" id="reset-all" type="button">すべての記録を消す</button>`;
+    $('#reset-all', el).onclick = async () => {
+      const learn = $('#reset-learn', el).checked;
+      if (!confirm(`${ms.length} 試合ぶんの記録をすべて消します。元に戻せません。${learn ? '\n学習結果・調整・ブキの名前・設定も初期化します。' : ''}\n\nよろしいですか？`)) return;
+      if (prompt('確認のため「消す」と入力してください') !== '消す') { alert('入力が違うので、中止しました'); return; }
+      try { const r = await db.resetAll({ includeLearn: learn }); alert(`${r.matches} 試合の記録を消しました`); } catch (e) { alert('消去に失敗しました: ' + (e?.message || e)); }
+      PAGES.list();
+    };
+  };
+  updateResetPanel();
 };
 
 // ============================================================================
