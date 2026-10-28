@@ -40,17 +40,25 @@ export const getAudioOn = () => { try { return localStorage.getItem(KEY + '.audi
 export const setAudioOn = on => { try { localStorage.setItem(KEY + '.audio', on ? '1' : '0'); } catch { /* ignore */ } };
 export const setVideoOn = on => { try { localStorage.setItem(KEY, on ? '1' : '0'); } catch { /* ignore */ } };
 
+/** 保存先フォルダの書き込み許可。再読み込みのあとは 'prompt' に戻っているので、ボタンを押した直後（ユーザー操作の中）に聞き直す。'granted' / 'denied' / 'prompt' / null（フォルダ未設定）を返す */
+export async function ensureDirPermission(h) {
+  if (!h) return null;
+  try { let p = await h.queryPermission?.({ mode: 'readwrite' }); if (p !== 'granted') p = await h.requestPermission?.({ mode: 'readwrite' }); return p || 'prompt'; } catch { return 'prompt'; }
+}
+
 /** 保存先フォルダ（File System Access API）。ハンドルは IndexedDB の learn ストア（key: videoDir）に持つ。使えないときはダウンロード */
 export async function saveVideo(blob, filename, store) {
   const h = await store.getDir?.();
+  let why = h ? null : 'フォルダ未設定';
   if (h) {
     try {
       if ((await h.queryPermission?.({ mode: 'readwrite' })) === 'granted') {
         const fh = await h.getFileHandle(filename, { create: true }), w = await fh.createWritable(); await w.write(blob); await w.close();
         return { where: 'folder', folder: h.name, filename };
       }
-    } catch (e) { console.warn('folder save failed', e); }
+      why = '書き込み許可が切れている';
+    } catch (e) { console.warn('folder save failed', e); why = 'フォルダへの保存に失敗（' + (e?.message || e) + '）'; }
   }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-  return { where: 'download', filename };
+  return { where: 'download', filename, why };
 }
