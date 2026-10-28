@@ -29,7 +29,7 @@ export class Session {
       else if (isDesktop()) { const d = await desktop().getVideoDir().catch(() => null); this.videoNote(`録画: オン（保存先: ${d?.dir || '既定のフォルダ'}）。次のバトル開始から録画します`); }
       else { const h = await db.getVideoDir().catch(() => null), p = await ensureDirPermission(h); this.videoNote(h ? (p === 'granted' ? `録画: オン（保存先: ${h.name}）。次のバトル開始から録画します` : '録画: オン。保存先フォルダの書き込みが許可されなかったので、ダウンロードで保存します') : '録画: オン（保存先フォルダ未設定のため、ダウンロードで保存します）。次のバトル開始から録画します'); }
     }
-    this.mode = mode; this.owner = owner || 'self'; this.fast = fast; this.sessionId = new Date().toISOString();
+    this.mode = mode; this.owner = owner || 'self'; this.fast = !!fast && mode === 'file'; this.sessionId = new Date().toISOString();
     if (mode === 'stream') {
       this.sourceName = '配信映像（画面共有）';
       this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: wantAudio });
@@ -96,7 +96,7 @@ export class Session {
       }, 2000);
     }
 
-    if (mode === 'file' && fast) this.fastLoop(); else { if (mode === 'file') await this.video.play(); this.liveLoop(); }
+    if (mode === 'file' && this.fast) this.fastLoop(); else { if (mode === 'file') await this.video.play(); this.liveLoop(); }
   }
   now() { return (this.mode === 'device' || this.mode === 'stream') ? (performance.now() - this.t0) / 1000 : this.video.currentTime; }
   _notifyInterrupted(info) {

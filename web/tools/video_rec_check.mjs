@@ -94,6 +94,23 @@ try {
     return { saved, sizes, queue: (s.videoQueue || []).length };
   });
   check(two.saved.length === 2 && /ヒラメが丘団地_勝ち/.test(two.saved[0]) && /マテガイ放水路_負け/.test(two.saved[1]) && two.queue === 0, '(17) 2 試合続けると、試合ごとの 2 つのファイルに分かれて保存される', two.saved.join(' | '));
+  // 「ファイルは早送りで解析」のチェック（既定でオン）が、配信／キャプチャー映像の解析にも渡る不具合の対策:
+  // ライブ映像では fast を無視する（fast のままだと、中断の検出・録画・見張りが全部切れていた）
+  const live = await page.evaluate(async () => {
+    const { Session } = window.inkgraph, log = [];
+    const c = document.createElement('canvas'); c.width = 320; c.height = 180; const g = c.getContext('2d'); let n = 0; const iv = setInterval(() => { g.fillStyle = `hsl(${n++ * 20},80%,50%)`; g.fillRect(0, 0, 320, 180); }, 40);
+    navigator.mediaDevices.getDisplayMedia = async () => c.captureStream(25);
+    const v = document.createElement('video'); document.body.appendChild(v);
+    const s = new Session(v, { videoStatus: r => log.push(r.msg) });
+    await s.start({ mode: 'stream', fast: true, owner: 'self' });
+    const fastAfter = s.fast, watchdog = !!s._watchdogId;
+    s.onMsg({ type: 'event', e: { type: 'battle_start', t: 0 } });
+    const rec = !!s.vcur, inMatch = s.guard.inMatch;
+    s.onMsg({ type: 'event', e: { type: 'battle_discard', t: 1 } });
+    s.running = false; clearInterval(s._watchdogId); s.worker.terminate(); clearInterval(iv);
+    return { fastAfter, watchdog, rec, inMatch, log };
+  });
+  check(live.fastAfter === false && live.watchdog && live.rec && live.inMatch, '(18) ライブ映像では「早送り」を無視する（見張り・中断の検出・録画が動く）', JSON.stringify(live));
   check(!errs.length, '(13) ページエラー無し', errs.join('|'));
 } finally { await browser.close(); srv.kill?.(); }
 process.exit(fails ? 1 : 0);
