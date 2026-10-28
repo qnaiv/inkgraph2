@@ -1,15 +1,25 @@
 name: Build desktop (Windows)
 
-# Windows 版（Electron）のインストーラー／ポータブル exe を作る。手動実行、または desktop-v* のタグで動く。
-# 成果物は Actions の Artifacts（InkGraph-windows）に出る。タグのときは GitHub Release にも付ける。
+# Windows 版（Electron）のインストーラー／ポータブル exe を作る。
+#  - main に、desktop/ か web/ の変更が入ったら自動で作る（成果物は Artifacts と、固定の「desktop-latest」リリース）
+#  - 手動実行（workflow_dispatch）、または desktop-v* のタグでも動く（タグのときは、そのタグのリリースにも付ける）
 on:
   workflow_dispatch:
   push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'web/**'
+      - '.github/workflows/desktop-build.yml'
     tags:
       - 'desktop-v*'
 
 permissions:
   contents: write
+
+concurrency:
+  group: desktop-build
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -40,7 +50,19 @@ jobs:
             desktop/release/*.exe
           if-no-files-found: error
 
-      - name: Release
+      # 固定のリリース「desktop-latest」を、毎回最新のビルドで作り直す（いつも同じ URL から最新版を取れる）
+      - name: Update rolling release (desktop-latest)
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete desktop-latest --cleanup-tag --yes || true
+          gh release create desktop-latest desktop/release/*.exe --target "$GITHUB_SHA" --prerelease \
+            --title "InkGraph デスクトップ版（最新）" \
+            --notes "main の $GITHUB_SHA から自動で作った Windows 版です。インストール不要の portable.exe か、インストーラーを使えます。コード署名はしていないので、初回は「詳細情報」→「実行」を選んでください。"
+
+      - name: Release (tag)
         if: startsWith(github.ref, 'refs/tags/desktop-v')
         uses: softprops/action-gh-release@v2
         with:
