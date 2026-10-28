@@ -3,7 +3,7 @@ import { aliveAt } from './core/analyzer.js';
 import * as T from './core/tower.js';
 import { powerForMatchType } from './core/result.js';
 import { decodeFeat, featSim, KP, killerKind } from './core/killer.js';
-import { decodeIcon, prepIcon, matchIcon, iconSimSym, BI } from './core/board_icons.js';
+import { decodeIcon, prepIcon, matchIcon, iconSimSym, iconHasDetail, BI } from './core/board_icons.js';
 
 export const MATCH_TYPE_LABEL = {
   x: 'Xマッチ',
@@ -623,7 +623,7 @@ export function enemyPresenceRows(matches, lib, opts = {}) {
     const matchWeapons = new Map();
 
     for (const item of icons) {
-      if (!item || !item.icon) continue;
+      if (!item || !item.icon || !iconHasDetail(item.icon)) continue; // 絵の無い（ボード以外を切り出した）記録は数えない
       totalSlots++;
       const mr = matchIcon(iconLib, item.icon);
 
@@ -713,7 +713,7 @@ export function unknownIconGroups(matches, lib) {
   for (const m of Array.isArray(matches) ? matches : []) {
     for (const [field, side] of [['enemy_icons', 'enemy'], ['ally_icons', 'ally']]) {
       for (const item of Array.isArray(m[field]) ? m[field] : []) {
-        if (!item || !item.icon) continue;
+        if (!item || !item.icon || !iconHasDetail(item.icon)) continue; // 絵の無い（ボード以外を切り出した）アイコンは出さない
         const mr = matchIcon(iconLib, item.icon); if (mr.name || (mr.ambiguous && mr.ambiguous.length)) continue;
         const pg = prepIcon(item.icon); let g = groups.find(x => iconSimSym(pg, x.prep) >= BI.group_th);
         if (!g) { g = { rep: item.icon, prep: pg, slots: 0, ids: new Set(), side: { enemy: 0, ally: 0 } }; groups.push(g); }

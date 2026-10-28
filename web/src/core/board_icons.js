@@ -21,6 +21,17 @@ export function boardIconGray(fr, dx, dy, group, idx) {
   return o;
 }
 
+/** D69: ブキの絵が写っているか。ボード以外を切り出した無地・なだらかな色むらには、くっきりした輪郭（内側の横方向で隣との差が 16 以上）がほとんど無い。
+ *  実測（ラベル付きの 96 枠）のブキの絵は 5.6% 以上、記録の無地・色むらは 0〜0.5% なので、間の 3% を下限にする */
+export const ICON_EDGE_DIFF = 16, ICON_DETAIL_MIN = 0.03;
+export function iconDetail(g) {
+  const b = typeof g === 'string' ? decodeIcon(g) : g; if (!b || b.length < BI.w * BI.h) return 0;
+  let k = 0, n = 0;
+  for (let y = BI.iy0; y < BI.iy1; y++) for (let x = BI.ix0; x < BI.ix1 - 1; x++) { if (Math.abs(b[y * BI.w + x + 1] - b[y * BI.w + x]) >= ICON_EDGE_DIFF) k++; n++; }
+  return k / n;
+}
+export const iconHasDetail = g => iconDetail(g) >= ICON_DETAIL_MIN;
+
 export function encodeIcon(g) { let s = ''; for (let i = 0; i < g.length; i++) s += String.fromCharCode(g[i]); return btoa(s); }
 export function decodeIcon(s) { return b64bytes(s); }
 

@@ -128,10 +128,14 @@ export class Analyzer {
     const m = this.cur, c = R.classify(this.A, fr); if (!c) return; m.lastRes = t;
     if (c.kind === 'celebration') m.RS.celebration.push({ t, value: c.value });
     else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined, c.panel);
-      const e = { t, header }; if (c.kind === 'personal') e.personal = R.readPersonal(this.A, fr, dx, dy); else e.board = R.readBoard(this.A, fr, dx, dy);
-      m.RS[c.kind].push(e);
-      const lowConf = !header.mode || !header.stage || (c.kind === 'personal' && !e.personal);
-      if (m.snaps.length < 6 && (m.snaps.length < 2 || lowConf) && (!m.snaps.length || t - m.snaps[m.snaps.length - 1].t > 1.5)) this.onEvent({ type: 'snapshot', t, reason: lowConf ? 'リザルト画面の読み取りに自信なし' : 'リザルト画面のサンプル', kind: c.kind, header });
+      const e = { t, header }; let kind = c.kind;
+      if (kind === 'personal') e.personal = R.readPersonal(this.A, fr, dx, dy);
+      else { e.board = R.readBoard(this.A, fr, dx, dy);
+        // D69: 数が読めない「ボード」は個人成績の画面の読み違い。個人成績として読み直す（無地のアイコンが記録されない）
+        if (!R.boardReadable(e.board)) { delete e.board; kind = 'personal'; e.personal = R.readPersonal(this.A, fr, dx, dy); m.boardRejected = (m.boardRejected || 0) + 1; } }
+      m.RS[kind].push(e);
+      const lowConf = !header.mode || !header.stage || (kind === 'personal' && !e.personal);
+      if (m.snaps.length < 6 && (m.snaps.length < 2 || lowConf) && (!m.snaps.length || t - m.snaps[m.snaps.length - 1].t > 1.5)) this.onEvent({ type: 'snapshot', t, reason: lowConf ? 'リザルト画面の読み取りに自信なし' : 'リザルト画面のサンプル', kind, header });
       if (lowConf || m.snaps.length < 2) m.snaps.push({ t }); }
   }
   flush() { if (this.state === 'battle') { const m = this.cur; m.b = m.lastTp; if (m.b - m.a >= P.battle_min) { for (const e of this.liveSp.end(m.b)) this.onEvent(e); this.state = 'result'; this.finish(); } else { this.cur = null; this.state = 'idle'; this.deathLatch.reset(); this.liveSp.reset(); } }
@@ -144,7 +148,7 @@ export class Analyzer {
     rec.cues = packCues(m.F);
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
-    rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length };
+    rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length, ...(m.boardRejected ? { board_rejected: m.boardRejected } : {}) };
     const ownRow = rs.board ? rs.board.find(b => b.own) : null;
     rec.enemy_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === (ownRow.group === 'top' ? 'bot' : 'top')).map(b => ({ slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
     // D65: 味方 4 人（自分を含む）のブキのアイコンも同じ形で保存する。自分の行には own:true を付ける（自分のブキの集計用）

@@ -307,3 +307,17 @@ export function setVerifyOn(on) { try { localStorage.setItem(VERIFY_KEY, on ? '1
 // D68: 録画の保存先フォルダのハンドル（File System Access API）。learn ストアに持つ
 export const getVideoDir = async () => (await tx('learn', 'readonly', s => s.get('videoDir')).catch(() => null))?.handle || null;
 export const setVideoDir = handle => tx('learn', 'readwrite', s => s.put({ key: 'videoDir', handle }));
+
+// D69: 記録をすべて消す。試合・静止画・場面クリップ・昔の録画・検証録画を消す。クラウド同期をしていれば、次の同期でクラウド側の試合も消える（delMatch の印）。
+// includeLearn: 学習・検出パラメータの調整・ブキの名前（この端末の見本）・各種の設定も初期化する（ログイン情報と保存先フォルダは残す）。
+export async function resetAll({ includeLearn = false } = {}) {
+  const ids = (await allMatches()).map(m => m.id);
+  for (const id of ids) await delMatch(id);
+  await tx('snaps', 'readwrite', s => s.clear()); await tx('videos', 'readwrite', s => s.clear()); await clearVerify();
+  if (includeLearn) {
+    const keep = await getVideoDir().catch(() => null);
+    await tx('learn', 'readwrite', s => s.clear()); if (keep) await setVideoDir(keep);
+    try { for (const k of ['inkgraph.weaponLib', 'inkgraph.detectParams', 'inkgraph.autoTune', 'inkgraph.feedbackHistory', 'inkgraph.retentionKeep', 'inkgraph.verifyRec', 'inkgraph.videoRec', 'inkgraph.videoRec.audio']) localStorage.removeItem(k); } catch { /* ignore */ }
+  }
+  return { matches: ids.length };
+}
