@@ -187,7 +187,7 @@ export class Session {
     if (!keep) this.videoNote('録画: 試合を保存しなかったので、録画も捨てました');
     clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
     const blob = await c.r.stop(); if (!keep) { await blob?.discard?.(); return; } if (!blob || !blob.size) { this.videoNote('録画: 映像が空だったので保存しませんでした', 'error'); return; }
-    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = name; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
+    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = name; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
     catch (e) { console.warn('video save failed', e); this.videoNote('録画: 保存に失敗しました（' + (e?.message || e) + '）', 'error'); }
   }
   async saveMatch(rec) {

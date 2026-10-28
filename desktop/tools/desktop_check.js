@@ -48,9 +48,17 @@ app.whenReady().then(async () => {
     w.show();
     const dir = process.env.INKGRAPH_VIDEO_DIR, files = fs.existsSync(dir) ? fs.readdirSync(dir).sort() : [];
     check(two.saved.length === 2 && two.saved.every(x => x.includes('|folder|')), '(5) 2 試合ぶんが保存先フォルダに保存された（ウィンドウは隠したまま）', two.saved.join(' ; '));
-    check(files.length === 2 && files[0].endsWith('ヒラメが丘団地_勝ち.webm') && files[1].endsWith('マテガイ放水路_負け.webm') && !files.some(f => f.endsWith('.part')), '(6) 試合ごとの名前の 2 ファイルができ、一時ファイル（.part）は残らない', files.join(' | '));
+    check(files.length === 2 && files[0].endsWith('ヒラメが丘団地_勝ち.mp4') && files[1].endsWith('マテガイ放水路_負け.mp4') && !files.some(f => f.endsWith('.part')), '(6) 試合ごとの名前の 2 ファイル（既定は MP4）ができ、一時ファイル（.part）は残らない', files.join(' | '));
     check(files.every(f => fs.statSync(path.join(dir, f)).size > 1000), '(7) ファイルの中身がある（映像が書かれている）', files.map(f => fs.statSync(path.join(dir, f)).size).join(','));
-    const head = fs.readFileSync(path.join(dir, files[0])).subarray(0, 4); check(head[0] === 0x1a && head[1] === 0x45 && head[2] === 0xdf && head[3] === 0xa3, '(8) WebM（EBML ヘッダー）として書かれている');
+    const head = fs.readFileSync(path.join(dir, files[0])).subarray(4, 8).toString(); check(head === 'ftyp', '(8) MP4（ftyp ヘッダー）として書かれている', head);
+    // 録画形式を WebM にすると、WebM（EBML ヘッダー）になる
+    await js(`localStorage.setItem('inkgraph.videoFormat', 'webm')`);
+    const web = await js(`(async () => { const { Session } = window.inkgraph, saved = []; const s = new Session(document.createElement('video'), { videoSaved: r => saved.push(r.filename) });
+      const c = document.createElement('canvas'); c.width = 160; c.height = 90; const g = c.getContext('2d'); let n = 0; setInterval(() => { g.fillStyle = 'hsl(' + (n++ * 20) + ',80%,50%)'; g.fillRect(0, 0, 160, 90); }, 40);
+      s.mode = 'stream'; s.stream = c.captureStream(25); s.sessionId = new Date(2026, 9, 27, 22, 0).toISOString(); s.fast = false; s.running = true;
+      s.onMsg({ type: 'event', e: { type: 'battle_start', t: 0 } }); await new Promise(r => setTimeout(r, 1500)); s.onMsg({ type: 'event', e: { type: 'battle_end', t: 1.5 } }); clearTimeout(s.vcur.timer); await new Promise(r => setTimeout(r, 4200));
+      await s.saveMatch({ match: 3, battle: [0, 5], squid_down: {}, own_deaths: [], own_kills: [], special: [], result_screen: { result: 'WIN', mode: 'ガチヤグラ', stage: 'ザトウマーケット', own: { ka: 1, deaths: 1, specials: 0 } }, review: { marks: {}, added: [], fix: {} } }); return saved; })()`);
+    const wf = web[0] && path.join(dir, web[0]); check(web.length === 1 && web[0].endsWith('.webm') && fs.existsSync(wf) && fs.readFileSync(wf).subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])), '(9) 録画形式を WebM にすると WebM で保存される', web.join(','));
   } catch (e) { console.log('FAIL exception', e); fails++; }
   fs.rmSync(tmp, { recursive: true, force: true }); app.exit(fails ? 1 : 0);
 });
