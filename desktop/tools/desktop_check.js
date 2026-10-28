@@ -86,11 +86,34 @@ app.whenReady().then(async () => {
       s.onMsg({ type: 'event', e: { type: 'result_info', t: 43, result: 'WIN', mode: 'ガチエリア', stage: 'ヒラメが丘団地', match_type: 'x', own: { ka: 5, deaths: 2, specials: 1 } } });
       return { a, main: document.querySelector('#live-result-main').textContent, sub: document.querySelector('#live-result-sub').textContent, log: [...document.querySelectorAll('#log .live-event-item')].map(x => x.textContent.replace(/\s+/g, ' ').trim()).filter(x => x.includes('🏁')) }; })()`);
     check(lv.a.shown && /勝ち/.test(lv.a.main) && lv.main === '勝ち · ガチエリア · ヒラメが丘団地' && /Xマッチ/.test(lv.sub) && /K\+A 5 \/ デス 2 \/ SP 1/.test(lv.sub) && lv.log.length === 1 && /🏁/.test(lv.log[0]) && /ヒラメが丘団地/.test(lv.log[0]), '(16) ライブ画面の「この試合」とログに、勝敗・ルール・ステージ・マッチ種別・成績が出る（ログは 1 回だけ）', JSON.stringify(lv));
+    // 要修正マーク: 保存前に押した印は、試合が保存されたときに付く（理由つき）
+    const fl = await js(`(async () => { const s = window.inkgraph.getSession(), btn = document.querySelector('#live-flag-btn');
+      const before = { disabled: btn.disabled, text: btn.textContent };
+      btn.click(); await new Promise(r => setTimeout(r, 100));
+      document.querySelector('#live-flag-reasons [data-reason="kill"]').click(); document.querySelector('#live-flag-reasons [data-reason="rule"]').click(); await new Promise(r => setTimeout(r, 100));
+      const mid = { text: btn.textContent, reasonsShown: getComputedStyle(document.querySelector('#live-flag-reasons')).display !== 'none', note: document.querySelector('#live-flag-note').textContent };
+      s.onMsg({ type: 'event', e: { type: 'battle_end', t: 45 } });
+      await s.saveMatch({ match: 1, battle: [0, 30], squid_down: {}, own_deaths: [], own_kills: [], special: [], result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'ヒラメが丘団地', own: { ka: 5, deaths: 2, specials: 1 } }, review: { marks: {}, added: [], fix: {} } });
+      await new Promise(r => setTimeout(r, 600));
+      const m = (await window.inkgraph.db.allMatches()).find(x => x.id === s.sessionId + '#1');
+      return { before, mid, flagged: m && m.needs_fix, after: document.querySelector('#live-flag-note').textContent }; })()`);
+    check(fl.before.disabled === false && fl.mid.reasonsShown && /取り消す/.test(fl.mid.text) && /保存されたときに付きます/.test(fl.mid.note) && fl.flagged && fl.flagged.reasons.join() === 'kill,rule' && /一覧に/.test(fl.after), '(17) ライブ画面で要修正マーク（理由つき）を付けると、試合の保存時に記録へ付く', JSON.stringify(fl));
     await js(`(async () => { await window.inkgraph.getSession().stop(); })()`); await sleep(500);
     // rec:// は、録画を保存したフォルダの .mp4/.webm だけを返す（それ以外は 404）
     fs.writeFileSync(path.join(dir, 'memo.txt'), 'x'); fs.writeFileSync(path.join(os.tmpdir(), 'outside.mp4'), 'x');
     const st = await js(`Promise.all([${JSON.stringify(path.join(dir, 'memo.txt'))}, ${JSON.stringify(path.join(os.tmpdir(), 'outside.mp4'))}, '/etc/passwd', ${JSON.stringify(ms[0].rec.path)}].map(p => fetch('rec://local/' + encodeURIComponent(p)).then(r => r.status)))`);
     check(st[0] === 404 && st[1] === 404 && st[2] === 404 && st[3] === 200, '(15) rec:// は録画フォルダの .mp4/.webm だけ返す（txt・フォルダ外・システムファイルは 404）', JSON.stringify(st));
+    // 要修正パック: 一覧に印・フィルター・書き出しボタンが出る。書き出した zip に、差分と、録画から切り出したコマが入る
+    await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[0].id)}).then(m => { m.needs_fix = { at: new Date().toISOString(), reasons: ['kill'] }; m.review.marks = { }; return window.inkgraph.db.putMatch(m); })`);
+    await js(`location.hash = '#list'`); await sleep(2500);
+    const li = await js(`({ badge: !!document.querySelector('.match-row .badge') && /要修正/.test(document.querySelector('.match-row').textContent), chip: !!document.querySelector('.chip[data-fval="FIX"]'), bar: !!document.querySelector('#fix-export') })`);
+    check(li.chip && li.bar, '(18) 一覧に「要修正」のフィルターと、AI 用の書き出しボタンが出る', JSON.stringify(li));
+    const pack = await js(`(async () => { const m = await window.inkgraph.db.getMatch(${JSON.stringify(ms[0].id)}); const r = await window.inkgraph.buildFixPack([m]); const b = new Uint8Array(await r.blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768)); return { name: r.filename, b64: btoa(s) }; })()`);
+    const { unzipSync, strFromU8 } = require('../../web/node_modules/fflate'); const z = unzipSync(new Uint8Array(Buffer.from(pack.b64, 'base64'))), names = Object.keys(z);
+    const mdir = names.find(n => n.endsWith('/diff.json')).replace('diff.json', ''), diff = JSON.parse(strFromU8(z[mdir + 'diff.json']));
+    check(['INDEX.json', 'README.md', 'detect_params.json', mdir + 'summary.json', mdir + 'human_review.json', mdir + 'software.json'].every(n => names.includes(n)) && /^ink-graph_要修正_/.test(pack.name), '(19) zip に、INDEX・README・試合ごとの summary／diff／human_review／software が入る', names.filter(n => !n.includes('frames/')).join(','));
+    const fr = names.filter(n => n.startsWith(mdir + 'frames/') && n.endsWith('.webp'));
+    check(diff.misses.length === 2 && diff.frame_source === 'recording' && fr.length >= 1 && diff.frames.length === fr.length && z[fr[0]].length > 100, '(20) 追加した見逃し 2 件の前後のコマが、録画から切り出されて入る（diff.json の対応表つき）', JSON.stringify({ misses: diff.misses.map(x => x.kind + '@' + x.t), src: diff.frame_source, frames: fr.length }));
   } catch (e) { console.log('FAIL exception', e); fails++; }
   fs.rmSync(tmp, { recursive: true, force: true }); app.exit(fails ? 1 : 0);
 });
