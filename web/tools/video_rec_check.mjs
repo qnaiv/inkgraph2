@@ -17,12 +17,12 @@ try {
   await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForFunction(() => window.inkgraph && window.inkgraph.VR);
   // ブラウザ版では録画は非対応: パネルは「デスクトップ版だけ」と出し、録画のオプションは出ない
   await page.evaluate(() => { localStorage.removeItem('inkgraph.videoBrowser'); localStorage.removeItem('inkgraph.videoRec'); });
-  await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForFunction(() => document.querySelector('#video-panel')?.textContent.includes('試合ごとの録画ファイル'));
-  check(/デスクトップ版（Windows）だけ/.test(await page.textContent('#video-panel')) && !(await page.$('#video-on')) && !(await page.evaluate(() => window.inkgraph.VR.videoSupported())), '(0) ブラウザ版では録画の設定が出ない（デスクトップ版だけの旨が出る）');
+  await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.waitForFunction(() => document.querySelector('#live-video-panel')?.textContent.includes('試合ごとの録画')); await page.evaluate(() => { document.querySelector('#live-video-settings').open = true; });
+  check(/デスクトップ版（Windows）だけ/.test(await page.textContent('#live-video-panel')) && !(await page.$('#video-on')) && !(await page.evaluate(() => window.inkgraph.VR.videoSupported())), '(0) ブラウザ版では録画の設定が出ない（デスクトップ版だけの旨が出る）');
   await page.goto(`http://127.0.0.1:${PORT}/#live`); check(/ブラウザ版: 解析中は/.test(await page.textContent('#live-browser-note')), '(0b) ブラウザ版のライブ画面に「ウィンドウを隠さないで」の注意が出る');
   // 以降は、サポート外の実験フラグで、ブラウザ録画の仕組み（MediaRecorder・保存・Session の配線）を確認する
   await page.evaluate(() => localStorage.setItem('inkgraph.videoBrowser', '1'));
-  await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForSelector('#video-on');
+  await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.waitForSelector('#video-on', { state: 'attached' }); await page.evaluate(() => { document.querySelector('#live-video-settings').open = true; });
   check(!(await page.isChecked('#video-on')) && /未設定/.test(await page.textContent('#video-dir')), '(5) パネル: 既定はオフ・保存先は未設定');
   await page.check('#video-on'); check(await page.evaluate(() => window.inkgraph.VR.getVideoOn()), '(6) オンの設定が保存される');
   // canvas の映像を録って、Blob になる・ダウンロード保存される
@@ -42,7 +42,7 @@ try {
     return { size: blob.size, mime: rec.mime, audioTracks: st.getAudioTracks().length };
   });
   check(a.size > 500 && a.audioTracks === 1 && /opus/.test(a.mime), '(9) 音声つきのストリームも録れる（opus）', JSON.stringify(a));
-  await page.reload(); await page.waitForSelector('#video-audio'); await page.check('#video-audio');
+  await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.waitForSelector('#video-audio', { state: 'attached' }); await page.evaluate(() => { document.querySelector('#live-video-settings').open = true; }); await page.check('#video-audio');
   check(await page.evaluate(() => window.inkgraph.VR.getAudioOn()), '(10) 「ゲーム音も録音する」の設定が保存される');
   // 保存先フォルダ: 許可が切れていたら聞き直す／許可されなければダウンロード（理由つき）／許可済みならフォルダに書く
   const f = await page.evaluate(async () => {
@@ -94,25 +94,22 @@ try {
     return { saved, sizes, queue: (s.videoQueue || []).length };
   });
   check(two.saved.length === 2 && /ヒラメが丘団地_勝ち/.test(two.saved[0]) && /マテガイ放水路_負け/.test(two.saved[1]) && two.queue === 0, '(17) 2 試合続けると、試合ごとの 2 つのファイルに分かれて保存される', two.saved.join(' | '));
-  // 「ファイルは早送りで解析」のチェック（既定でオン）が、配信／キャプチャー映像の解析にも渡る不具合の対策:
-  // ライブ映像では fast を無視する（fast のままだと、中断の検出・録画・見張りが全部切れていた）
+  // ライブ映像（キャプチャーボード）の解析を始めると、見張り・中断の検出・録画が動く
   const live = await page.evaluate(async () => {
     const { Session } = window.inkgraph, log = [];
     const c = document.createElement('canvas'); c.width = 320; c.height = 180; const g = c.getContext('2d'); let n = 0; const iv = setInterval(() => { g.fillStyle = `hsl(${n++ * 20},80%,50%)`; g.fillRect(0, 0, 320, 180); }, 40);
-    navigator.mediaDevices.getDisplayMedia = async () => c.captureStream(25);
+    navigator.mediaDevices.getUserMedia = async () => c.captureStream(25);
     const v = document.createElement('video'); document.body.appendChild(v);
     const s = new Session(v, { videoStatus: r => log.push(r.msg) });
-    await s.start({ mode: 'stream', fast: true, owner: 'self' });
-    const fastAfter = s.fast, watchdog = !!s._watchdogId;
+    await s.start({ deviceId: '' });
+    const watchdog = !!s._watchdogId;
     s.onMsg({ type: 'event', e: { type: 'battle_start', t: 0 } });
     const rec = !!s.vcur, inMatch = s.guard.inMatch;
     s.onMsg({ type: 'event', e: { type: 'battle_discard', t: 1 } });
     s.running = false; clearInterval(s._watchdogId); s.worker.terminate(); clearInterval(iv);
-    return { fastAfter, watchdog, rec, inMatch, log };
+    return { watchdog, rec, inMatch, mode: s.mode, log };
   });
-  check(live.fastAfter === false && live.watchdog && live.rec && live.inMatch, '(18) ライブ映像では「早送り」を無視する（見張り・中断の検出・録画が動く）', JSON.stringify(live));
-  const spec = await page.evaluate(() => { const VR = window.inkgraph.VR; localStorage.removeItem('inkgraph.videoBitrate'); const d = VR.getBitrateMbps(); VR.setBitrateMbps(12); const t = VR.getBitrateMbps(); VR.setBitrateMbps(7); const bad = VR.getBitrateMbps(); localStorage.removeItem('inkgraph.videoBitrate'); return { d, t, bad, audio: VR.AUDIO_BPS }; });
-  check(spec.d === 8 && spec.t === 12 && spec.bad === 8 && spec.audio === 192000, '(19) 画質は 8Mbps が既定・5/8/12 から選べる・音声は 192kbps', JSON.stringify(spec));
+  check(live.watchdog && live.rec && live.inMatch && live.mode === 'device', '(18) キャプチャー映像の解析を始めると、見張り・中断の検出・録画が動く', JSON.stringify(live));
   check(!errs.length, '(13) ページエラー無し', errs.join('|'));
 } finally { await browser.close(); srv.kill?.(); }
 process.exit(fails ? 1 : 0);

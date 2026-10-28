@@ -3,6 +3,7 @@
 import { chromium } from 'playwright-core';
 import { execSync } from 'node:child_process';
 import { startPreview } from './lib/preview_server.mjs';
+import { fakeDevice } from './lib/fake_device.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -17,14 +18,6 @@ const check = (name, ok, info = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${info ? ' — ' + info : ''}`);
 };
 
-// 1. テスト用動画の一時生成（約12秒、1280x720）
-const tmpVideoPath = path.join(os.tmpdir(), `keepalive_test_${Date.now()}.mp4`);
-try {
-  execSync(`ffmpeg -y -f lavfi -i testsrc2=size=1280x720:rate=30 -t 12 -c:v libx264 -pix_fmt yuv420p "${tmpVideoPath}"`, { stdio: 'ignore' });
-} catch (e) {
-  console.error('Failed to create test video with ffmpeg:', e);
-  process.exit(1);
-}
 
 const PORT = 4207;
 const U = `http://127.0.0.1:${PORT}/`;
@@ -72,17 +65,8 @@ try {
     });
   }, SEED_MATCH_ID);
 
-  // ファイル入力を設定
-  await page.setInputFiles('#file', tmpVideoPath);
-  await page.waitForTimeout(300);
-
-  // #fast のチェックを外す（通常再生で解析）
-  const fastChecked = await page.$eval('#fast', el => el.checked);
-  if (fastChecked) {
-    await page.$eval('#fast', el => { el.checked = false; el.dispatchEvent(new Event('change')); });
-  }
-  const fastAfter = await page.$eval('#fast', el => el.checked);
-  check('Setup: #fast unchecked for normal playback', !fastAfter);
+  // キャプチャーボードの代わりに、canvas の映像を使う
+  await fakeDevice(page);
 
   // 解析開始をクリック
   await page.click('#start');
@@ -205,7 +189,6 @@ try {
 } finally {
   await browser.close();
   srv.kill();
-  try { fs.unlinkSync(tmpVideoPath); } catch {}
 }
 
 const failed = results.filter(x => !x).length;

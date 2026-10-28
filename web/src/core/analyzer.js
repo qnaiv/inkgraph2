@@ -124,9 +124,15 @@ export class Analyzer {
   fixHue() { const m = this.cur; m.th = m.hist.map(h => { let bi = 0; for (let i = 1; i < 180; i++) if (h[i] > h[bi]) bi = i; return h[bi] ? bi : 0; });
     for (const [f, c, fr] of m.pend) this.iconStep(f, c, fr); m.pend = []; }
   iconStep(f, crops, fr) { const m = this.cur; f.p = crops.map((c, i) => C.iconProb(this.A, C.iconFeat(c, m.th[i >> 2]))); f.s = crops.map(c => C.iconSat(c)); if (fr) f.ally = C.allyPlateCrossed(fr, m.th[0]); }
+  /** D74: 結果画面を読めた分から、勝敗・ルール・ステージ・成績の暫定値を出す（試合の保存は次のバトル開始まで待つので、それより早くライブ画面に出す）。値が変わったときだけ */
+  emitResultInfo(t) {
+    const m = this.cur, rs = R.finalizeResult(m.RS);
+    const info = { result: rs.result, mode: rs.mode ?? null, mode_guess: rs.mode ? null : (rs.mode_guess ?? null), stage: rs.stage, match_type: rs.match_type, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null }, key = JSON.stringify(info);
+    if (key !== m.lastInfoKey && (info.result || info.mode || info.stage || info.own)) { m.lastInfoKey = key; this.onEvent({ type: 'result_info', t, ...info }); }
+  }
   resultFrame(fr, t) {
     const m = this.cur, c = R.classify(this.A, fr); if (!c) return; m.lastRes = t;
-    if (c.kind === 'celebration') m.RS.celebration.push({ t, value: c.value });
+    if (c.kind === 'celebration') { m.RS.celebration.push({ t, value: c.value }); this.emitResultInfo(t); }
     else { const [dx, dy] = c.off, header = R.readHeader(this.A, fr, dx, dy, this.learnThresholds || undefined, c.panel);
       const e = { t, header }; let kind = c.kind;
       if (kind === 'personal') e.personal = R.readPersonal(this.A, fr, dx, dy);
@@ -134,6 +140,7 @@ export class Analyzer {
         // D69: 数が読めない「ボード」は個人成績の画面の読み違い。個人成績として読み直す（無地のアイコンが記録されない）
         if (!R.boardReadable(e.board)) { delete e.board; kind = 'personal'; e.personal = R.readPersonal(this.A, fr, dx, dy); m.boardRejected = (m.boardRejected || 0) + 1; } }
       m.RS[kind].push(e);
+      this.emitResultInfo(t);
       const lowConf = !header.mode || !header.stage || (kind === 'personal' && !e.personal);
       if (m.snaps.length < 6 && (m.snaps.length < 2 || lowConf) && (!m.snaps.length || t - m.snaps[m.snaps.length - 1].t > 1.5)) this.onEvent({ type: 'snapshot', t, reason: lowConf ? 'リザルト画面の読み取りに自信なし' : 'リザルト画面のサンプル', kind, header });
       if (lowConf || m.snaps.length < 2) m.snaps.push({ t }); }

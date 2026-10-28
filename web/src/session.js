@@ -16,25 +16,20 @@ export class Session {
   constructor(video, cb = {}) {
     this.video = video; this.cb = cb; this.canvas = document.createElement('canvas'); 
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true }); this.step = 0.2; this.busy = false; this.pendingSnaps = []; this.pendingClips = []; this.stats = { frames: 0, ms: 0 }; this.running = false; this.bufs = [];
-    this._loopGen = 0; this._lastTickAt = 0; this._watchdogId = null; this._onVisibilityChange = null; this._onEnded = null;
+    this._loopGen = 0; this._lastTickAt = 0; this._watchdogId = null; this._onVisibilityChange = null;
     this.guard = new CaptureGuard();
   }
-  async start({ mode, deviceId, file, fast = false, owner = 'self' }) {
+  async start({ deviceId } = {}) {
     const wantAudio = getVideoOn() && getAudioOn();
     // D70: 録画の状況を画面に出す。保存先の書き込み許可は、開始ボタンを押した直後（ユーザー操作の中）に聞き直す（再読み込みのあとは切れている）
     if (getVideoOn()) {
-      if (mode === 'file') this.videoNote('録画: 録画ファイルの解析では録画しません（配信映像／キャプチャー映像のときだけ録画します）');
-      else if (!recordingAvailable()) this.videoNote('録画: ブラウザ版では録画できません（デスクトップ版のみ対応）');
+      if (!recordingAvailable()) this.videoNote('録画: ブラウザ版では録画できません（デスクトップ版のみ対応）');
       else if (!videoSupported()) this.videoNote('録画: このブラウザは録画（MediaRecorder）に対応していません');
       else if (isDesktop()) { const d = await desktop().getVideoDir().catch(() => null); this.videoNote(`録画: オン（保存先: ${d?.dir || '既定のフォルダ'}）。次のバトル開始から録画します`); }
       else { const h = await db.getVideoDir().catch(() => null), p = await ensureDirPermission(h); this.videoNote(h ? (p === 'granted' ? `録画: オン（保存先: ${h.name}）。次のバトル開始から録画します` : '録画: オン。保存先フォルダの書き込みが許可されなかったので、ダウンロードで保存します') : '録画: オン（保存先フォルダ未設定のため、ダウンロードで保存します）。次のバトル開始から録画します'); }
     }
-    this.mode = mode; this.owner = owner || 'self'; this.fast = !!fast && mode === 'file'; this.sessionId = new Date().toISOString();
-    if (mode === 'stream') {
-      this.sourceName = '配信映像（画面共有）';
-      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } }, audio: wantAudio });
-      this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
-    } else if (mode === 'device') {
+    this.mode = 'device'; this.owner = 'self'; this.sessionId = new Date().toISOString();
+    {
       this.sourceName = 'キャプチャー映像';
       this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } }, audio: false });
       // D68: ゲーム音。キャプチャーボードの音声入力（映像と同じ groupId）を足す。見つからなければ音声なしで続ける
@@ -46,9 +41,6 @@ export class Session {
         } catch (e) { console.warn('audio device failed', e); }
       }
       this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
-    } else {
-      this.sourceName = file ? file.name : 'キャプチャー映像';
-      this.video.srcObject = null; this.video.src = URL.createObjectURL(file); this.video.muted = true; await new Promise(r => this.video.onloadedmetadata = r); this.srcH = this.video.videoHeight;
     }
     this.worker = new AnalyzerWorker();
     const learnState = await db.getLearnState().catch(() => null);
@@ -59,7 +51,7 @@ export class Session {
 
     // visibilitychange リスナ: hidden 時はガードに通知、visible 復帰時に running なら resume()
     this._onVisibilityChange = () => {
-      if (this.fast || isDesktop()) return; // デスクトップ版は、隠れても止まらないので中断にしない
+      if (isDesktop()) return; // デスクトップ版は、隠れても止まらないので中断にしない
       const now = performance.now();
       if (document.visibilityState === 'hidden') {
         const info = this.guard.visibility(true, now);
@@ -70,23 +62,11 @@ export class Session {
     };
     document.addEventListener('visibilitychange', this._onVisibilityChange);
 
-    // ended リスナ: ファイル通常再生で動画末尾に達したらセッション停止
-    if (this.mode === 'file' && !this.fast) {
-      this._onEnded = () => {
-        if (this.running) this.stop();
-      };
-      this.video.addEventListener('ended', this._onEnded);
-    }
-
     // ウォッチドッグタイマー: 2秒間隔でチェック
     // 注: ブラウザの裏タブではタイマーやrVFC/rAF自体が間引かれる/停止するため保証はできない
-    if (!this.fast) {
+    {
       this._watchdogId = setInterval(() => {
-        if (!this.running || this.fast) return;
-        if (this.mode === 'file' && this.video.ended) {
-          this.stop();
-          return;
-        }
+        if (!this.running) return;
         const now = performance.now();
         const info = this.guard.tick(now);
         if (info) this._notifyInterrupted(info);
@@ -96,18 +76,14 @@ export class Session {
       }, 2000);
     }
 
-    if (mode === 'file' && this.fast) this.fastLoop(); else { if (mode === 'file') await this.video.play(); this.liveLoop(); }
+    this.liveLoop();
   }
-  now() { return (this.mode === 'device' || this.mode === 'stream') ? (performance.now() - this.t0) / 1000 : this.video.currentTime; }
+  now() { return (performance.now() - this.t0) / 1000; }
   _notifyInterrupted(info) {
     this.cb.interrupted?.(info);
   }
   grab(t) {
-    if (!this.fast) {
-      const now = performance.now();
-      const info = this.guard.frame(now);
-      if (info) this._notifyInterrupted(info);
-    }
+    { const now = performance.now(); const info = this.guard.frame(now); if (info) this._notifyInterrupted(info); }
     const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720; if (this.canvas.width !== vw) { this.canvas.width = vw; this.canvas.height = vh; } this.ctx.drawImage(this.video, 0, 0, vw, vh); const d = this.ctx.getImageData(0, 0, vw, vh); this.busy = true; this.stats.frames++;
     this.worker.postMessage({ type: 'frame', t, w: vw, h: vh, buf: d.data.buffer }, [d.data.buffer]); }
   liveLoop() {
@@ -117,7 +93,6 @@ export class Session {
       if (!this.running || this._loopGen !== gen) return;
       this._lastTickAt = performance.now();
       const t = this.now();
-      if (this.mode === 'file' && this.video.ended) { this.stop(); return; }
       const step = frameStepForState(this.lastState, this.step);
       if (!this.busy && t >= next) {
         next = t + step;
@@ -126,7 +101,7 @@ export class Session {
         this.stats.dropped = (this.stats.dropped || 0) + 1;
         next = t + step;
       }
-      if (isDesktop() && this.mode !== 'file') {
+      if (isDesktop()) {
         setTimeout(tick, 40); // デスクトップ版: 描画に頼らない（最小化・隠れても止まらない）
       } else if (this.video.requestVideoFrameCallback) {
         this.video.requestVideoFrameCallback(tick);
@@ -137,11 +112,7 @@ export class Session {
     tick();
   }
   async resume() {
-    if (!this.running || this.fast) return;
-    if (this.mode === 'file' && this.video.ended) {
-      this.stop();
-      return;
-    }
+    if (!this.running) return;
     if (this.video && this.video.paused) {
       try {
         await this.video.play();
@@ -152,13 +123,10 @@ export class Session {
     if (!this.running) return;
     this.liveLoop();
   }
-  async fastLoop() { const v = this.video, dur = v.duration; for (let t = 0; t < dur && this.running; t = Math.round((t + this.step) * 1000) / 1000) {
-      await new Promise(r => { v.onseeked = r; v.currentTime = t; }); while (this.busy) await new Promise(r => this.ackWait = r); this.grab(t); this.cb.progress?.(t / dur, t); }
-    while (this.busy) await new Promise(r => this.ackWait = r); this.stop(); }
   onMsg(m) {
     if (m.type === 'ack') { this.busy = false; this.stats.ms += m.ms; this.lastState = m.state; this.cb.status?.(m); if (this.ackWait) { const f = this.ackWait; this.ackWait = null; f(); } }
     else if (m.type === 'event') {
-      if (!this.fast && m.e) {
+      if (m.e) {
         if (m.e.type === 'battle_start') { this.guard.battleStart(performance.now()); this.videoStart(); }
         else if (m.e.type === 'battle_discard') { this.guard.battleDiscard(); this.videoDrop(); }
         else if (m.e.type === 'battle_end') this.videoEndSoon();
@@ -174,24 +142,24 @@ export class Session {
   // D68: 試合ごとの録画。バトル開始で録り始め、終了の 25 秒後（結果画面ぶん）に止めて、試合の保存時に名前を付けて保存する
   videoNote(msg, level = 'info') { try { this.cb.videoStatus?.({ msg, level }); } catch { /* ignore */ } }
   videoStart() {
-    if (!getVideoOn() || this.mode === 'file') return;
+    if (!getVideoOn()) return;
     if (!this.stream) return this.videoNote('録画: 映像ストリームが無いので録画できません', 'error');
     if (!videoSupported()) return this.videoNote('録画: この環境では録画できません（ブラウザ版は録画に対応していません）', 'error');
     this.videoQueue = this.videoQueue || [];
-    try { const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null }; this.videoQueue.push(this.vcur); this.videoNote('録画: 開始しました（バトル終了と結果画面のあとに保存します）'); } catch (e) { console.warn('video start failed', e); this.vcur = null; this.videoNote('録画: 開始できませんでした（' + (e?.message || e) + '）', 'error'); }
+    try { const t0 = this.now(); const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null, t0 }; this.videoQueue.push(this.vcur); this.videoNote('録画: 開始しました（バトル終了と結果画面のあとに保存します）'); } catch (e) { console.warn('video start failed', e); this.vcur = null; this.videoNote('録画: 開始できませんでした（' + (e?.message || e) + '）', 'error'); }
   }
-  videoEndSoon() { const c = this.vcur; if (!c) { if (getVideoOn() && this.mode !== 'file') this.videoNote('録画: バトルが終わりましたが、この試合の録画は始まっていませんでした', 'error'); return; } if (!c.timer) { c.timer = setTimeout(() => c.r.stop(), 25000); this.videoNote('録画: バトル終了。結果画面ぶん（約25秒）を録ってから、試合の保存時に名前を付けて保存します'); } }
+  videoEndSoon() { const c = this.vcur; if (!c) { if (getVideoOn()) this.videoNote('録画: バトルが終わりましたが、この試合の録画は始まっていませんでした', 'error'); return; } if (!c.timer) { c.timer = setTimeout(() => c.r.stop(), 25000); this.videoNote('録画: バトル終了。結果画面ぶん（約25秒）を録ってから、試合の保存時に名前を付けて保存します'); } }
   videoDrop() { const c = this.vcur; if (!c) return; this.videoNote('録画: 試合として確定しなかったので、録画を捨てました'); clearTimeout(c.timer); c.r.stop().then(b => b?.discard?.()).catch(() => {}); this.videoQueue = (this.videoQueue || []).filter(x => x !== c); this.vcur = null; }
   async videoFinalize(rec, keep) {
-    const c = (this.videoQueue || []).shift(); if (!c) { if (getVideoOn() && this.mode !== 'file') this.videoNote(keep ? '録画: この試合に対応する録画がありません（バトル開始時に録画が始まっていませんでした）' : '録画: 試合を保存しなかったので、録画もありません', keep ? 'error' : 'info'); return; }
+    const c = (this.videoQueue || []).shift(); if (!c) { if (getVideoOn()) this.videoNote(keep ? '録画: この試合に対応する録画がありません（バトル開始時に録画が始まっていませんでした）' : '録画: 試合を保存しなかったので、録画もありません', keep ? 'error' : 'info'); return; }
     if (!keep) this.videoNote('録画: 試合を保存しなかったので、録画も捨てました');
     clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
     const blob = await c.r.stop(); if (!keep) { await blob?.discard?.(); return; } if (!blob || !blob.size) { this.videoNote('録画: 映像が空だったので保存しませんでした', 'error'); return; }
-    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = name; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
+    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = res.filename || name; if (res.path) rec.recording = { path: res.path, file: res.filename, t0: Math.round(c.t0 * 100) / 100, bytes: blob.size }; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
     catch (e) { console.warn('video save failed', e); this.videoNote('録画: 保存に失敗しました（' + (e?.message || e) + '）', 'error'); }
   }
   async saveMatch(rec) {
-    if (!this.fast) {
+    {
       const v = this.guard.matchEnd();
       if (v.save === false) {
         const battleStart = rec.battle?.[0] ?? 0;
@@ -289,10 +257,6 @@ export class Session {
     if (this._onVisibilityChange) {
       document.removeEventListener('visibilitychange', this._onVisibilityChange);
       this._onVisibilityChange = null;
-    }
-    if (this._onEnded) {
-      this.video.removeEventListener('ended', this._onEnded);
-      this._onEnded = null;
     }
     if (this.worker) {
       await new Promise(r => { this.flushed = r; this.worker.postMessage({ type: 'flush' }); });

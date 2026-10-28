@@ -9,7 +9,5 @@ contextBridge.exposeInMainWorld('inkgraphDesktop', {
   recWrite: (id, buf) => ipcRenderer.invoke('rec:write', id, buf),
   recClose: (id, name) => ipcRenderer.invoke('rec:close', id, name),
   recDiscard: id => ipcRenderer.invoke('rec:discard', id),
-  windowCmd: cmd => ipcRenderer.invoke('desktop:window', cmd),
-  onPickSource: cb => ipcRenderer.on('desktop:pick-source', (_e, list) => cb(list)),
-  replyPickSource: id => ipcRenderer.send('desktop:pick-source-reply', id)
+  windowCmd: cmd => ipcRenderer.invoke('desktop:window', cmd)
 });
