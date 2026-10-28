@@ -2346,6 +2346,18 @@ PAGES.match = async () => {
       <div id="rec-cap" class="muted" style="margin-top:6px;font-size:var(--fs-xs)"></div>
       <div class="muted" style="font-size:var(--fs-xs)">キー: Space 再生/停止・←→ 1秒・, . 1コマ・K キー／D デス／S スペシャルを、いま見ている時刻に追加（レビューモード中）</div>`;
     recVideo = $('#rec-video', page); setVideoMode(true);
+    // 以前の録画（断片化したまま）は、他のプレーヤーでシークできない。シークできる形式に変換するボタン
+    if (rcd.remuxed !== true) {
+      const note = document.createElement('div'); note.className = 'muted'; note.id = 'rec-repair'; note.style.cssText = 'font-size:var(--fs-xs);margin-top:6px';
+      note.innerHTML = 'この録画は、他のプレーヤーでシークできない形式です。 <button class="btn btn-sm" id="rec-repair-btn" type="button">シークできる形式に変換</button> <span id="rec-repair-msg"></span>';
+      recBox.appendChild(note);
+      $('#rec-repair-btn', page).onclick = async () => {
+        const msg = $('#rec-repair-msg', page), btn = $('#rec-repair-btn', page); btn.disabled = true; msg.textContent = '変換中…（再エンコードはしません）';
+        const r = await window.inkgraphDesktop.recRepair(rcd.path).catch(e => ({ ok: false, reason: String(e) }));
+        if (r.ok) { m.recording.remuxed = true; if (r.bytes) m.recording.bytes = r.bytes; await db.putMatch(m); const pos = recVideo.currentTime; recVideo.src = `rec://local/${encodeURIComponent(rcd.path)}?v=${Date.now()}`; recVideo.onloadedmetadata = () => { recVideo.currentTime = pos; }; note.remove(); }
+        else { msg.textContent = '変換できませんでした（' + (r.reason === 'no-ffmpeg' ? 'ffmpeg が見つかりません' : r.reason === 'not-found' ? '録画ファイルが見つかりません' : '変換に失敗') + '）'; btn.disabled = false; }
+      };
+    }
     const cap = $('#rec-cap', page);
     recVideo.ontimeupdate = () => { const t = rcd.t0 + recVideo.currentTime; lastSeekTime = t; cap.textContent = `${mss1(t)}（バトル開始から）`; if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(t); };
     recVideo.onloadedmetadata = () => { recSeekTo(Math.max(rcd.t0, m.battle[0]), false); };

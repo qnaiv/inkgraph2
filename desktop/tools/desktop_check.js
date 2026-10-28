@@ -114,6 +114,26 @@ app.whenReady().then(async () => {
     check(['INDEX.json', 'README.md', 'detect_params.json', mdir + 'summary.json', mdir + 'human_review.json', mdir + 'software.json'].every(n => names.includes(n)) && /^ink-graph_要修正_/.test(pack.name), '(19) zip に、INDEX・README・試合ごとの summary／diff／human_review／software が入る', names.filter(n => !n.includes('frames/')).join(','));
     const fr = names.filter(n => n.startsWith(mdir + 'frames/') && n.endsWith('.webp'));
     check(diff.misses.length === 2 && diff.frame_source === 'recording' && fr.length >= 1 && diff.frames.length === fr.length && z[fr[0]].length > 100, '(20) 追加した見逃し 2 件の前後のコマが、録画から切り出されて入る（diff.json の対応表つき）', JSON.stringify({ misses: diff.misses.map(x => x.kind + '@' + x.t), src: diff.frame_source, frames: fr.length }));
+    // シーク: 長い録画でも、Range（206）で途中にシークできる（以前は、Range に応えず、必ず最初に戻っていた）
+    const ff = require('../node_modules/ffmpeg-static'), { execFileSync } = require('node:child_process');
+    const atoms = f => { const b = fs.readFileSync(f), out = []; let o = 0; while (o + 8 <= b.length) { let sz = b.readUInt32BE(o); const t = b.subarray(o + 4, o + 8).toString(); if (sz === 1) sz = Number(b.readBigUInt64BE(o + 8)); if (sz < 8) break; out.push(t); o += sz; } return out; };
+    execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-t', '120', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(dir, 'long.mp4')]);
+    const sk2 = await js(`(async () => { const url = 'rec://local/' + encodeURIComponent(${JSON.stringify(path.join(dir, 'long.mp4'))});
+      const h = await fetch(url, { headers: { Range: 'bytes=1000-1999' } }); const v = document.createElement('video'); v.muted = true; v.src = url; await new Promise(r => v.onloadedmetadata = r);
+      v.currentTime = 90; await new Promise(r => v.onseeked = r); return { status: h.status, cr: h.headers.get('content-range'), dur: v.duration, now: v.currentTime }; })()`);
+    check(sk2.status === 206 && /^bytes 1000-1999\//.test(sk2.cr || '') && Math.abs(sk2.now - 90) < 0.5, '(21) 長い録画で、途中（90 秒）にシークできる（Range に 206 で応える）', JSON.stringify(sk2));
+    // 録画したファイルは、どのプレーヤーでもシークできる普通の MP4（索引 moov が先頭・断片化していない）に詰め替えられる
+    const a0 = atoms(ms[0].rec.path), rm = await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[0].id)}).then(m => m.recording.remuxed)`);
+    check(a0.includes('moov') && a0.indexOf('moov') < a0.indexOf('mdat') && !a0.includes('moof') && rm === true, '(22) 録画は、再エンコードなしで、シークできる MP4（moov が先頭・断片化なし）に詰め替えられる', a0.join(','));
+    // 以前の（断片化したままの）録画は、詳細画面のボタンで変換できる
+    const fragPath = path.join(dir, 'frag.mp4'); execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30', '-t', '6', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', fragPath]);
+    const before = atoms(fragPath);
+    await js(`window.inkgraph.db.putMatch({ id: 'old#1', match: 1, created: new Date().toISOString(), battle: [0, 6], squid_down: {}, own_deaths: [], own_kills: [], special: [], result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'テスト', own: { ka: 1, deaths: 1, specials: 0 } }, review: { marks: {}, added: [], fix: {} }, stills: { count: 0, bytes: 0 }, video: { kind: 'none' }, recording: { path: ${JSON.stringify(fragPath)}, file: 'frag.mp4', t0: 0 } })`);
+    await js(`window.inkgraph.nav('match', 'old#1')`); await sleep(2500);
+    check(await js(`!!document.querySelector('#rec-repair-btn')`) && before.includes('moof'), '(23) 変換していない録画には「シークできる形式に変換」が出る');
+    await js(`document.querySelector('#rec-repair-btn').click()`); await sleep(3500);
+    const a1 = atoms(fragPath), flag2 = await js(`window.inkgraph.db.getMatch('old#1').then(m => m.recording.remuxed)`);
+    check(a1.includes('moov') && a1.indexOf('moov') < a1.indexOf('mdat') && !a1.includes('moof') && flag2 === true && await js(`!document.querySelector('#rec-repair')`), '(24) 変換すると、シークできる形式になり、印が付いてボタンが消える', a1.join(','));
   } catch (e) { console.log('FAIL exception', e); fails++; }
   fs.rmSync(tmp, { recursive: true, force: true }); app.exit(fails ? 1 : 0);
 });

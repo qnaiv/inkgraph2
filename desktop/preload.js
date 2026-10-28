@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('inkgraphDesktop', {
   recWrite: (id, buf) => ipcRenderer.invoke('rec:write', id, buf),
   recClose: (id, name) => ipcRenderer.invoke('rec:close', id, name),
   recDiscard: id => ipcRenderer.invoke('rec:discard', id),
+  recRepair: file => ipcRenderer.invoke('rec:repair', file),
   windowCmd: cmd => ipcRenderer.invoke('desktop:window', cmd)
 });

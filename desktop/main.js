@@ -2,7 +2,8 @@
 //  - ウィンドウが最小化・他のウィンドウに隠れても、解析と録画が止まらない（バックグラウンドの間引きを切る）
 //  - 試合ごとの録画を、保存先フォルダへ直接書く（メモリに溜めない・許可の確認なし）
 const { app, BrowserWindow, protocol, net, ipcMain, dialog, session, powerSaveBlocker } = require('electron');
-const path = require('node:path'), fs = require('node:fs'), { pathToFileURL } = require('node:url');
+const { spawn } = require('node:child_process');
+const path = require('node:path'), fs = require('node:fs'), { pathToFileURL } = require('node:url'), { Readable } = require('node:stream');
 
 // バックグラウンドの間引きを切る（ウィンドウが隠れても setTimeout・映像の取り込みを止めない）
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -11,7 +12,7 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 if (process.env.INKGRAPH_USER_DATA) app.setPath('userData', process.env.INKGRAPH_USER_DATA); // テスト用
 const WEB = process.env.INKGRAPH_WEB || (app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, '..', 'web', 'dist'));
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
   { scheme: 'rec', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } } // 録画ファイルの再生（シーク用に Range を通す）
@@ -35,6 +36,17 @@ function uniquePath(dir, name) {
 }
 const safeName = n => String(n).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 180);
 
+// ---- 録画を、どのプレーヤーでもシークできる普通の MP4 にする（MediaRecorder の MP4 は断片化していて、シーク用の索引が無い）。ffmpeg（同梱）で、再エンコードせずに詰め替える ----
+function ffmpegPath() { try { const p = process.env.INKGRAPH_FFMPEG || require('ffmpeg-static'); return p ? String(p).replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep).replace('app.asar/', 'app.asar.unpacked/') : null; } catch { return null; } }
+function remux(inp, out, ext) {
+  return new Promise(res => {
+    const ff = ffmpegPath(); if (!ff) return res(false);
+    const args = ['-y', '-loglevel', 'error', '-fflags', '+genpts', '-i', inp, '-c', 'copy', '-avoid_negative_ts', 'make_zero', ...(ext === '.mp4' ? ['-movflags', '+faststart', '-f', 'mp4'] : ['-f', 'webm']), out];
+    let done = false; const fin = ok => { if (!done) { done = true; res(ok); } };
+    try { const p = spawn(ff, args, { windowsHide: true, stdio: 'ignore' }); p.on('error', () => fin(false)); p.on('close', code => fin(code === 0 && fs.existsSync(out) && fs.statSync(out).size > 0)); } catch { fin(false); }
+  });
+}
+
 // ---- 録画ファイルの書き込み（録画中は一時ファイル、試合が確定したら名前を付けて移す） ----
 const recs = new Map(); let recSeq = 0;
 ipcMain.handle('rec:open', async () => {
@@ -47,8 +59,19 @@ ipcMain.handle('rec:write', (_e, id, buf) => new Promise((res, rej) => { const r
 const endStream = r => new Promise(res => r.stream.end(res));
 ipcMain.handle('rec:close', async (_e, id, finalName) => {
   const r = recs.get(id); if (!r) throw new Error('録画が開かれていません'); recs.delete(id); await endStream(r);
-  const dest = uniquePath(r.dir, safeName(finalName)); fs.renameSync(r.tmp, dest);
-  return { path: dest, folder: path.basename(r.dir), filename: path.basename(dest), bytes: r.bytes };
+  const name = safeName(finalName), ext = path.extname(name).toLowerCase(), dest = uniquePath(r.dir, name), conv = dest + '.converting';
+  let remuxed = false;
+  if (await remux(r.tmp, conv, ext)) { try { fs.renameSync(conv, dest); fs.unlinkSync(r.tmp); remuxed = true; } catch { /* 下で元のファイルを使う */ } }
+  if (!remuxed) { try { fs.unlinkSync(conv); } catch { /* ignore */ } fs.renameSync(r.tmp, dest); }
+  return { path: dest, folder: path.basename(r.dir), filename: path.basename(dest), bytes: fs.statSync(dest).size, remuxed };
+});
+// 以前の録画（断片化したまま）を、シークできる形式に直す。許可したフォルダの .mp4/.webm だけ
+ipcMain.handle('rec:repair', async (_e, file) => {
+  const f = path.resolve(String(file)), ext = path.extname(f).toLowerCase();
+  if (!/\.(mp4|webm)$/i.test(f) || !knownDirs().has(path.dirname(f)) || !fs.existsSync(f)) return { ok: false, reason: 'not-found' };
+  const out = f + '.converting';
+  if (!(await remux(f, out, ext))) { try { fs.unlinkSync(out); } catch { /* ignore */ } return { ok: false, reason: ffmpegPath() ? 'ffmpeg-failed' : 'no-ffmpeg' }; }
+  fs.renameSync(out, f); return { ok: true, bytes: fs.statSync(f).size };
 });
 ipcMain.handle('rec:discard', async (_e, id) => { const r = recs.get(id); if (!r) return; recs.delete(id); await endStream(r); try { fs.unlinkSync(r.tmp); } catch { /* ignore */ } });
 ipcMain.handle('desktop:get-dir', () => ({ dir: videoDir(), custom: !!readSettings().videoDir }));
@@ -78,12 +101,17 @@ app.whenReady().then(() => {
     if (!file.startsWith(path.normalize(WEB)) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return new Response('not found', { status: 404 });
     return net.fetch(pathToFileURL(file).toString()).then(r => new Response(r.body, { status: r.status, headers: { 'content-type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream' } }));
   });
-  // rec://local/<フルパス> … 録画ファイルの再生。許可したフォルダ内の .mp4/.webm だけ。Range（シーク）はそのまま通す
+  // rec://local/<フルパス> … 録画ファイルの再生。許可したフォルダ内の .mp4/.webm だけ。シークのため Range（206）を自前で返す
   protocol.handle('rec', req => {
     try {
       const file = path.resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)));
       if (!/\.(mp4|webm)$/i.test(file) || !knownDirs().has(path.dirname(file)) || !fs.existsSync(file)) return new Response('not found', { status: 404 });
-      return net.fetch(pathToFileURL(file).toString(), { headers: req.headers });
+      const size = fs.statSync(file).size, type = MIME[path.extname(file).toLowerCase()] || (/\.webm$/i.test(file) ? 'video/webm' : 'video/mp4');
+      const base = { 'Content-Type': type, 'Accept-Ranges': 'bytes' }, range = req.headers.get('range'), m = range && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+      if (!m || (m[1] === '' && m[2] === '')) return new Response(Readable.toWeb(fs.createReadStream(file)), { status: 200, headers: { ...base, 'Content-Length': String(size) } });
+      let start = m[1] === '' ? Math.max(0, size - parseInt(m[2], 10)) : parseInt(m[1], 10), end = m[1] !== '' && m[2] !== '' ? Math.min(parseInt(m[2], 10), size - 1) : size - 1;
+      if (!(start < size) || start > end) return new Response(null, { status: 416, headers: { ...base, 'Content-Range': `bytes */${size}` } });
+      return new Response(Readable.toWeb(fs.createReadStream(file, { start, end })), { status: 206, headers: { ...base, 'Content-Length': String(end - start + 1), 'Content-Range': `bytes ${start}-${end}/${size}` } });
     } catch { return new Response('bad request', { status: 400 }); }
   });
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(['media', 'fullscreen'].includes(perm)));
