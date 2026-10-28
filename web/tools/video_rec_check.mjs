@@ -111,6 +111,8 @@ try {
     return { fastAfter, watchdog, rec, inMatch, log };
   });
   check(live.fastAfter === false && live.watchdog && live.rec && live.inMatch, '(18) ライブ映像では「早送り」を無視する（見張り・中断の検出・録画が動く）', JSON.stringify(live));
+  const spec = await page.evaluate(() => { const VR = window.inkgraph.VR; localStorage.removeItem('inkgraph.videoBitrate'); const d = VR.getBitrateMbps(); VR.setBitrateMbps(12); const t = VR.getBitrateMbps(); VR.setBitrateMbps(7); const bad = VR.getBitrateMbps(); localStorage.removeItem('inkgraph.videoBitrate'); return { d, t, bad, audio: VR.AUDIO_BPS }; });
+  check(spec.d === 8 && spec.t === 12 && spec.bad === 8 && spec.audio === 192000, '(19) 画質は 8Mbps が既定・5/8/12 から選べる・音声は 192kbps', JSON.stringify(spec));
   check(!errs.length, '(13) ページエラー無し', errs.join('|'));
 } finally { await browser.close(); srv.kill?.(); }
 process.exit(fails ? 1 : 0);

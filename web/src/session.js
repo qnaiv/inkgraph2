@@ -32,11 +32,11 @@ export class Session {
     this.mode = mode; this.owner = owner || 'self'; this.fast = !!fast && mode === 'file'; this.sessionId = new Date().toISOString();
     if (mode === 'stream') {
       this.sourceName = '配信映像（画面共有）';
-      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: wantAudio });
+      this.stream = await navigator.mediaDevices.getDisplayMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } }, audio: wantAudio });
       this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
     } else if (mode === 'device') {
       this.sourceName = 'キャプチャー映像';
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false });
+      this.stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } }, audio: false });
       // D68: ゲーム音。キャプチャーボードの音声入力（映像と同じ groupId）を足す。見つからなければ音声なしで続ける
       if (wantAudio) {
         try {

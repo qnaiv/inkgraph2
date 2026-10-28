@@ -31,13 +31,16 @@ export function pickMime(format = getFormat()) {
   return MIMES[format].find(ok) || (format === 'mp4' ? MIMES.webm.find(ok) : null) || '';
 }
 export const extOfMime = m => (/mp4/.test(m || '') ? 'mp4' : 'webm');
-export const VIDEO_BPS = 3_000_000; // 3Mbps ≒ 5 分で約 110MB
+// 映像のビットレート（Mbps）。60fps なので既定は 8（1 試合 約 300MB）。音声は 192kbps
+export const BITRATE_CHOICES = [5, 8, 12], AUDIO_BPS = 192_000;
+export const getBitrateMbps = () => { try { const v = parseInt(localStorage.getItem('inkgraph.videoBitrate') || '', 10); return BITRATE_CHOICES.includes(v) ? v : 8; } catch { return 8; } };
+export const setBitrateMbps = v => { try { localStorage.setItem('inkgraph.videoBitrate', String(v)); } catch { /* ignore */ } };
 
 /** 1 試合ぶんの録画。start() → stop() で Blob（ブラウザ）／ディスク上のファイルの控え（デスクトップ版: 2 秒ごとに保存先へ直接書く） */
 export class MatchRecorder {
-  constructor(stream, { bps = VIDEO_BPS } = {}) {
+  constructor(stream, { bps = getBitrateMbps() * 1_000_000 } = {}) {
     const mimeType = pickMime(), D = desktop();
-    this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps, ...(stream.getAudioTracks?.().length ? { audioBitsPerSecond: 128_000 } : {}) });
+    this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps, ...(stream.getAudioTracks?.().length ? { audioBitsPerSecond: AUDIO_BPS } : {}) });
     this.mime = this.rec.mimeType || mimeType || 'video/webm'; this.ext = extOfMime(this.mime); this.chunks = []; this.state = 'idle'; this.D = D;
     if (D) { this.idP = D.recOpen(); this.chain = this.idP.then(() => 0); this.bytes = 0; }
     this.rec.ondataavailable = e => {
