@@ -31,7 +31,7 @@ try {
     const rec = new window.inkgraph.VR.MatchRecorder(c.captureStream(20)).start(); await new Promise(r => setTimeout(r, 1500)); const blob = await rec.stop(); clearInterval(iv);
     window.__blob = blob; return { size: blob.size, type: blob.type };
   });
-  check(r.size > 500 && /webm/.test(r.type), '(7) MediaRecorder で WebM の Blob ができる', JSON.stringify(r));
+  check(r.size > 500 && /webm|mp4/.test(r.type), '(7) MediaRecorder で動画の Blob ができる（既定は MP4）', JSON.stringify(r));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.evaluate(() => window.inkgraph.VR.saveVideo(window.__blob, 'テスト.webm', { getDir: async () => null }))]);
   check(!!dl, '(8) 保存先未設定ならダウンロードで保存される');
   const a = await page.evaluate(async () => {
@@ -75,7 +75,7 @@ try {
   })]);
   const ss = await page.evaluate(() => window.__sess);
   check(ss.log[0]?.startsWith('録画: 開始'), '(14) バトル開始で録画が始まり、状況が画面に出る', JSON.stringify(ss.log));
-  check(ss.saved.length === 1 && /_ガチエリア_ヒラメが丘団地_勝ち\.webm$/.test(ss.saved[0]) && ss.queue === 0, '(15) 試合の保存で、ルール・ステージ入りの名前で保存される', ss.saved.join(','));
+  check(ss.saved.length === 1 && /_ガチエリア_ヒラメが丘団地_勝ち\.(mp4|webm)$/.test(ss.saved[0]) && ss.queue === 0, '(15) 試合の保存で、ルール・ステージ入りの名前で保存される', ss.saved.join(','));
   check(!!dl2, '(16) 保存先が無ければダウンロードされる');
   // 2 試合続けて：2 つのファイルに分かれる（実際の順序どおり、次のバトル開始のイベントが前の試合の保存より先に届く）
   const two = await page.evaluate(async () => {
