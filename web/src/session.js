@@ -155,7 +155,7 @@ export class Session {
     if (!keep) this.videoNote('録画: 試合を保存しなかったので、録画も捨てました');
     clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
     const blob = await c.r.stop(); if (!keep) { await blob?.discard?.(); return; } if (!blob || !blob.size) { this.videoNote('録画: 映像が空だったので保存しませんでした', 'error'); return; }
-    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = res.filename || name; if (res.path) rec.recording = { path: res.path, file: res.filename, t0: Math.round(c.t0 * 100) / 100, bytes: blob.size }; this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
+    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = res.filename || name; if (res.path) rec.recording = { path: res.path, file: res.filename, t0: Math.round(c.t0 * 100) / 100, bytes: res.bytes || blob.size, remuxed: !!res.remuxed }; if (res.path && !res.remuxed) this.videoNote('録画: 保存しましたが、シークできる形式への変換に失敗しました（再生は出来ますが、他のプレーヤーでシークできないことがあります。試合の詳細から変換できます）', 'error'); this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
     catch (e) { console.warn('video save failed', e); this.videoNote('録画: 保存に失敗しました（' + (e?.message || e) + '）', 'error'); }
   }
   async saveMatch(rec) {
