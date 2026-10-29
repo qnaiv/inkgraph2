@@ -22,11 +22,13 @@ export function diffOf(m) {
   const r = m.review || { marks: {}, added: [], fix: {}, rmarks: {} };
   const det = detected(m), fp = [], confirmed = []; let unreviewed = 0;
   for (const e of det) { const o = { kind: e.kind, t: r1(e.t), rel: rel(m, e.t), key: e.key }; if (e.mark === 'wrong' || e.mark === 'deleted') fp.push(o); else if (e.mark === 'ok') confirmed.push(o); else unreviewed++; }
-  const misses = (r.added || []).map(a => ({ kind: a.kind, t: r1(a.t), rel: rel(m, a.t) }));
+  const misses = (r.added || []).map(a => ({ kind: a.kind, t: r1(a.t), rel: rel(m, a.t), from_candidate: !!a.cand, candidate_conf: a.cand ? a.cand.conf : null }));
   const rs = m.result_screen || {}, own = rs.own || {}, read = { result: rs.result, mode: rs.mode, stage: rs.stage, ka: own.ka, deaths: own.deaths, specials: own.specials }, fixes = [];
   for (const [f, v] of Object.entries(r.fix || {})) if (v !== undefined && v !== null && v !== '') fixes.push({ field: f, label: RESULT_FIELDS[f] || f, software: read[f] ?? null, human: v });
   const wrongNoFix = Object.entries(r.rmarks || {}).filter(([f, v]) => v === 'wrong' && !(r.fix && r.fix[f] !== undefined)).map(([f]) => f);
-  return { false_positives: fp, misses, confirmed, result_fixes: fixes, result_wrong_without_value: wrongNoFix, unreviewed };
+  // D78: 候補（採用しなかった検出）の使われ方。見逃しのうち、候補にあったもの（目星が当たった）と、候補に無かったもの（検出の取りこぼし）
+  const candidates = { saved: !!m.cands, added_from_candidates: misses.filter(x => x.from_candidate).length, added_not_in_candidates: misses.filter(x => !x.from_candidate).length, dismissed: (r.cand_dismissed || []).length };
+  return { false_positives: fp, misses, confirmed, result_fixes: fixes, result_wrong_without_value: wrongNoFix, unreviewed, candidates };
 }
 
 /** 録画（または静止画）から切り出すコマの時刻（解析時刻 t）。差分の前後 ±win 秒を step 秒おき。重なりはまとめる */
@@ -62,7 +64,8 @@ export function fixReadme({ count, exported, withFrames }) {
     '',
     '【中身】（試合ごとに matches/<id>/）',
     '- summary.json … ソフトの検出（デス・キル・スペシャル）・結果画面の読み取り・人が直したあとの値・補正の履歴',
-    '- diff.json … ソフトと人の差分。false_positives=誤検出（ソフトは出したが実際は無い）、misses=見逃し（人が追加）、confirmed=合っていた検出、result_fixes=結果画面の読み違い。各項目の t は解析時刻[秒]、rel はバトル開始からの秒',
+    '- diff.json … ソフトと人の差分。false_positives=誤検出（ソフトは出したが実際は無い）、misses=見逃し（人が追加。from_candidate=採用しなかった候補から追加したか）、confirmed=合っていた検出、result_fixes=結果画面の読み違い、candidates=候補の使われ方（候補にあった見逃し／候補に無かった見逃し／見送った候補の数）。各項目の t は解析時刻[秒]、rel はバトル開始からの秒',
+    '- software.json の cands … ソフトが採用しなかった候補（デス・スペシャル・キル。時刻・確信度・信号）。見逃しが候補にあったなら、採用の基準（閾値・合議）の問題、候補にも無ければ、信号そのものの取りこぼし',
     '- human_review.json … 人が付けた ✓／✗ の印・追加した見逃し・訂正した値（review）',
     '- software.json … ソフトの分析結果そのもの（rec。cues=フレームごとの信号を含む）',
     '- frames/ … 差分の前後のコマ（録画から切り出し）。ファイル名は 解析時刻。diff.json の frames に対応表あり',

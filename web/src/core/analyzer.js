@@ -250,7 +250,8 @@ export function killEventsFromSlots(t, F) {
   events.sort((x, y) => x.start - y.start || x.slot - y.slot);
   return events.map(e => ({ start: e.start, end: e.end }));
 }
-export const SOFT_DEATH_TH = 0.35, SOFT_READY_TH = 0.12;
+export const SOFT_DEATH_TH = 0.35, SOFT_READY_TH = 0.12, SOFT_KILL_TH = 0.3;
+export const CAND_MAX = 15, CAND_MIN_CONF = 0.1; // D78: 記録に残す、採用しなかった候補の数の上限（種類ごと）と確信度の下限
 const meanOf = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0;
 export function buildMatch(m, no, srcH, ctx = {}) {
   // キル通知のしきい値（kill_th）は保存した通知スコア（ksc）から判定し直す。既定 0.6 は従来の killNoticeSlots と同じ
@@ -310,8 +311,17 @@ export function buildMatch(m, no, srcH, ctx = {}) {
     : runs(t, F.map(f => f.kill), 0.2, 1.0).map(([a, b]) => ({ start: r1(a), end: r1(b) }));
   const enemyDown = ['R0', 'R1', 'R2', 'R3'].flatMap(k => ev[k] || []).filter(e => e.src === 'hud').map(e => e.start);
   for (const e of kills) { const r = fuseKill({ notice: Math.max(0, ...inWin(e.start - 0.2, e.end + 0.2).map(f => f.ks || 0)), enemy: enemyDown.some(s => s >= e.start - 1.5 && s <= e.end + 2.5) }); e.conf = r.conf; e.sigs = r.signals; }
+  // D78: 採用しなかった候補（レビューで、検知できなかった出来事の場所を探すための目星）。種類ごとに確信度の高い順に上限まで
+  const nearAny = (a, b, L, ka, kb, m2) => L.some(e => a <= e[kb] + m2 && e[ka] <= b + m2);
+  const killCands = runs(t, F.map(f => (f.ks || 0) >= SOFT_KILL_TH), 0.3, 1.0).map(([a, b]) => { const w = inWin(a - 0.2, b + 0.2), r = fuseKill({ notice: Math.max(0, ...w.map(f => f.ks || 0)), enemy: enemyDown.some(x => x >= a - 1.5 && x <= b + 2.5) }); const nt = Math.max(0, ...w.map(f => f.ks || 0)); return { start: r1(a), end: r1(b), conf: Math.max(r.conf, +(0.1 + 0.3 * Math.min(1, Math.max(0, (nt - SOFT_KILL_TH) / 0.3))).toFixed(2)), sigs: r.signals.length ? r.signals : ['notice_soft'] }; })
+    .filter(c => !nearAny(c.start, c.end, kills, 'start', 'end', 1.5));
+  const cands = {
+    death: deathCands.filter(c => c.conf >= CAND_MIN_CONF).sort((a, b) => b.conf - a.conf).slice(0, CAND_MAX).map(c => ({ start: c.start, end: c.end, conf: c.conf, src: c.src, sigs: c.sigs })).sort((a, b) => a.start - b.start),
+    special: spCands.filter(c => c.conf >= CAND_MIN_CONF && !nearAny(c.ready, c.end, sp, 'ready', 'end', 1.0)).sort((a, b) => b.conf - a.conf).slice(0, CAND_MAX).sort((a, b) => a.ready - b.ready),
+    kill: killCands.filter(c => c.conf >= CAND_MIN_CONF).sort((a, b) => b.conf - a.conf).slice(0, CAND_MAX).sort((a, b) => a.start - b.start)
+  };
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
-  const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
+  const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, cands, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
   for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
   attachKillers(rec.own_deaths, m.kscan || []);

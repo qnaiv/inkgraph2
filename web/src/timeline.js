@@ -38,7 +38,7 @@ export const LEGEND = `
   </div>
 </div>`;
 
-export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
+export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = null } = {}) {
   if (popAbort) popAbort.abort();
   popAbort = new AbortController();
   const popSignal = popAbort.signal;
@@ -155,6 +155,19 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
       + `<line x1="${ax.toFixed(1)}" x2="${ax.toFixed(1)}" y1="${ownY}" y2="${ownY + ownH}" stroke="var(--special)" stroke-width="2"/>`
       + `<polygon points="${ax.toFixed(1)},${ownY + 2} ${(ax + 5).toFixed(1)},${ownY + 7} ${ax.toFixed(1)},${ownY + 12} ${(ax - 5).toFixed(1)},${ownY + 7}" fill="var(--special)" class="sp-activated-diamond"/>`
       + `</g>`;
+  }
+
+  // D78: 採用しなかった候補（レビューモードのみ）。見逃しの場所を探す目星。点線の丸＝候補（濃いほど確信度が高い）、スペシャルは点線の帯
+  if (cands && cands.length) {
+    const CK = { kill: 'キル', death: 'デス', special: 'スペシャル発動' };
+    for (const c of cands) {
+      const cx = X(c.t), cy = rowY[c.kind], op = (0.45 + 0.55 * Math.min(1, c.conf * 1.4)).toFixed(2);
+      const tip = `候補 ${mss(c.t - t0)} ${CK[c.kind] || c.kind}（確信度 ${Math.round(c.conf * 100)}%）`;
+      body += `<g class="cand-mark" data-t="${c.t}" data-kind="${c.kind}" style="cursor:pointer" opacity="${op}"><title>${tip}</title>`
+        + (c.kind === 'special' && c.from != null ? `<rect x="${X(c.from).toFixed(1)}" y="${cy - 5}" width="${Math.max(2, X(c.t) - X(c.from)).toFixed(1)}" height="10" fill="none" stroke="var(--special)" stroke-width="1" stroke-dasharray="3 2"/>` : '')
+        + `<circle cx="${cx.toFixed(1)}" cy="${cy}" r="7" fill="var(--bg, #111)" fill-opacity="0.6" stroke="var(--text-muted)" stroke-width="1.5" stroke-dasharray="3 2"/>`
+        + `<text x="${cx.toFixed(1)}" y="${cy + 4}" text-anchor="middle" font-size="10" fill="var(--text-muted)" pointer-events="none">?</text></g>`;
+    }
   }
 
   // ---------------- 4. 勝率グラフ (132px >= 120px) ----------------
@@ -473,6 +486,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode } = {}) {
     });
   });
 
+  wrap.querySelectorAll('.cand-mark').forEach(g => g.addEventListener('click', e => { e.stopPropagation(); if (onSeek) onSeek(+g.dataset.t); }));
   wrap.querySelectorAll('.ev').forEach(g => g.addEventListener('click', e => {
     e.stopPropagation();
     if (onSeek) onSeek(+g.dataset.t);
