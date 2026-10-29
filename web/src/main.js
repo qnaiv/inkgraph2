@@ -94,6 +94,7 @@ window.inkgraph = {
   recountDiff,
   buildBatchZip: (...a) => buildBatchZip(...a),
   buildFixPack: (...a) => buildFixPack(...a),
+  exportFixPack: (...a) => exportFixPack(...a),
   showFixExportDialog: () => showFixExportDialog(),
   buildBackupZip: (...a) => buildBackupZip(...a),
   showFeedbackExportDialog: (...a) => showFeedbackExportDialog(...a),
@@ -1310,16 +1311,20 @@ async function renderVideoSettings(el) {
   }
 
 // D75: 要修正パック（AI 用）。要修正の試合ごとに、ソフトの分析結果・人の修正・差分・（録画があれば）差分の前後のコマを zip にする
-async function buildFixPack(matches, { whole = false, onProgress = () => {} } = {}) {
-  const files = {}, index = [], now = new Date(), D = window.inkgraphDesktop;
+async function buildFixPack(matches, { whole = false, video = false, onProgress = () => {} } = {}) {
+  // video: true（デスクトップ版の書き出し）: 録画をそのまま入れる（コマの切り出しはしない）。zip は main 側がディスクへ順に書く（返すのは中身の一覧）
+  const files = {}, videos = [], index = [], now = new Date(), D = window.inkgraphDesktop;
   let n = 0;
   for (const m of matches) {
     n++;
     const dir = `matches/${FP.safeId(m.id)}/`, d = FP.diffOf(m);
     const times = FP.frameTimes(m, d, { whole }), frames = [];
     const put = (name, blob) => blob.arrayBuffer().then(b => { files[dir + name] = new Uint8Array(b); });
-    let source = 'none';
-    if (m.recording && D && Number.isFinite(m.recording.t0) && times.length) {
+    let source = 'none', vinfo = null;
+    if (video && m.recording && m.recording.path && Number.isFinite(m.recording.t0)) {
+      const vname = `video/${(m.recording.file || m.recording.path.split(/[\\/]/).pop() || 'recording.mp4')}`; videos.push({ name: dir + vname, path: m.recording.path, bytes: m.recording.bytes || 0 });
+      vinfo = { file: vname, t0: m.recording.t0, note: '録画の位置[秒] ＝ 解析時刻 t − t0（各項目の video_pos）' }; source = 'video';
+    } else if (m.recording && D && Number.isFinite(m.recording.t0) && times.length) {
       try {
         onProgress(`試合 ${n}/${matches.length}: 録画から ${times.length} コマを切り出し中…`);
         const got = await extractFrames(`rec://local/${encodeURIComponent(m.recording.path)}`, times.map(t => t - m.recording.t0), { onProgress: (i, tot) => onProgress(`試合 ${n}/${matches.length}: 録画からコマを切り出し中 ${i}/${tot}`) });
@@ -1327,13 +1332,13 @@ async function buildFixPack(matches, { whole = false, onProgress = () => {} } = 
         source = 'recording';
       } catch (e) { console.warn('frame extraction failed', e); source = 'recording-failed: ' + (e?.message || e); }
     }
-    if (source !== 'recording') { // 録画が無い／開けない: 保存してある静止画・場面クリップ
+    if (source !== 'recording' && source !== 'video') { // 録画が無い／開けない: 保存してある静止画・場面クリップ
       onProgress(`試合 ${n}/${matches.length}: 静止画・場面クリップを入れています…`);
       for (const sn of (await db.snapsOf(m.id)).sort((a, b) => a.t - b.t)) { const name = `frames/${sn.kind === 'clip' ? 'clip' : 'still'}_t${sn.t.toFixed(1).padStart(7, '0')}_${sn.id}.${sn.kind === 'clip' ? 'webp' : 'jpg'}`; await put(name, sn.blob); frames.push({ t: sn.t, rel: Math.round((sn.t - m.battle[0]) * 10) / 10, file: dir + name, kind: sn.kind || null }); }
       if (source === 'none') source = frames.length ? 'stills' : 'none';
     }
     files[dir + 'summary.json'] = strToU8(JSON.stringify(FP.matchSummary(m), null, 1));
-    files[dir + 'diff.json'] = strToU8(JSON.stringify({ ...d, frame_source: source, frames }, null, 1));
+    files[dir + 'diff.json'] = strToU8(JSON.stringify({ ...(vinfo ? FP.withVideoPos(d, m) : d), frame_source: source, ...(vinfo ? { video: vinfo } : {}), frames }, null, 1));
     files[dir + 'human_review.json'] = strToU8(JSON.stringify(m.review ?? null, null, 1));
     files[dir + 'software.json'] = strToU8(JSON.stringify(m));
     index.push({ id: m.id, dir, counts: { false_positives: d.false_positives.length, misses: d.misses.length, result_fixes: d.result_fixes.length, unreviewed: d.unreviewed }, frame_source: source, frames: frames.length, reasons: (m.needs_fix?.reasons || []).map(k => FP.FIX_REASONS[k] || k) });
@@ -1341,8 +1346,17 @@ async function buildFixPack(matches, { whole = false, onProgress = () => {} } = 
   const params = null; // D84: 検出の自動調整は廃止（常に既定値）
   files['INDEX.json'] = strToU8(JSON.stringify({ app: 'InkGraph', kind: 'fix-pack', format: 1, exported: now.toISOString(), matches: index }, null, 1));
   files['detect_params.json'] = strToU8(JSON.stringify(params, null, 1));
-  files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording') }));
+  files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording'), withVideo: videos.length > 0 }));
+  if (video) return { files, videos, filename: FP.fixPackFilename(now), index };
   return { blob: new Blob([zipSync(files, { level: 0 })], { type: 'application/zip' }), filename: FP.fixPackFilename(now), index };
+}
+
+// D87: 録画をそのまま入れた zip を、main 側がディスクへ順に書く（大きくてもメモリに載せない。保存ダイアログで保存先を選ぶ）
+async function exportFixPack(sel, onProgress = () => {}) {
+  const D = window.inkgraphDesktop, r = await buildFixPack(sel, { video: true, onProgress });
+  const entries = Object.entries(r.files).map(([name, data]) => ({ name, data })).concat(r.videos.map(v => ({ name: v.name, path: v.path })));
+  const off = D.onPackProgress ? D.onPackProgress(p => onProgress(`書き出し中… ${(p.done / 1048576).toFixed(0)} / ${(p.total / 1048576).toFixed(0)}MB`)) : null;
+  try { return { ...(await D.packWrite({ filename: r.filename, entries })), filename: r.filename, index: r.index, videos: r.videos.length }; } finally { off?.(); }
 }
 
 async function showFixExportDialog() {
@@ -1351,18 +1365,28 @@ async function showFixExportDialog() {
   const ov = document.createElement('div'); ov.className = 'fix-dialog-overlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
   const rows = all.map(m => { const d = FP.diffOf(m), r = resultOf(m); return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" class="fixsel" value="${esc(m.id)}" checked> <span>${esc((m.created || '').slice(0, 16).replace('T', ' '))} ${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="muted">誤検出 ${d.false_positives.length}・見逃し ${d.misses.length}・読み違い ${d.result_fixes.length}${d.unreviewed ? `・未確認 ${d.unreviewed}` : ''}${m.recording ? '・録画あり' : ''}</span></span></label>`; }).join('');
   ov.innerHTML = `<div class="card" style="max-width:720px;width:92vw;max-height:84vh;overflow:auto;padding:var(--sp-4)"><h3>要修正の試合を AI 用に書き出す</h3>
-    <p class="muted" style="font-size:var(--fs-xs)">ソフトの分析結果と、人の修正（✓／✗・追加した見逃し・直した値）、差分の前後のコマ（録画があれば録画から）を zip にします。Claude Code に渡して、検出ロジックの修正に生かせます。レビューモードで直してから書き出すと、差分が正しく入ります。</p>
+    <p class="muted" style="font-size:var(--fs-xs)">ソフトの分析結果と、人の修正（✓／✗・追加した見逃し・直した値）、録画（そのまま）または静止画を zip にします。Claude Code に渡して、検出ロジックの修正に生かせます。レビューモードで直してから書き出すと、差分が正しく入ります。</p>
     <div>${rows || '<p class="muted">要修正の試合がありません</p>'}</div>
-    <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="fix-whole"> 試合全体も 1 秒おきのコマで入れる（大きくなります）</label>
+    <p id="fix-size" class="muted" style="font-size:var(--fs-xs);margin-top:8px"></p>
     <p id="fix-progress" class="muted" style="min-height:1.4em;font-size:var(--fs-xs)"></p>
     <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${all.length ? '' : 'disabled'}>書き出す</button></div></div>`;
   document.body.appendChild(ov);
   $('#fix-cancel', ov).onclick = () => ov.remove();
+  const D = window.inkgraphDesktop, canDisk = !!(D && D.packWrite);
+  const selected = () => all.filter(m => [...ov.querySelectorAll('.fixsel:checked')].some(x => x.value === m.id));
+  const sizeNote = () => { const v = selected().filter(m => m.recording && m.recording.path); const mb = v.reduce((n, m) => n + (m.recording.bytes || 0), 0) / 1048576;
+    $('#fix-size', ov).textContent = canDisk && v.length ? `録画 ${v.length} 本をそのまま（無加工で）入れます。約 ${mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb < 1 ? '1MB 未満' : Math.round(mb) + 'MB'}。保存先は、書き出すときに選びます。` : '録画がない試合は、保存してある静止画・場面クリップを入れます。'; };
+  ov.addEventListener('change', sizeNote); sizeNote();
   $('#fix-go', ov).onclick = async () => {
     const ids = [...ov.querySelectorAll('.fixsel:checked')].map(x => x.value), sel = all.filter(m => ids.includes(m.id)); if (!sel.length) return;
     const go = $('#fix-go', ov); go.disabled = true; const prog = $('#fix-progress', ov);
     try {
-      const { blob, filename, index } = await buildFixPack(sel, { whole: $('#fix-whole', ov).checked, onProgress: t => { prog.textContent = t; } });
+      if (canDisk && sel.some(m => m.recording && m.recording.path)) {
+        const r = await exportFixPack(sel, t => { prog.textContent = t; });
+        prog.textContent = r.ok ? `書き出しました: ${r.path}（${sel.length} 試合・録画 ${r.videos} 本・${(r.bytes / 1048576).toFixed(1)}MB）` : r.canceled ? '書き出しを取りやめました' : '書き出しに失敗しました: ' + (r.reason || '') + (r.file ? '（' + r.file + '）' : '');
+        go.disabled = false; return;
+      }
+      const { blob, filename, index } = await buildFixPack(sel, { onProgress: t => { prog.textContent = t; } });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
       prog.textContent = `書き出しました: ${filename}（${sel.length} 試合・${(blob.size / 1024 / 1024).toFixed(1)}MB）`;
     } catch (e) { prog.textContent = '書き出しに失敗しました: ' + (e?.message || e); }

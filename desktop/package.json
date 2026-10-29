@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "check": "xvfb-run -a electron --no-sandbox tools/desktop_check.js",
+    "check": "node tools/zip_store_check.js && xvfb-run -a electron --no-sandbox tools/desktop_check.js",
     "web": "cd ../web && npm ci && npm run build",
     "dist": "npm run web && electron-builder --win --publish never"
   },
@@ -23,6 +23,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "zip_store.js",
       "package.json"
     ],
     "extraResources": [

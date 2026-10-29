@@ -39,6 +39,13 @@ export function frameTimes(m, d, { win = 3, step = 0.5, whole = false, wholeStep
   return [...set].filter(t => !m.battle || (t >= m.battle[0] - 1 && t <= m.battle[1] + 30)).sort((a, b) => a - b);
 }
 
+/** D87: 録画をそのまま入れるとき、差分の各項目に「録画の中の位置（秒）」を付ける（録画の位置 ＝ 解析時刻 − t0） */
+export function withVideoPos(d, m) {
+  const t0 = m.recording && Number.isFinite(m.recording.t0) ? m.recording.t0 : null; if (t0 === null) return d;
+  const pos = x => ({ ...x, video_pos: r1(Math.max(0, x.t - t0)) });
+  return { ...d, false_positives: d.false_positives.map(pos), misses: d.misses.map(pos), confirmed: d.confirmed.map(pos) };
+}
+
 export function matchSummary(m) {
   const res = resultOf(m), rs = m.result_screen || {};
   return {
@@ -56,11 +63,11 @@ export function matchSummary(m) {
   };
 }
 
-export function fixReadme({ count, exported, withFrames }) {
+export function fixReadme({ count, exported, withFrames, withVideo = false }) {
   return [
     'InkGraph 要修正パック（ソフトの分析が間違っていた試合と、人の修正）',
     '',
-    `試合数: ${count}   書き出し: ${exported}   コマ: ${withFrames ? 'あり（録画から切り出し）' : 'なし／静止画・場面クリップのみ'}`,
+    `試合数: ${count}   書き出し: ${exported}   映像: ${withVideo ? '録画をそのまま入れた（video/）' : withFrames ? 'コマ（録画から切り出し）' : 'なし／静止画・場面クリップのみ'}`,
     '',
     '【中身】（試合ごとに matches/<id>/）',
     '- summary.json … ソフトの検出（デス・キル・スペシャル）・結果画面の読み取り・人が直したあとの値・補正の履歴',
@@ -68,11 +75,18 @@ export function fixReadme({ count, exported, withFrames }) {
     '- software.json の cands … ソフトが採用しなかった候補（デス・スペシャル・キル。時刻・確信度・信号）。見逃しが候補にあったなら、採用の基準（閾値・合議）の問題、候補にも無ければ、信号そのものの取りこぼし',
     '- human_review.json … 人が付けた ✓／✗ の印・追加した見逃し・訂正した値（review）',
     '- software.json … ソフトの分析結果そのもの（rec。cues=フレームごとの信号を含む）',
-    '- frames/ … 差分の前後のコマ（録画から切り出し）。ファイル名は 解析時刻。diff.json の frames に対応表あり',
+    ...(withVideo ? [
+      '- video/ … 試合の録画（MP4・無加工）。diff.json の video に、ファイル名と t0 が入る。録画の位置[秒] ＝ 解析時刻 t − t0。',
+      '    diff.json の false_positives／misses／confirmed の各項目に、録画の位置 video_pos[秒] が付いている',
+      '    見たい場面のコマは、ffmpeg で取り出す（ffmpeg が無ければ入れる）:',
+      '      1 枚:           ffmpeg -ss <video_pos> -i video/<ファイル名> -frames:v 1 frame.png',
+      '      前後 3 秒を 2 枚/秒: ffmpeg -ss <video_pos - 3> -t 6 -i video/<ファイル名> -vf fps=2 frame_%03d.png',
+      '    （-ss は -i の前に置くと速い。取り出したコマは Read で見られる）'
+    ] : ['- frames/ … 差分の前後のコマ（録画から切り出し）。ファイル名は 解析時刻。diff.json の frames に対応表あり']),
     '',
     '【Claude Code での使い方】',
     'このフォルダで Claude Code を開き、次のように頼む:',
-    '  「diff.json の誤検出と見逃しについて、frames のコマを見て、なぜソフトが間違えたか原因を調べて。',
+    withVideo ? '  「diff.json の誤検出と見逃しについて、video_pos の前後のコマを ffmpeg で取り出して見て、なぜソフトが間違えたか原因を調べて。' : '  「diff.json の誤検出と見逃しについて、frames のコマを見て、なぜソフトが間違えたか原因を調べて。',
     '   検出ロジック（web/src/core/ の cues.js・analyzer.js・fusion.js・count_check.js など）の修正案を、',
     '   閾値の調整かコードの修正かで分けて出して。誤検出・見逃しの傾向が複数の試合で共通なら、そこを優先して。」',
     '',

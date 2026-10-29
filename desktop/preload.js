@@ -10,5 +10,7 @@ contextBridge.exposeInMainWorld('inkgraphDesktop', {
   recClose: (id, name, opts) => ipcRenderer.invoke('rec:close', id, name, opts),
   recDiscard: id => ipcRenderer.invoke('rec:discard', id),
   recRepair: file => ipcRenderer.invoke('rec:repair', file),
+  packWrite: payload => ipcRenderer.invoke('pack:write', payload),
+  onPackProgress: fn => { const h = (_e, p) => fn(p); ipcRenderer.on('pack:progress', h); return () => ipcRenderer.removeListener('pack:progress', h); },
   windowCmd: cmd => ipcRenderer.invoke('desktop:window', cmd)
 });
