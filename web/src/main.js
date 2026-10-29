@@ -2108,6 +2108,7 @@ PAGES.match = async () => {
     </div>
 
     <div class="detail-body ${reviewMode ? 'review-on' : ''}" id="detail-body">
+      <div class="card detail-timeline-card" id="rec-top-card" style="display:none"><div class="card-title">録画</div><div id="rec-top-slot" style="max-width:820px"></div></div>
       <div class="card detail-timeline-card">
         <div class="card-title">タイムライン</div>
         <div id="tl"></div>
@@ -2167,6 +2168,7 @@ PAGES.match = async () => {
   if ($('#review-toggle', page)) $('#review-toggle', page).onchange = e => {
     reviewMode = e.target.checked;
     $('#detail-body', page).classList.toggle('review-on', reviewMode);
+    placeRec();
     if (!reviewMode && tlEl) tlEl.closePopover();
     drawTL();
   };
@@ -2350,8 +2352,8 @@ PAGES.match = async () => {
 
   // D73: 録画（デスクトップ版）があれば、静止画・場面クリップの代わりに録画を見ながら確認・修正する。見ている時刻が「見逃しを追加」の時刻になる
   const rcd = (m.recording && window.inkgraphDesktop && Number.isFinite(m.recording.t0)) ? m.recording : null;
-  const recBox = $('#rec-box', page);
-  let recVideo = null, recKeyHandler = null;
+  const recBox = $('#rec-box', page), recHome = recBox.parentNode, recHomeNext = recBox.nextSibling;
+  let recVideo = null, recKeyHandler = null, placeRec = () => {};
   const setVideoMode = on => { for (const sel of ['.review-video-wrap', '#still-cap', '#clip-box']) { const el = $(sel, page); if (el) el.style.display = on ? 'none' : ''; } recBox.style.display = on ? '' : 'none'; };
   const recSeekTo = (t, play) => { if (!recVideo) return; recVideo.currentTime = Math.max(0, t - rcd.t0); lastSeekTime = t; if (play) recVideo.play().catch(() => {}); };
   if (rcd) {
@@ -2366,6 +2368,15 @@ PAGES.match = async () => {
       <div id="rec-cap" class="muted" style="margin-top:6px;font-size:var(--fs-xs)"></div>
       <div class="muted" style="font-size:var(--fs-xs)">キー: Space 再生/停止・←→ 1秒・, . 1コマ・K キー／D デス／S スペシャルを、いま見ている時刻に追加（レビューモード中）</div>`;
     recVideo = $('#rec-video', page); setVideoMode(true);
+    // D79: レビューモードでないときは、録画をタイムラインの上に置く（タイムラインのクリックで、その秒数の録画が見られる）。レビューモードでは右の確認パネルに戻す
+    placeRec = () => {
+      if (!recVideo) return; const top = !reviewMode, was = { t: recVideo.currentTime, playing: !recVideo.paused };
+      const card = $('#rec-top-card', page), slot = $('#rec-top-slot', page);
+      if (top) { slot.appendChild(recBox); card.style.display = ''; } else { recHome.insertBefore(recBox, recHomeNext && recHomeNext.parentNode === recHome ? recHomeNext : null); card.style.display = 'none'; }
+      recBox.style.display = '';
+      if (Number.isFinite(was.t) && Math.abs(recVideo.currentTime - was.t) > 0.3) recVideo.currentTime = was.t; // 付け替えで位置が戻ることがあるので、直す
+      if (was.playing) recVideo.play().catch(() => {});
+    };
     // 以前の録画（断片化したまま）は、他のプレーヤーでシークできない。シークできる形式に変換するボタン
     if (rcd.remuxed !== true) {
       const note = document.createElement('div'); note.className = 'muted'; note.id = 'rec-repair'; note.style.cssText = 'font-size:var(--fs-xs);margin-top:6px';
@@ -2395,6 +2406,7 @@ PAGES.match = async () => {
       else if (reviewMode && ['k', 'd', 's'].includes(k)) page.querySelector(`.add[data-k="${{ k: 'kill', d: 'death', s: 'special' }[k]}"]`)?.click();
     };
     document.addEventListener('keydown', recKeyHandler);
+    placeRec();
   }
 
   const showStill = (t, near = 15) => {
@@ -2413,9 +2425,9 @@ PAGES.match = async () => {
     stillCap.textContent = `最も近い静止画 ${mss(best.t)}（対象から ±${d.toFixed(1)}秒） · ${KIND_JA[best.kind] || best.kind || '静止画'}${best.reason ? ' / ' + best.reason : ''}`;
   };
 
-  const seek = t => {
+  const seek = (t, opts) => {
     lastSeekTime = t;
-    if (recVideo) { recSeekTo(t - 2, true); lastSeekTime = t; return; } // 録画: 2 秒前から再生
+    if (recVideo) { recSeekTo(opts && opts.exact ? t : t - 2, true); lastSeekTime = t; return; } // 録画: 出来事は 2 秒前から再生。タイムラインの空き（時刻の指定）はその秒数から再生
     const clip = clipAt(clips, t);
     if (clip) {
       playClip(clip, 0);

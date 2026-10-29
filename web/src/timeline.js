@@ -494,7 +494,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
 
   svg.addEventListener('click', e => {
     const t = clientToMatchTime(e);
-    if (t !== null && onSeek) onSeek(t);
+    if (t !== null && onSeek) onSeek(t, { exact: true });
   });
 
   // ---- ヤグラ保持ラベルのポップオーバー（確認モードのみ） ----
