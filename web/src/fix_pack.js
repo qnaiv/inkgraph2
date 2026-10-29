@@ -8,7 +8,11 @@ const r1 = v => Math.round(v * 10) / 10;
 const rel = (m, t) => r1(t - (m.battle ? m.battle[0] : 0));
 
 /** 「要修正」の印を付ける／外す。reasons は FIX_REASONS のキー。印を外すときは null */
-export function flagMatch(m, on, reasons = [], at = new Date().toISOString()) { if (on) m.needs_fix = { at: m.needs_fix?.at || at, reasons: [...new Set(reasons)] }; else delete m.needs_fix; return m; }
+export function flagMatch(m, on, reasons = [], at = new Date().toISOString()) { if (on) m.needs_fix = { at: m.needs_fix?.at || at, reasons: [...new Set(reasons)], ...(m.needs_fix?.auto ? { auto: true } : {}), ...(m.needs_fix?.done ? { done: m.needs_fix.done } : {}) }; else delete m.needs_fix; return m; }
+/** D88: 試合の「要修正」の状態。none＝確認不要（フラグなし）／todo＝要修正（まだ直していない）／done＝修正済み（人が正解を付け終えた。AI 用に書き出せるのはこれだけ） */
+export const fixState = m => (m.needs_fix ? (m.needs_fix.done ? 'done' : 'todo') : 'none');
+/** 「修正完了」の印を付ける／外す（要修正の試合だけ。フラグそのものは残す） */
+export function markFixDone(m, on, at = new Date().toISOString()) { if (!m.needs_fix) return m; if (on) m.needs_fix.done = { at }; else delete m.needs_fix.done; return m; }
 
 /**
  * ソフトの分析結果と、人の修正の差分。
@@ -58,7 +62,7 @@ export function matchSummary(m) {
       specials: (m.special || []).map(e => ({ ready: r1(e.ready), end: r1(e.end), outcome: e.outcome, activated_at: e.activated_at != null ? r1(e.activated_at) : null, auto: e.auto ?? null }))
     },
     reconcile: m.recon ?? null,
-    flagged: m.needs_fix ? { at: m.needs_fix.at, reasons: (m.needs_fix.reasons || []).map(k => FIX_REASONS[k] || k) } : null,
+    flagged: m.needs_fix ? { at: m.needs_fix.at, reasons: (m.needs_fix.reasons || []).map(k => FIX_REASONS[k] || k), fixed_at: m.needs_fix.done ? m.needs_fix.done.at : null } : null,
     recording: m.recording ? { file: m.recording.file, t0: m.recording.t0, note: '録画の再生位置[秒] ＝ 解析時刻 t − t0' } : null
   };
 }
