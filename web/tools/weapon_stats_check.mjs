@@ -52,7 +52,7 @@ try {
   await page.goto(`http://127.0.0.1:${PORT}/#trend`); await page.reload(); await page.waitForSelector('#weapon-naming', { state: 'visible' });
   const t0 = await page.textContent('#weapon-naming');
   check(/未登録のブキアイコンに名前を付ける/.test(t0) && (await page.$$('.weapon-naming-row')).length >= 1, '(8) 傾向分析に「未登録のブキアイコンに名前を付ける」が出る', t0.slice(0, 60));
-  check((await page.$$eval('.weapon-icon-canvas', cs => cs.every(c => c.width === 112 && c.getContext('2d').getImageData(10, 10, 1, 1).data[3] === 255))), '(9) アイコンの絵が描かれる');
+  check((await page.$$eval('.weapon-icon-canvas', cs => cs.every(c => c.width === 168 && c.getContext('2d').getImageData(10, 10, 1, 1).data[3] === 255))), '(9) アイコンの絵が描かれる');
   const first = await page.$eval('.weapon-naming-row', r => r.querySelector('.weapon-icon-canvas').dataset.icon.length > 100 && r.textContent);
 
   // 一覧から選ぶ：種類が自動で入る。選ぶまでボタンは押せない
