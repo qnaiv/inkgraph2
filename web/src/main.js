@@ -2024,6 +2024,7 @@ PAGES.match = async () => {
 
   m.review = m.review || { marks: {}, added: [], fix: {}, rmarks: {} };
   m.review.rmarks = m.review.rmarks || {};
+  m.review.cand_dismissed = m.review.cand_dismissed || [];
   m.review.fix = m.review.fix || {};
   const save = async () => {
     m.review.updated = new Date().toISOString();
@@ -2136,6 +2137,12 @@ PAGES.match = async () => {
             </div>
           </div>
         </div>
+
+        ${m.remote ? '' : `<div class="card" id="cand-card">
+          <div class="card-title">見逃しの候補（採用しなかった検出）</div>
+          <div class="muted" id="cand-hint" style="font-size:var(--fs-xs);margin-bottom:6px"></div>
+          <div id="cand-list"></div>
+        </div>`}
 
         <div class="card">
           <div class="card-title">リザルト画面の読み取り</div>
@@ -2419,9 +2426,58 @@ PAGES.match = async () => {
     if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(t);
   };
 
+  // D78: 採用しなかった候補。検知できなかった出来事（足りないデス等）の場所を探すための目星。録画の該当箇所を見て、あれば追加、無ければ見送る
+  const CAND_KINDS = [['death', 'デス'], ['special', 'スペシャル発動'], ['kill', 'キル']];
+  const SIG_JA = { sig: '「やられた」表示', hud: 'HUD の自分アイコン×', killer: '倒した相手の吹き出し', notice: 'キル通知', notice_soft: '弱いキル通知', enemy: '敵アイコン×' };
+  const SRC_JA = { signal_soft: '「やられた」が弱い', hud_soft: 'HUD の自分アイコンだけ' };
+  const candTime = (kind, c) => (kind === 'special' ? c.end : c.start);
+  const candKey = (kind, c) => `${kind}@${candTime(kind, c).toFixed(1)}`;
+  const candAdded = (kind, c) => (m.review.added || []).some(a => a.kind === kind && Math.abs(a.t - candTime(kind, c)) <= 1.5);
+  const candDismissed = (kind, c) => (m.review.cand_dismissed || []).includes(candKey(kind, c));
+  let candShowAll = false, candShowDismissed = false;
+  const visibleCands = () => { const out = []; for (const [k] of CAND_KINDS) for (const c of ((m.cands || {})[k] || [])) if (!candAdded(k, c) && !candDismissed(k, c)) out.push({ kind: k, t: candTime(k, c), from: k === 'special' ? c.ready : undefined, conf: c.conf }); return out; };
+  const candDraw = () => {
+    const host = $('#cand-list', page), hint = $('#cand-hint', page); if (!host) return;
+    if (!m.cands) { hint.textContent = ''; host.innerHTML = '<div class="muted">この試合は、候補を保存する前の解析なので、候補はありません。</div>'; return; }
+    const eff = effective(m), cnt = k => eff.filter(e => e.kind === k).length, r = resultOf(m), L = [];
+    const gap = (lab, target, k) => { if (!Number.isInteger(target)) return; const n = cnt(k), d = target - n; L.push(`${lab}: リザルト画面 ${target}／いまの記録 ${n} → ${d > 0 ? `<strong>あと ${d} 件足りません</strong>` : d < 0 ? `<strong>${-d} 件多い</strong>（誤検出の可能性。出来事の ✗ で外せます）` : '一致'}`); };
+    gap('デス', r.deaths, 'death'); gap('スペシャル発動', r.specials, 'special');
+    if (Number.isInteger(r.ka)) L.push(`キル: K+A ${r.ka}／いまの記録 ${cnt('kill')}（アシスト込みなので、少なくても不足とは限りません${cnt('kill') > r.ka ? '。<strong>K+A を超えています</strong>' : ''}）`);
+    hint.innerHTML = L.join('<br>') || 'リザルト画面の数を読めていないので、足りない数は分かりません。';
+    const sigText = c => [...(c.sigs || []).map(x => SIG_JA[x] || x), ...(c.src && !(c.sigs || []).length ? [SRC_JA[c.src] || c.src] : [])].join('・') || '信号が弱い';
+    let html = '';
+    for (const [k, lab] of CAND_KINDS) {
+      let list = ((m.cands || {})[k] || []).filter(c => candShowDismissed || !candDismissed(k, c)).sort((a, b) => b.conf - a.conf);
+      if (!list.length) { html += `<div class="review-section-title" style="margin-top:8px">${lab}</div><div class="muted" style="font-size:var(--fs-xs)">候補なし</div>`; continue; }
+      const total = list.length; if (!candShowAll) list = list.slice(0, 6);
+      html += `<div class="review-section-title" style="margin-top:8px">${lab}（確信度の高い順）</div>` + list.map(c => {
+        const added = candAdded(k, c), dis = candDismissed(k, c), t = candTime(k, c);
+        return `<div class="cand-row" data-kind="${k}" data-t="${t}" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:3px 0;opacity:${dis ? 0.5 : 1}">
+          <span class="num" style="min-width:44px">${mss1(t)}</span><span class="muted" style="font-size:var(--fs-xs);min-width:40px">${Math.round(c.conf * 100)}%</span>
+          <span class="muted" style="font-size:var(--fs-xs);flex:1;min-width:120px">${esc(sigText(c))}</span>
+          <button class="btn btn-sm cand-see" type="button">見る</button>
+          ${added ? '<span class="muted">追加済み</span>' : dis ? '<button class="btn btn-sm cand-undismiss" type="button">戻す</button>' : '<button class="btn btn-sm cand-add" type="button">＋ 追加</button><button class="btn btn-sm cand-dismiss" type="button">見送る</button>'}
+        </div>`;
+      }).join('') + (total > 6 && !candShowAll ? `<div class="muted" style="font-size:var(--fs-xs)">ほか ${total - 6} 件</div>` : '');
+    }
+    html += `<div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:var(--fs-xs)"><label><input type="checkbox" id="cand-all" ${candShowAll ? 'checked' : ''}> すべて表示</label><label><input type="checkbox" id="cand-dis" ${candShowDismissed ? 'checked' : ''}> 見送った候補も表示</label></div>
+      <div class="muted" style="font-size:var(--fs-xs);margin-top:4px">タイムラインの点線の丸（？）が候補です。録画で確かめて、あれば「追加」、無ければ「見送る」。追加すると、時刻つきの正解データになります。</div>`;
+    host.innerHTML = html;
+    host.querySelectorAll('.cand-row').forEach(row => {
+      const k = row.dataset.kind, t = +row.dataset.t, c = ((m.cands || {})[k] || []).find(x => Math.abs(candTime(k, x) - t) < 1e-6);
+      $('.cand-see', row).onclick = () => seek(t);
+      const add = $('.cand-add', row); if (add) add.onclick = async () => { m.review.added.push({ kind: k, t: Math.round(t * 10) / 10, cand: { conf: c.conf, src: c.src ?? null, sigs: c.sigs ?? null } }); await save(); refresh(); };
+      const dis = $('.cand-dismiss', row); if (dis) dis.onclick = async () => { m.review.cand_dismissed.push(candKey(k, c)); await save(); refresh(); };
+      const und = $('.cand-undismiss', row); if (und) und.onclick = async () => { m.review.cand_dismissed = m.review.cand_dismissed.filter(x => x !== candKey(k, c)); await save(); refresh(); };
+    });
+    $('#cand-all', host).onchange = e => { candShowAll = e.target.checked; candDraw(); };
+    $('#cand-dis', host).onchange = e => { candShowDismissed = e.target.checked; candDraw(); };
+  };
+
   const drawTL = (opts = {}) => {
     tlEl = renderTimeline(m, {
       reviewMode,
+      cands: reviewMode ? visibleCands() : null,
       onSeek: seek,
       // ヤグラ保持ラベル / カウント点の変更: 保存して帯を描き直す（カウント追加・削除ではポップオーバーを開いたままにする）
       onReviewChange: async ({ reopen, focus }) => { await save(); drawTL({ reopen, focus }); },
@@ -2620,6 +2676,7 @@ PAGES.match = async () => {
     drawTL();
     etab();
     accDraw();
+    candDraw();
   };
 
   rtab();

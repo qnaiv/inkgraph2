@@ -148,6 +148,26 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('#rec-repair-btn').click()`); await sleep(3500);
     const a1 = atoms(fragPath), flag2 = await js(`window.inkgraph.db.getMatch('old#1').then(m => m.recording.remuxed)`);
     check(a1.includes('moov') && a1.indexOf('moov') < a1.indexOf('mdat') && !a1.includes('moof') && flag2 === true && await js(`!document.querySelector('#rec-repair')`), '(24) 変換すると、シークできる形式になり、印が付いてボタンが消える', a1.join(','));
+    // D78: 採用しなかった候補。レビューで、足りない出来事の場所を探す目星として出る。追加すると見逃しとして記録され、見送ると隠れる
+    await js(`window.inkgraph.db.putMatch({ id: 'cand#1', match: 1, created: new Date().toISOString(), battle: [0, 100], squid_down: {}, own_deaths: [{ start: 20, end: 22, conf: 0.9 }], own_kills: [], special: [], stills: { count: 0, bytes: 0 }, video: { kind: 'none' },
+      result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'テスト', own: { ka: 3, deaths: 3, specials: 0 } },
+      cands: { death: [{ start: 40, end: 42, conf: 0.7, src: 'hud_soft', sigs: ['hud'] }, { start: 60, end: 62, conf: 0.3, src: 'signal_soft', sigs: ['sig'] }, { start: 80, end: 82, conf: 0.2, src: 'signal_soft', sigs: ['sig'] }], special: [{ ready: 50, end: 55, conf: 0.25 }], kill: [{ start: 70, end: 71.5, conf: 0.2, sigs: ['notice_soft'] }] },
+      review: { marks: {}, added: [], fix: {}, rmarks: {} } })`);
+    await js(`window.inkgraph.setReviewMode(true); window.inkgraph.nav('match', 'cand#1')`); await sleep(2500);
+    const c1 = await js(`({ hint: document.querySelector('#cand-hint').textContent, rows: [...document.querySelectorAll('.cand-row')].map(r => r.dataset.kind), marks: document.querySelectorAll('.cand-mark').length, first: document.querySelector('.cand-row[data-kind=death]').textContent.replace(/\\s+/g, ' ').trim() })`);
+    check(/デス: リザルト画面 3／いまの記録 1 → あと 2 件足りません/.test(c1.hint) && c1.rows.filter(x => x === 'death').length === 3 && c1.rows.length === 5 && c1.marks === 5 && /0:40/.test(c1.first) && /70%/.test(c1.first) && /HUD の自分アイコン×/.test(c1.first), '(26) レビューで、足りない数と、採用しなかった候補（確信度の高い順・信号つき）、タイムラインの候補の印が出る', JSON.stringify(c1));
+    await js(`document.querySelector('.cand-row[data-kind=death] .cand-add').click()`); await sleep(800);
+    const c2 = await js(`window.inkgraph.db.getMatch('cand#1').then(m => ({ added: m.review.added, hint: document.querySelector('#cand-hint').textContent, marks: document.querySelectorAll('.cand-mark').length, row: document.querySelector('.cand-row[data-kind=death] span:last-of-type')?.textContent }))`);
+    check(c2.added.length === 1 && c2.added[0].kind === 'death' && c2.added[0].t === 40 && c2.added[0].cand.conf === 0.7 && /あと 1 件足りません/.test(c2.hint) && c2.marks === 4, '(27) 「追加」で、候補の時刻に見逃しとして追加され（候補の確信度つき）、足りない数と印が更新される', JSON.stringify(c2));
+    await js(`[...document.querySelectorAll('.cand-row[data-kind=death] .cand-dismiss')][0].click()`); await sleep(800);
+    const c3 = await js(`window.inkgraph.db.getMatch('cand#1').then(m => ({ dis: m.review.cand_dismissed, rows: document.querySelectorAll('.cand-row[data-kind=death]').length, marks: document.querySelectorAll('.cand-mark').length }))`);
+    check(c3.dis.length === 1 && /^death@/.test(c3.dis[0]) && c3.rows === 2 && c3.marks === 3, '(28) 「見送る」で、その候補が隠れ、印も消える', JSON.stringify(c3));
+    await js(`document.querySelector('#cand-dis').click()`); await sleep(500);
+    check(await js(`document.querySelectorAll('.cand-row[data-kind=death]').length === 3 && !!document.querySelector('.cand-undismiss')`), '(29) 「見送った候補も表示」で再表示でき、「戻す」が出る');
+    // 要修正パックに、候補の使われ方が入る
+    const fd = await js(`window.inkgraph.db.getMatch('cand#1').then(m => window.inkgraph.buildFixPack([m]).then(async r => { const u = new Uint8Array(await r.blob.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode(...u.subarray(i, i + 32768)); return btoa(s); }))`);
+    const z2 = require('../../web/node_modules/fflate').unzipSync(new Uint8Array(Buffer.from(fd, 'base64'))), dj = JSON.parse(require('../../web/node_modules/fflate').strFromU8(z2[Object.keys(z2).find(n => n.endsWith('diff.json'))]));
+    check(dj.candidates.saved && dj.candidates.added_from_candidates === 1 && dj.candidates.dismissed === 1 && dj.misses[0].from_candidate === true, '(30) 要修正パックの diff に、候補の使われ方（候補から追加／見送った数）が入る', JSON.stringify(dj.candidates));
   } catch (e) { console.log('FAIL exception', e); fails++; }
   fs.rmSync(tmp, { recursive: true, force: true }); app.exit(fails ? 1 : 0);
 });
