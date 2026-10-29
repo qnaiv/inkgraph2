@@ -4,6 +4,7 @@
 const { app, BrowserWindow, protocol, net, ipcMain, dialog, session, powerSaveBlocker } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path'), fs = require('node:fs'), { pathToFileURL } = require('node:url'), { Readable } = require('node:stream');
+const { writeZip } = require('./zip_store.js');
 
 // バックグラウンドの間引きを切る（ウィンドウが隠れても setTimeout・映像の取り込みを止めない）
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -83,6 +84,21 @@ ipcMain.handle('desktop:pick-dir', async () => {
 });
 ipcMain.handle('desktop:open-dir', () => { const d = videoDir(); fs.mkdirSync(d, { recursive: true }); return require('electron').shell.openPath(d); });
 // ウィンドウ状態（テスト・診断用）
+// 要修正パック（AI に渡す zip）。録画はそのまま（無圧縮で）入れる。保存先は、保存ダイアログで選ぶ（INKGRAPH_PACK_OUT があればそのフォルダへ直接。テスト用）
+ipcMain.handle('pack:write', async (e, { filename, entries }) => {
+  const zipName = String(filename || 'ink-graph.zip').replace(/[\\/:*?"<>|]/g, '_');
+  let out = null;
+  if (process.env.INKGRAPH_PACK_OUT) out = path.join(process.env.INKGRAPH_PACK_OUT, zipName);
+  else { const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('downloads'), zipName), filters: [{ name: 'ZIP', extensions: ['zip'] }] }); if (r.canceled || !r.filePath) return { ok: false, canceled: true }; out = r.filePath; }
+  const known = knownDirs(), list = [];
+  for (const it of entries || []) {
+    const name = String(it.name || ''); if (!name || name.split('/').includes('..')) continue;
+    if (it.path) { const f = path.resolve(String(it.path)); if (!/\.(mp4|webm)$/i.test(f) || !known.has(path.dirname(f)) || !fs.existsSync(f)) return { ok: false, reason: 'video-not-found', file: f }; list.push({ name, path: f }); }
+    else list.push({ name, data: ArrayBuffer.isView(it.data) ? Buffer.from(it.data.buffer, it.data.byteOffset, it.data.byteLength) : String(it.data ?? '') });
+  }
+  try { const r = await writeZip(out, list, { onProgress: p => { try { e.sender.send('pack:progress', p); } catch { /* ignore */ } } }); return { ok: true, ...r }; }
+  catch (err) { return { ok: false, reason: String(err && err.message || err) }; }
+});
 ipcMain.handle('desktop:window', (_e, cmd) => { if (!win) return null; if (cmd === 'hide') win.hide(); else if (cmd === 'minimize') win.minimize(); else if (cmd === 'show') win.show(); else if (cmd === 'restore') win.restore(); return { visible: win.isVisible(), minimized: win.isMinimized() }; });
 
 function createWindow() {

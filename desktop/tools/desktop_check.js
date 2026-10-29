@@ -148,6 +148,23 @@ app.whenReady().then(async () => {
     check(['INDEX.json', 'README.md', 'detect_params.json', mdir + 'summary.json', mdir + 'human_review.json', mdir + 'software.json'].every(n => names.includes(n)) && /^ink-graph_要修正_/.test(pack.name), '(19) zip に、INDEX・README・試合ごとの summary／diff／human_review／software が入る', names.filter(n => !n.includes('frames/')).join(','));
     const fr = names.filter(n => n.startsWith(mdir + 'frames/') && n.endsWith('.webp'));
     check(diff.misses.length === 2 && diff.frame_source === 'recording' && fr.length >= 1 && diff.frames.length === fr.length && z[fr[0]].length > 100, '(20) 追加した見逃し 2 件の前後のコマが、録画から切り出されて入る（diff.json の対応表つき）', JSON.stringify({ misses: diff.misses.map(x => x.kind + '@' + x.t), src: diff.frame_source, frames: fr.length }));
+    // D87: 録画をそのまま入れた要修正パックを、main 側がディスクへ書く（ダイアログ経由）。録画は無加工・差分に録画の位置が付く
+    const packOut = path.join(tmp, 'packout'); fs.mkdirSync(packOut, { recursive: true }); process.env.INKGRAPH_PACK_OUT = packOut;
+    await js(`window.inkgraph.showFixExportDialog()`); await sleep(1200);
+    const dlg = await js(`({ size: document.querySelector('#fix-size')?.textContent || '', whole: !!document.querySelector('#fix-whole') })`);
+    check(/録画 \d+ 本/.test(dlg.size) && !dlg.whole, '(40) 書き出しダイアログに、録画をそのまま入れる旨と、サイズの目安が出る', dlg.size);
+    await js(`document.querySelector('#fix-go').click()`); await sleep(3500);
+    const zips = fs.readdirSync(packOut).filter(f => f.endsWith('.zip')), zpath = zips[0] && path.join(packOut, zips[0]);
+    check(zips.length === 1 && !fs.readdirSync(packOut).some(f => f.endsWith('.part')), '(41) ZIP が保存先に 1 つできる（一時ファイルは残らない）', zips.join(','));
+    if (zpath) {
+      const { unzipSync: uz, strFromU8: sf } = require('../../web/node_modules/fflate'), zz = uz(new Uint8Array(fs.readFileSync(zpath))), nm = Object.keys(zz), vname = nm.find(n => /\/video\/.+\.mp4$/.test(n));
+      const dj = JSON.parse(sf(zz[nm.find(n => n.endsWith('/diff.json'))])), recPath = ms[0].rec.path;
+      check(!!vname && Buffer.compare(Buffer.from(zz[vname]), fs.readFileSync(recPath)) === 0, '(42) 録画が無加工のまま（バイト単位で同じ）入っている', vname || nm.join(','));
+      check(dj.frame_source === 'video' && dj.video && Math.abs(dj.video.t0 - ms[0].rec.t0) < 1e-6 && dj.misses.every(x => Number.isFinite(x.video_pos) && Math.abs(x.video_pos - Math.max(0, x.t - ms[0].rec.t0)) < 0.06) && /video\//.test(sf(zz['README.md'])) && /ffmpeg/.test(sf(zz['README.md'])), '(43) diff.json に録画の名前・t0・各項目の録画の位置（video_pos）、README に ffmpeg の使い方が入る', JSON.stringify(dj.video));
+      const pyc = require('node:child_process').spawnSync('python3', ['-I', '-c', 'import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;print(len(z.namelist()))', zpath], { encoding: 'utf8' });
+      check(pyc.status === 0, '(44) Python の zipfile でも壊れずに読める', (pyc.stdout || pyc.stderr || '').trim());
+    }
+    await js(`document.querySelector('.fix-dialog-overlay')?.remove()`);
     // シーク: 長い録画でも、Range（206）で途中にシークできる（以前は、Range に応えず、必ず最初に戻っていた）
     const ff = require('../node_modules/ffmpeg-static'), { execFileSync } = require('node:child_process');
     const atoms = f => { const b = fs.readFileSync(f), out = []; let o = 0; while (o + 8 <= b.length) { let sz = b.readUInt32BE(o); const t = b.subarray(o + 4, o + 8).toString(); if (sz === 1) sz = Number(b.readBigUInt64BE(o + 8)); if (sz < 8) break; out.push(t); o += sz; } return out; };
