@@ -489,16 +489,6 @@ PAGES.live = async () => {
             <span class="stat-label">カウント差</span>
             <span class="live-context-val num count-zero" id="live-diff">±0</span>
           </div>
-          <div class="live-context-box">
-            <span class="stat-label" style="white-space:nowrap">勝率の目安</span>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px">
-              <span class="live-context-val num" id="live-wp">50%</span>
-              <svg id="live-spark" viewBox="0 0 100 24" width="64" height="20" style="flex:1;max-width:72px">
-                <line x1="0" x2="100" y1="12" y2="12" stroke="var(--border-strong)" stroke-dasharray="2,2"/>
-                <polyline id="live-spark-line" fill="none" stroke="var(--ally)" stroke-width="2" points="0,12 100,12"/>
-              </svg>
-            </div>
-          </div>
         </div>
 
         <div>
@@ -539,8 +529,10 @@ PAGES.live = async () => {
 
   const wpHistory = [50];
   const updateSpark = wpPct => {
+    if (!$('#live-wp', page)) return; // D81: 勝率の目安は出さない
     wpHistory.push(wpPct);
     if (wpHistory.length > 24) wpHistory.shift();
+    if (!$('#live-wp', page)) return;
     $('#live-wp', page).textContent = `${Math.round(wpPct)}%`;
     const pts = wpHistory.map((v, i) => {
       const x = wpHistory.length === 1 ? 100 : (i / (wpHistory.length - 1)) * 100;
