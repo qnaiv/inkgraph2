@@ -11,6 +11,7 @@ import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as VP from './verify_pack.js';
 import * as VR from './video_rec.js';
 import * as FP from './fix_pack.js';
+import { compareCounts, mismatchText } from './count_check.js';
 import { extractFrames } from './rec_frames.js';
 import * as FB from './feedback.js';
 import * as BK from './backup.js';
@@ -455,6 +456,7 @@ PAGES.live = async () => {
           <span id="live-flag-note" class="muted" style="font-size:var(--fs-xs);margin-left:6px">分析結果が間違っていたら押しておくと、あとで一覧から見つけて、レビューモードで直せます</span>
           <div id="live-flag-reasons" style="display:none;flex-wrap:wrap;gap:6px;margin-top:6px">${Object.entries(FP.FIX_REASONS).map(([k, lab]) => `<button class="chip" type="button" data-reason="${k}">${lab}</button>`).join('')}<span class="muted" style="font-size:var(--fs-xs);align-self:center">どこが間違い？（任意）</span></div>
         </div>
+        <div id="live-compare" class="live-compare" hidden style="margin:var(--sp-2) 0;padding:var(--sp-2) var(--sp-3);border-radius:8px;background:var(--surface-2,rgba(255,255,255,.05));font-size:var(--fs-xs)"></div>
         <div id="live-recount-note" class="live-recount-note" hidden></div>
         ${window.inkgraphDesktop ? '' : '<div id="live-browser-note" class="muted" style="font-size:var(--fs-xs);margin:var(--sp-2) 0">ブラウザ版: 解析中は、このウィンドウを<strong>隠さないで</strong>ください（最小化・別のタブへの切り替え・他のウィンドウで完全に覆うと、その試合は保存されません）。録画はデスクトップ版（Windows）のみ対応です。</div>'}
 
@@ -598,6 +600,16 @@ PAGES.live = async () => {
       box.style.borderLeft = `4px solid ${info.result === 'WIN' ? 'var(--kill, #4ade80)' : info.result === 'LOSE' ? 'var(--death, #f87171)' : 'var(--border, #555)'}`;
       if (!resultLogged && info.result && (info.mode || final) && info.stage && (info.own || final)) { resultLogged = true; addEventRow('', '🏁', `結果: ${head}${ownTxt ? '（' + ownTxt + '）' : ''}`, null); }
     };
+    // D77: 検出した数と、結果画面（公式アプリの表示）の数の突き合わせ。補正はしない。合わなければ ⚠（保存時に自動で要修正の印が付く）
+    const showCompare = (det, own, final) => {
+      const box = $('#live-compare', page); if (!box) return;
+      if (!own || ![own.deaths, own.specials, own.ka].some(Number.isInteger)) { box.hidden = true; return; }
+      const mm = compareCounts(det, own), bad = key => mm.includes(key), mark = key => bad(key) ? ' ⚠' : ' ✓';
+      box.hidden = false;
+      box.innerHTML = `<div style="margin-bottom:2px"><strong>検出 と リザルト画面の突き合わせ</strong> <span class="muted">${final ? '確定' : '暫定'}</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:var(--sp-3)"><span class="${bad('kill') ? 'mismatch-val' : ''}">キル 検出 ${det.kills} / K+A ${own.ka ?? '?'}${mark('kill')}</span><span class="${bad('death') ? 'mismatch-val' : ''}">デス 検出 ${det.deaths} / ${own.deaths ?? '?'}${mark('death')}</span><span class="${bad('special') ? 'mismatch-val' : ''}">スペシャル 検出 ${det.specials} / ${own.specials ?? '?'}${mark('special')}</span></div>
+        <div class="muted" style="margin-top:2px">${mm.length ? '合わない数があります。' + (final ? '自動で「要修正」にしました（外すときは下のボタン）。' : '試合が保存されたとき、自動で「要修正」の印が付きます。') : 'すべて一致しています。'}キルは K+A（アシスト込み）を超えたときだけ不一致です。</div>`;
+    };
     // D75: 要修正マーク。試合の保存は次のバトル開始まで待つので、保存前に押した印は覚えておき、保存されたときに付ける
     let battleSeq = 0, curOrd = 0; let pendingOrd = []; const flags = new Map(), savedIds = new Map();
     const flagBtn = $('#live-flag-btn', page), flagReasons = $('#live-flag-reasons', page), flagNote = $('#live-flag-note', page);
@@ -623,11 +635,11 @@ PAGES.live = async () => {
       videoStatus: r => { try { addEventRow('', r.level === 'error' ? '⚠' : '🎬', r.msg, null); } catch { /* ignore */ } },
       event: e => {
         if (e.type === 'special_end') return;
-        if (e.type === 'result_info') { showResult(e, false); return; }
+        if (e.type === 'result_info') { showResult(e, false); showCompare({ kills: k, deaths: d, specials: sp }, e.own, false); return; }
         if (e.type === 'battle_discard') { pendingOrd = pendingOrd.filter(o => o !== curOrd); flags.delete(curOrd); curOrd = pendingOrd.length ? pendingOrd[pendingOrd.length - 1] : 0; flagUI(); }
         const tt = mss(e.t - t0);
         if (e.type === 'battle_start') {
-          t0 = e.t; k = d = sp = 0; estWp = 0.5; resultLogged = false; battleActive = true; curOrd = ++battleSeq; pendingOrd.push(curOrd); flagUI(); { const rb = $('#live-result', page); if (rb) rb.hidden = true; }
+          t0 = e.t; k = d = sp = 0; estWp = 0.5; resultLogged = false; battleActive = true; { const cb = $('#live-compare', page); if (cb) cb.hidden = true; } curOrd = ++battleSeq; pendingOrd.push(curOrd); flagUI(); { const rb = $('#live-result', page); if (rb) rb.hidden = true; }
           const warn = $('#live-capture-warn', page); if (warn) warn.hidden = true;
           $('.live-stats-row', page)?.classList.remove('is-void');
           const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
@@ -718,7 +730,10 @@ PAGES.live = async () => {
       match: rec => {
         savedCount++;
         justSaved = true;
-        { const ord = pendingOrd.shift(); if (ord) { savedIds.set(ord, rec.id); if (flags.get(ord)) applyFlag(ord).then(flagUI); } }
+        { const ord = pendingOrd.shift(); if (ord) { savedIds.set(ord, rec.id);
+            if (rec.needs_fix && rec.needs_fix.auto && !flags.has(ord)) { flags.set(ord, new Set(rec.needs_fix.reasons || [])); flagUI(); const tt2 = mismatchText(rec.count_check); if (!battleActive) addEventRow('', '⚑', `検出と結果画面の数が合わないため、自動で要修正にしました${tt2 ? '：' + tt2 : ''}`, null); }
+            else if (flags.get(ord)) applyFlag(ord).then(flagUI); } }
+        if (!battleActive && rec.count_check && rec.count_check.result) showCompare(rec.count_check.detected, rec.count_check.result, true);
         if (!battleActive) { const rs = rec.result_screen || {}; showResult({ result: rs.result, mode: rs.mode ?? null, stage: rs.stage, match_type: rec.match_type, own: rs.own }, true); }
         const spBox = $('#live-sp-ready', page); if (spBox) spBox.hidden = true;
         $('#live-dot', page).className = 'status-dot-idle';
@@ -1004,7 +1019,7 @@ PAGES.list = async () => {
                 <button class="fav-btn" data-id="${esc(m.id)}" type="button" aria-label="お気に入り" title="お気に入り">${m.favorite === true ? '★' : '☆'}</button>
                 <span class="${badgeCls(r.result)}">${resJa(r.result)}</span>
                 ${isVerificationMatch(m) ? '<span class="verify-badge">検証用</span>' : ''}
-                ${m.needs_fix ? `<span class="badge" style="background:rgba(250,204,21,.15);color:#facc15" title="${esc((m.needs_fix.reasons || []).map(k => FP.FIX_REASONS[k] || k).join('・') || '要修正')}">⚑ 要修正</span>` : ''}
+                ${m.needs_fix ? `<span class="badge" style="background:rgba(250,204,21,.15);color:#facc15" title="${esc((m.needs_fix.reasons || []).map(k => FP.FIX_REASONS[k] || k).join('・') || '要修正')}">⚑ 要修正${m.needs_fix.auto ? '（自動）' : ''}</span>` : ''}
                 <span class="match-row-date num">${esc(dtStr)}</span>
               </div>
 

@@ -6,6 +6,7 @@ import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
 import * as detectParams from './detect_params.js';
+import { countCheck } from './count_check.js';
 import { desktop, isDesktop, recordingAvailable } from './desktop.js';
 import { MatchRecorder, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo, ensureDirPermission } from './video_rec.js';
 export async function listDevices() {
@@ -176,6 +177,9 @@ export class Session {
     if (!rec.power) rec.power = powerForMatchType(rec.match_type);
     const id = `${this.sessionId}#${rec.match}`; rec.id = id; rec.created = new Date().toISOString(); rec.session = this.sessionId; rec.source = { kind: this.mode, name: this.sourceName, height: this.srcH, owner: this.owner || 'self' };
     rec.review = rec.review || { marks: {}, added: [], fix: {} };
+    // D77: 検出した数が結果画面の数と合わないときは、自動で「要修正」の印を付ける（件数は補正しない。印は、ライブ画面・一覧から外せる）
+    if (!rec.count_check) rec.count_check = countCheck(rec);
+    if (rec.count_check && rec.count_check.mismatch && rec.count_check.mismatch.length && !rec.needs_fix) rec.needs_fix = { at: new Date().toISOString(), reasons: [...rec.count_check.mismatch], auto: true };
     const cand = this.pendingSnaps.filter(s => s.t >= rec.battle[0] - 30); let snaps = cand; if (snaps.length > 48) { const drop = snaps.length - 48, nulls = snaps.filter(s => !s.kind).slice(0, drop); snaps = snaps.filter(s => !nulls.includes(s)).slice(0, 48); } /* over cap: drop kind-less mid-match samples first */ this.pendingSnaps = this.pendingSnaps.filter(s => !cand.includes(s));
     let bytes = 0; for (const s of snaps) bytes += s.blob?.size || 0;
     const candClips = this.pendingClips.filter(c => c.t >= rec.battle[0] - 30);

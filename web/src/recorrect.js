@@ -45,7 +45,7 @@ export function recorrect(m, params) {
     const tgt = (v, k) => (v === null ? null : Math.max(0, v - added[k] + excl[k]));
     const own = { ka: tgt(st.truth.ka, 'kill'), deaths: tgt(st.truth.deaths, 'death'), specials: tgt(st.truth.specials, 'special') };
     // 2 回目：手入力の値を目標に、歯止めを外して補正
-    const next = buildMatch(base, m.match, srcH, { own, frames: 1e6, lim: FORCE });
+    const next = buildMatch(base, m.match, srcH, { own, frames: 1e6, lim: FORCE, reconcile: true });
     if (!m.pre_recorrect) m.pre_recorrect = JSON.parse(JSON.stringify({ own_deaths: m.own_deaths || [], own_kills: m.own_kills || [], special: m.special || [], recon: m.recon || null })); // 最初の 1 回だけ、元の検出を取っておく（もとに戻す用）
     // 変わらない検出は元のもの（局面・倒した相手・味方の人数などを持つ）を残し、新しく出た検出だけ入れ替える
     const keepOld = (olds, news, tol, kf) => news.map(n => olds.find(o => near(o[kf], n[kf], tol)) || n);

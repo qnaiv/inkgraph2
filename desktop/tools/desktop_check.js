@@ -98,6 +98,20 @@ app.whenReady().then(async () => {
       const m = (await window.inkgraph.db.allMatches()).find(x => x.id === s.sessionId + '#1');
       return { before, mid, flagged: m && m.needs_fix, after: document.querySelector('#live-flag-note').textContent }; })()`);
     check(fl.before.disabled === false && fl.mid.reasonsShown && /取り消す/.test(fl.mid.text) && /保存されたときに付きます/.test(fl.mid.note) && fl.flagged && fl.flagged.reasons.join() === 'kill,rule' && /一覧に/.test(fl.after), '(17) ライブ画面で要修正マーク（理由つき）を付けると、試合の保存時に記録へ付く', JSON.stringify(fl));
+    // D77: 検出した数が結果画面の数と合わない試合は、自動で要修正の印が付く（件数は補正しない）。ライブに突き合わせを出す
+    const au = await js(`(async () => { const s = window.inkgraph.getSession(), w = ms => new Promise(r => setTimeout(r, ms));
+      s.onMsg({ type: 'event', e: { type: 'battle_start', t: 100 } }); s.onMsg({ type: 'event', e: { type: 'battle_end', t: 130 } });
+      s.onMsg({ type: 'event', e: { type: 'result_info', t: 140, result: 'LOSE', mode: 'ガチヤグラ', stage: 'ザトウマーケット', match_type: 'x', own: { ka: 5, deaths: 2, specials: 1 } } });
+      const prov = { shown: !document.querySelector('#live-compare').hidden, text: document.querySelector('#live-compare').textContent.replace(/\\s+/g, ' ') };
+      await s.saveMatch({ match: 2, battle: [100, 130], squid_down: {}, own_deaths: [{ start: 105, end: 107 }, { start: 110, end: 112 }, { start: 120, end: 122 }, { start: 125, end: 127 }], own_kills: [{ start: 108 }], special: [], confidence: { personal_frames: 12, board_frames: 6 }, result_screen: { result: 'LOSE', mode: 'ガチヤグラ', stage: 'ザトウマーケット', own: { ka: 5, deaths: 2, specials: 1 } }, review: { marks: {}, added: [], fix: {} } });
+      await w(700);
+      const m = (await window.inkgraph.db.allMatches()).find(x => x.id === s.sessionId + '#2');
+      const note = [...document.querySelectorAll('#log .live-event-item')].map(x => x.textContent.replace(/\\s+/g, ' ')).find(x => x.includes('自動で要修正'));
+      const btn = document.querySelector('#live-flag-btn').textContent;
+      document.querySelector('#live-flag-btn').click(); await w(500);
+      const m2 = (await window.inkgraph.db.allMatches()).find(x => x.id === s.sessionId + '#2');
+      return { prov, flagged: m && m.needs_fix, recon: m && m.recon, deaths: m && m.own_deaths.length, auto: m && m.own_deaths.some(e => e.auto), note, btn, cleared: m2 && !m2.needs_fix }; })()`);
+    check(au.prov.shown && /デス 検出 0 \/ 2 ⚠/.test(au.prov.text) && au.flagged && au.flagged.auto === true && au.flagged.reasons.join() === 'death,special' && au.deaths === 4 && !au.auto && !au.recon && /自動で要修正/.test(au.note || '') && /取り消す/.test(au.btn) && au.cleared, '(25) 検出と結果画面の数が合わない試合は、自動で要修正の印が付き（件数は補正しない）、ライブに突き合わせと通知が出る。ボタンで外せる', JSON.stringify(au));
     await js(`(async () => { await window.inkgraph.getSession().stop(); })()`); await sleep(500);
     // rec:// は、録画を保存したフォルダの .mp4/.webm だけを返す（それ以外は 404）
     fs.writeFileSync(path.join(dir, 'memo.txt'), 'x'); fs.writeFileSync(path.join(os.tmpdir(), 'outside.mp4'), 'x');
