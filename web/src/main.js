@@ -1818,13 +1818,18 @@ async function renderVideoSettings(el) {
       <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.mp4</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.mp4）。録画した試合は、試合の詳細（レビュー）画面で録画を見ながら確認・修正できます。60fps・音声 192kbps。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
       <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''}> 試合ごとに録画する</label>
       <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''}> ゲーム音も録音する（次に解析を始めるときから）</label>
-      <label class="row">画質（60fps） <select id="video-bitrate" class="input-sm">${VR.BITRATE_CHOICES.map(m => `<option value="${m}" ${VR.getBitrateMbps() === m ? 'selected' : ''}>${m} Mbps（1 試合 約 ${Math.round(m * 6 * 60 / 8 + 6 * 60 * 192 / 8000)}MB${m === 8 ? '・おすすめ' : ''}）</option>`).join('')}</select></label>
+      <label class="row">画質（60fps） <select id="video-bitrate" class="input-sm">${VR.BITRATE_CHOICES.map(m => `<option value="${m}" ${VR.getBitrateMbps() === m ? 'selected' : ''}>${m} Mbps${m === 8 ? '（おすすめ）' : ''}</option>`).join('')}</select></label>
+      <label class="row">音質 <select id="video-audio-kbps" class="input-sm">${VR.AUDIO_CHOICES.map(k => `<option value="${k}" ${VR.getAudioKbps() === k ? 'selected' : ''}>${k} kbps${k === 192 ? '（おすすめ）' : ''}</option>`).join('')}</select></label>
+      <p class="muted" id="video-size-est"></p>
       <p class="muted">${D ? '画面共有: ウィンドウ／画面を選ぶと、Windows ではシステム音も録れます。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。' : '配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください。キャプチャー映像: ボードの音声入力を自動で探して足します。'} 見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
       <p class="muted" id="video-dir">保存先: ${D ? esc(dirInfo?.dir || '') + (dirInfo?.custom ? '' : '（既定）') : (dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）')}</p>
       <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${D || dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${D ? ' <button class="btn" id="video-open" type="button">保存先を開く</button>' : ''}${!D && dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}`;
     $('#video-on', el).onchange = e => { VR.setVideoOn(e.target.checked); const sm = document.querySelector('#live-video-summary'); if (sm) sm.textContent = e.target.checked ? '（オン）' : '（オフ）'; };
     $('#video-audio', el).onchange = e => VR.setAudioOn(e.target.checked);
-    $('#video-bitrate', el).onchange = e => VR.setBitrateMbps(+e.target.value);
+    const sizeEst = () => { const m = VR.getBitrateMbps(), k = VR.getAudioKbps(), mb = Math.round((m * 1000 + (VR.getAudioOn() ? k : 0)) * 6 * 60 / 8 / 1000); $('#video-size-est', el).textContent = `目安: 6 分の試合で 約 ${mb}MB（画質・音質を変えると、次の試合の録画から反映されます）`; };
+    $('#video-bitrate', el).onchange = e => { VR.setBitrateMbps(+e.target.value); sizeEst(); };
+    $('#video-audio-kbps', el).onchange = e => { VR.setAudioKbps(+e.target.value); sizeEst(); };
+    $('#video-audio', el).addEventListener('change', sizeEst); sizeEst();
     const rg = $('#video-regrant', el); if (rg) rg.onclick = async () => { await VR.ensureDirPermission(dir); await updateVideoPanel(); };
     const op = $('#video-open', el); if (op) op.onclick = () => D.openVideoDir();
     $('#video-pick', el).onclick = async () => { try { if (D) { await D.pickVideoDir(); } else { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); } await updateVideoPanel(); } catch { /* cancelled */ } };
