@@ -134,6 +134,7 @@ function nav(page, arg, seekTo = null) {
   }
   if (!PAGES[page]) page = 'live';
   if (page === 'live' && isNarrow()) page = 'list'; // D58: スマホなど狭い画面ではライブ分析を使わない
+  if (currentPage === 'match' && page !== 'match') reviewMode = false; // D86: 試合の詳細は、開くたびに普通モード（レビューモードは自分で入る）
   currentPage = page;
   if (arg) currentId = arg;
   pendingSeek = seekTo;
@@ -1505,7 +1506,6 @@ PAGES.match = async () => {
   };
 
   if (m.remote) reviewMode = false; // クラウドから取り込んだ試合は閲覧のみ（D58）
-  else if (m.needs_fix) reviewMode = true; // D75: 要修正の試合は、レビューモードで開く
   const r = resultOf(m);
   const rsStat = resultStatus(m);
   const matchTypeLabel = (r.match_type && MATCH_TYPE_LABEL[r.match_type]) || '不明';
@@ -2536,7 +2536,7 @@ PAGES.trend = async () => {
   const namingCardHtml = unknownGroups.length === 0 ? '' : `<div class="card trend-weapon-card" id="weapon-naming" style="margin-bottom:var(--sp-6)"><div class="card-title">未登録のブキアイコンに名前を付ける（${unknownGroups.length} 種類）</div>
       <p class="muted" style="font-size:var(--fs-xs)">絵を見て、一覧からブキを選んでください（種類は自動で入ります）。この端末の見本に登録され、過去の試合にも反映されます（クラウド同期をしていれば他の端末にも届きます）。一覧に無いブキは「リストにない武器」を選んで、名前と種類を入れてください。</p>
       <div class="weapon-naming-list" style="display:flex;flex-direction:column;gap:var(--sp-2)">${unknownGroups.slice(0, 30).map((g, i) => `<div class="weapon-naming-row" data-i="${i}" style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
-        <canvas class="weapon-icon-canvas" width="112" height="68" data-icon="${esc(g.rep)}" style="background:#000;border-radius:4px"></canvas>
+        <canvas class="weapon-icon-canvas" width="168" height="102" data-icon="${esc(g.rep)}" style="background:#000;border-radius:4px"></canvas>
         <span class="muted" style="font-size:var(--fs-xs)">${g.slots}枠・${g.matches}試合（敵 ${g.side.enemy}・味方 ${g.side.ally}）</span>
         <select class="input-sm weapon-name-select" style="min-width:200px"><option value="">ブキを選ぶ…</option>${optionsHtml}<option value="__custom__">リストにない武器…</option></select>
         <span class="weapon-custom" hidden style="display:none;gap:var(--sp-2);align-items:center"><input class="input-sm weapon-name-input" placeholder="ブキ名" size="18"><select class="input-sm weapon-type-select">${[...WEAPON_TYPES, UNCLASSIFIED].map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select></span>
@@ -2881,10 +2881,12 @@ PAGES.trend = async () => {
 
   // D65: 未登録のブキアイコンの絵を描き、名前を付けたら見本に登録して描き直す
   page.querySelectorAll('.weapon-icon-canvas').forEach(cv => {
-    const g = b64bytes(cv.dataset.icon), ctx = cv.getContext('2d'), im = ctx.createImageData(56, 34);
-    for (let i = 0; i < 56 * 34; i++) { im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = g[i]; im.data[i * 4 + 3] = 255; }
+    // D85: 保存してあるのは 56x34 のグレー。そのままだと白っぽく潰れて見えるので、明るさの幅（2〜98%）を引き伸ばし、なめらかに拡大して見せる
+    const g = b64bytes(cv.dataset.icon), ctx = cv.getContext('2d'), im = ctx.createImageData(56, 34), sorted = Array.from(g.subarray(0, 56 * 34)).sort((a, b) => a - b);
+    const lo = sorted[Math.floor(sorted.length * 0.02)], hi = sorted[Math.floor(sorted.length * 0.98)], span = Math.max(24, hi - lo);
+    for (let i = 0; i < 56 * 34; i++) { const v = Math.max(0, Math.min(255, Math.round((g[i] - lo) * 255 / span))); im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
     const tmp = document.createElement('canvas'); tmp.width = 56; tmp.height = 34; tmp.getContext('2d').putImageData(im, 0, 0);
-    ctx.imageSmoothingEnabled = false; ctx.drawImage(tmp, 0, 0, 112, 68);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(tmp, 0, 0, cv.width, cv.height);
   });
   page.querySelectorAll('.weapon-naming-row').forEach(row => {
     const sel = $('.weapon-name-select', row), custom = $('.weapon-custom', row), inp = $('.weapon-name-input', row), tsel = $('.weapon-type-select', row), auto = $('.weapon-type-auto', row), btn = $('.weapon-name-save', row);
