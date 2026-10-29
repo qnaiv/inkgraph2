@@ -9,6 +9,7 @@ import { LiveSpecialTracker } from './live_special.js';
 import { countCheck } from '../count_check.js';
 import { fuseDeath, fusedAccept, fuseKill, FUSE } from './fusion.js';
 import { packCues } from './cues_pack.js';
+import { LiveKillCounter } from './live_counts.js';
 export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240, sp_drain_min: 0.15, sp_drain_win: 1.5, sp_end_tol: 0.5, sig_th: 0.5, ready_th: 0.2, sp_gap: 3.0, kill_th: 0.6 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
 
 export function specialOutcome(a, b, deathStarts, t, go, lastOk = null) {
@@ -73,7 +74,7 @@ export class DeathLatch {
 
 export class Analyzer {
   constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); this.liveSp = new LiveSpecialTracker(); }
-  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, kc: new LiveKillCounter(), lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
     this.lastT = t; const tp = C.timerPresent(this.A, fr);
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
@@ -107,11 +108,7 @@ export class Analyzer {
     if (this.deathLatch.update(sg.dead, tp, mp, t)) { this.liveSp.death(t); this.onEvent({ type: 'own_death', t }); if (A.killer) m.kscan.push({ t0: t, reads: [] }); }
     for (const e of this.liveSp.frame({ t, gw, ok: tp, map: mp, dead: sg.dead })) this.onEvent(e);
     this.killerStep(fr, t);
-    const prevSlots = (m.F.length && m.F[m.F.length - 1].killSlots) ? m.F[m.F.length - 1].killSlots : [];
-    for (let i = 0; i < killSlots.length; i++) {
-      const prev = i < prevSlots.length ? !!prevSlots[i] : false;
-      if (killSlots[i] && !prev) this.onEvent({ type: 'own_kill', t });
-    }
+    for (let j = m.kc.step(killSlots); j > 0; j--) this.onEvent({ type: 'own_kill', t }); // D82: 速報のキル（live_counts.js の LiveKillCounter）
     m.F.push(f);
   }
   // D47: デス直後のデスカメ吹き出し「<ブキ名> で / やられた!」を +1〜+8 秒の間だけ読む
