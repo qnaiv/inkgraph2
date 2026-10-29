@@ -117,6 +117,26 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(dir, 'memo.txt'), 'x'); fs.writeFileSync(path.join(os.tmpdir(), 'outside.mp4'), 'x');
     const st = await js(`Promise.all([${JSON.stringify(path.join(dir, 'memo.txt'))}, ${JSON.stringify(path.join(os.tmpdir(), 'outside.mp4'))}, '/etc/passwd', ${JSON.stringify(ms[0].rec.path)}].map(p => fetch('rec://local/' + encodeURIComponent(p)).then(r => r.status)))`);
     check(st[0] === 404 && st[1] === 404 && st[2] === 404 && st[3] === 200, '(15) rec:// は録画フォルダの .mp4/.webm だけ返す（txt・フォルダ外・システムファイルは 404）', JSON.stringify(st));
+    // D79: レビューモードでないときは、録画をタイムラインの上に置く。タイムラインのクリックで、その秒数の録画が見られる
+    if (!fs.existsSync(path.join(dir, 'long.mp4'))) require('node:child_process').execFileSync(require('../node_modules/ffmpeg-static'), ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-t', '120', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(dir, 'long.mp4')]);
+    await js(`window.inkgraph.db.putMatch({ id: 'top#1', match: 1, created: new Date().toISOString(), battle: [0, 100], squid_down: {}, own_deaths: [], own_kills: [], special: [], stills: { count: 0, bytes: 0 }, video: { kind: 'none' },
+      result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'テスト', own: { ka: 0, deaths: 0, specials: 0 } }, review: { marks: {}, added: [], fix: {}, rmarks: {} },
+      recording: { path: ${JSON.stringify(path.join(dir, 'long.mp4'))}, file: 'long.mp4', t0: 0, remuxed: true } })`);
+    await js(`window.inkgraph.setReviewMode(false); window.inkgraph.nav('match', 'top#1')`); await sleep(2800);
+    const tp = await js(`(async () => { const v = document.querySelector('#rec-video'), card = document.querySelector('#rec-top-card'), tl = document.querySelector('#tl'); await new Promise(r => v.readyState >= 1 ? r() : v.addEventListener('loadedmetadata', r, { once: true }));
+      const vr = v.getBoundingClientRect(), tr = tl.getBoundingClientRect(), svg = tl.querySelector('svg'), sr = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+      const out = { shown: getComputedStyle(card).display !== 'none' && card.contains(v), above: vr.bottom <= tr.top + 1 && vr.width > 200, dur: v.duration };
+      // タイムラインの 50% の位置（バトル 100 秒の中の 50 秒）をクリック
+      const fx = (72 + 0.5 * 950) / vb.width; svg.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: sr.left + fx * sr.width, clientY: sr.top + sr.height * 0.5 }));
+      await new Promise(r => v.addEventListener('seeked', r, { once: true })); await new Promise(r => setTimeout(r, 300));
+      out.after = v.currentTime; out.playing = !v.paused; return out; })()`);
+    check(tp.shown && tp.above && Math.abs(tp.after - 50) < 1.5 && tp.playing, '(31) レビューモードでないとき、録画がタイムラインの上に出て、タイムラインのクリックで、その秒数（50 秒）から再生される', JSON.stringify(tp));
+    await js(`window.inkgraph.setReviewMode(true)`); await sleep(2200);
+    const tp2 = await js(`({ top: getComputedStyle(document.querySelector('#rec-top-card')).display, inAside: !!document.querySelector('.review-panel #rec-box #rec-video'), video: !!document.querySelector('#rec-video') })`);
+    check(tp2.top === 'none' && tp2.inAside && tp2.video, '(32) レビューモードにすると、録画は右の確認パネルに移り、タイムライン上の枠は消える', JSON.stringify(tp2));
+    await js(`document.querySelector('#review-toggle').click()`); await sleep(1200);
+    check(await js(`getComputedStyle(document.querySelector('#rec-top-card')).display !== 'none' && !!document.querySelector('#rec-top-slot #rec-video')`), '(33) レビューモードを切ると、録画はまたタイムラインの上に戻る');
+    await js(`window.inkgraph.setReviewMode(false)`);
     // 要修正パック: 一覧に印・フィルター・書き出しボタンが出る。書き出した zip に、差分と、録画から切り出したコマが入る
     await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[0].id)}).then(m => { m.needs_fix = { at: new Date().toISOString(), reasons: ['kill'] }; m.review.marks = { }; return window.inkgraph.db.putMatch(m); })`);
     await js(`location.hash = '#list'`); await sleep(2500);
@@ -131,7 +151,7 @@ app.whenReady().then(async () => {
     // シーク: 長い録画でも、Range（206）で途中にシークできる（以前は、Range に応えず、必ず最初に戻っていた）
     const ff = require('../node_modules/ffmpeg-static'), { execFileSync } = require('node:child_process');
     const atoms = f => { const b = fs.readFileSync(f), out = []; let o = 0; while (o + 8 <= b.length) { let sz = b.readUInt32BE(o); const t = b.subarray(o + 4, o + 8).toString(); if (sz === 1) sz = Number(b.readBigUInt64BE(o + 8)); if (sz < 8) break; out.push(t); o += sz; } return out; };
-    execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-t', '120', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(dir, 'long.mp4')]);
+    if (!fs.existsSync(path.join(dir, 'long.mp4'))) execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-t', '120', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', path.join(dir, 'long.mp4')]);
     const sk2 = await js(`(async () => { const url = 'rec://local/' + encodeURIComponent(${JSON.stringify(path.join(dir, 'long.mp4'))});
       const h = await fetch(url, { headers: { Range: 'bytes=1000-1999' } }); const v = document.createElement('video'); v.muted = true; v.src = url; await new Promise(r => v.onloadedmetadata = r);
       v.currentTime = 90; await new Promise(r => v.onseeked = r); return { status: h.status, cr: h.headers.get('content-range'), dur: v.duration, now: v.currentTime }; })()`);
