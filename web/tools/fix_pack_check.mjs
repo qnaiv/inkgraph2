@@ -1,5 +1,5 @@
 // fix_pack_check.mjs: D75 要修正パックの純関数（印の付け外し・差分・コマの時刻・要約）
-import { flagMatch, diffOf, frameTimes, matchSummary, safeId, fixPackFilename } from '../src/fix_pack.js';
+import { flagMatch, fixState, markFixDone, withVideoPos, diffOf, frameTimes, matchSummary, safeId, fixPackFilename } from '../src/fix_pack.js';
 let fails = 0; const check = (ok, name, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' - ' + extra : ''}`); if (!ok) fails++; };
 const mk = () => ({ id: 's#3', created: '2026-10-28T10:00:00Z', battle: [100, 400], match_type: 'x',
   own_deaths: [{ start: 120, end: 122, conf: 0.9 }, { start: 200, end: 202, conf: 0.4, auto: 'added' }], own_kills: [{ start: 150, end: 151, conf: 0.8 }], special: [{ ready: 180, end: 230, outcome: 'activated', activated_at: 230 }],
@@ -21,4 +21,14 @@ check(frameTimes(mk(), d, { whole: true, wholeStep: 1 }).length > 280, '(9) 試�
 const sm = matchSummary(Object.assign(mk(), { needs_fix: { at: 'x', reasons: ['kill', 'rule'] } }));
 check(sm.software_detected.deaths.length === 2 && sm.software_detected.deaths[1].auto === 'added' && sm.result_after_human_fix.deaths === 1 && sm.flagged.reasons.join() === 'キル数,ルール・ステージ' && sm.recording.t0 === 99.5, '(10) 要約: ソフトの検出・人が直したあとの値・理由・録画の開始時刻', JSON.stringify(sm.flagged));
 check(safeId('2026-10-28T10:00:00.000Z#3') === '2026_10_28T10_00_00_000Z_3' && /^ink-graph_要修正_\d{8}-\d{4}\.zip$/.test(fixPackFilename(new Date(2026, 9, 28, 21, 5))), '(11) フォルダ名・zip 名');
+// D88: 3 つの状態（確認不要・要修正・修正済み）
+{ const x = mk(); check(fixState(x) === 'none', '(12) 印がなければ「確認不要」');
+  markFixDone(x, true); check(fixState(x) === 'none' && !x.needs_fix, '(13) 印のない試合には「修正完了」を付けられない');
+  flagMatch(x, true, ['kill']); check(fixState(x) === 'todo', '(14) 印を付けると「要修正」');
+  markFixDone(x, true, '2026-10-29T00:00:00Z'); check(fixState(x) === 'done' && x.needs_fix.done.at === '2026-10-29T00:00:00Z', '(15) 「修正完了」で「修正済み」（印は残る）');
+  flagMatch(x, true, ['kill', 'death']); check(fixState(x) === 'done' && x.needs_fix.reasons.length === 2, '(16) 理由を付け足しても、修正済みのまま');
+  check(matchSummary(x).flagged.fixed_at === '2026-10-29T00:00:00Z', '(17) 要約に、修正した日時が入る');
+  markFixDone(x, false); check(fixState(x) === 'todo', '(18) 「修正済み」を戻すと「要修正」');
+  flagMatch(x, false); check(fixState(x) === 'none', '(19) 印を外すと「確認不要」');
+  const wv = withVideoPos(diffOf(mk()), mk()); check(wv.misses.every(y => Math.abs(y.video_pos - Math.max(0, y.t - 99.5)) < 0.06) && wv.false_positives.length === 1 && wv.false_positives[0].video_pos === 100.5, '(20) 差分の各項目に、録画の位置（解析時刻 − t0）が付く', JSON.stringify(wv.false_positives)); }
 process.exit(fails ? 1 : 0);

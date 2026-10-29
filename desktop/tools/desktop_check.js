@@ -6,7 +6,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'inkgraph-desktop-'));
 process.env.INKGRAPH_USER_DATA = path.join(tmp, 'ud'); process.env.INKGRAPH_VIDEO_DIR = path.join(tmp, 'videos');
 const { app, BrowserWindow } = require('electron');
 require('../main.js');
-let fails = 0; const check = (ok, name, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' - ' + extra : ''}`); if (!ok) fails++; };
+let fails = 0; const check = (ok, name, extra = '') => { const line = `${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' - ' + extra : ''}`; console.log(line); if (process.env.CHECK_LOG) fs.appendFileSync(process.env.CHECK_LOG, line + '\n'); if (!ok) fails++; }; // CHECK_LOG: 途中経過を逐次ファイルへ（固まったときの場所が分かる）
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 app.whenReady().then(async () => {
   try {
@@ -132,10 +132,10 @@ app.whenReady().then(async () => {
       out.after = v.currentTime; out.playing = !v.paused; return out; })()`);
     check(tp.shown && tp.above && Math.abs(tp.after - 50) < 1.5 && tp.playing, '(31) レビューモードでないとき、録画がタイムラインの上に出て、タイムラインのクリックで、その秒数（50 秒）から再生される', JSON.stringify(tp));
     await js(`window.inkgraph.setReviewMode(true)`); await sleep(2200);
-    const tp2 = await js(`({ top: getComputedStyle(document.querySelector('#rec-top-card')).display, inAside: !!document.querySelector('.review-panel #rec-box #rec-video'), video: !!document.querySelector('#rec-video') })`);
-    check(tp2.top === 'none' && tp2.inAside && tp2.video, '(32) レビューモードにすると、録画は右の確認パネルに移り、タイムライン上の枠は消える', JSON.stringify(tp2));
+    const tp2 = await js(`(() => { const v = document.querySelector('#rec-video'), tl = document.querySelector('#tl'); return { top: getComputedStyle(document.querySelector('#rec-top-card')).display, inTop: !!document.querySelector('#rec-top-slot #rec-video'), inAside: !!document.querySelector('.review-panel #rec-video'), wide: v.getBoundingClientRect().width > 400, above: v.getBoundingClientRect().bottom <= tl.getBoundingClientRect().top + 1 }; })()`);
+    check(tp2.top !== 'none' && tp2.inTop && !tp2.inAside && tp2.wide && tp2.above, '(32) レビューモードでも、録画はタイムラインの上に、通常モードと同じ大きさで出る（右の確認パネルには移らない）', JSON.stringify(tp2));
     await js(`document.querySelector('#review-toggle').click()`); await sleep(1200);
-    check(await js(`getComputedStyle(document.querySelector('#rec-top-card')).display !== 'none' && !!document.querySelector('#rec-top-slot #rec-video')`), '(33) レビューモードを切ると、録画はまたタイムラインの上に戻る');
+    check(await js(`getComputedStyle(document.querySelector('#rec-top-card')).display !== 'none' && !!document.querySelector('#rec-top-slot #rec-video')`), '(33) レビューモードを切っても、録画はタイムラインの上のまま');
     await js(`window.inkgraph.setReviewMode(false)`);
     // 要修正パック: 一覧に印・フィルター・書き出しボタンが出る。書き出した zip に、差分と、録画から切り出したコマが入る
     await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[0].id)}).then(m => { m.needs_fix = { at: new Date().toISOString(), reasons: ['kill'] }; m.review.marks = { }; return window.inkgraph.db.putMatch(m); })`);
@@ -150,9 +150,12 @@ app.whenReady().then(async () => {
     check(diff.misses.length === 2 && diff.frame_source === 'recording' && fr.length >= 1 && diff.frames.length === fr.length && z[fr[0]].length > 100, '(20) 追加した見逃し 2 件の前後のコマが、録画から切り出されて入る（diff.json の対応表つき）', JSON.stringify({ misses: diff.misses.map(x => x.kind + '@' + x.t), src: diff.frame_source, frames: fr.length }));
     // D87: 録画をそのまま入れた要修正パックを、main 側がディスクへ書く（ダイアログ経由）。録画は無加工・差分に録画の位置が付く
     const packOut = path.join(tmp, 'packout'); fs.mkdirSync(packOut, { recursive: true }); process.env.INKGRAPH_PACK_OUT = packOut;
+    // 「修正済み」だけが書き出せる: ms[0] を修正済みにして、もう 1 試合（要修正のまま）は灰色になる
+    await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[0].id)}).then(m => { m.needs_fix = { ...(m.needs_fix || { at: new Date().toISOString(), reasons: ['kill'] }), done: { at: new Date().toISOString() } }; return window.inkgraph.db.putMatch(m); })`);
+    await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[1].id)}).then(m => { m.needs_fix = { at: new Date().toISOString(), reasons: ['death'] }; return window.inkgraph.db.putMatch(m); })`);
     await js(`window.inkgraph.showFixExportDialog()`); await sleep(1200);
-    const dlg = await js(`({ size: document.querySelector('#fix-size')?.textContent || '', whole: !!document.querySelector('#fix-whole') })`);
-    check(/録画 \d+ 本/.test(dlg.size) && !dlg.whole, '(40) 書き出しダイアログに、録画をそのまま入れる旨と、サイズの目安が出る', dlg.size);
+    const dlg = await js(`({ size: document.querySelector('#fix-size')?.textContent || '', whole: !!document.querySelector('#fix-whole'), on: [...document.querySelectorAll('.fixsel')].filter(x => !x.disabled && x.checked).length, off: [...document.querySelectorAll('.fixsel')].filter(x => x.disabled).length, note: /未修正/.test(document.querySelector('.fix-dialog-overlay').textContent) })`);
+    check(/録画 1 本/.test(dlg.size) && !dlg.whole && dlg.on === 1 && dlg.off >= 1 && dlg.note, '(40) 書き出しダイアログ: 修正済みの 1 試合だけが選べ、要修正のままの試合は灰色（未修正の案内つき）。録画をそのまま入れる旨と、サイズの目安が出る', JSON.stringify(dlg));
     await js(`document.querySelector('#fix-go').click()`); await sleep(3500);
     const zips = fs.readdirSync(packOut).filter(f => f.endsWith('.zip')), zpath = zips[0] && path.join(packOut, zips[0]);
     check(zips.length === 1 && !fs.readdirSync(packOut).some(f => f.endsWith('.part')), '(41) ZIP が保存先に 1 つできる（一時ファイルは残らない）', zips.join(','));
@@ -193,6 +196,21 @@ app.whenReady().then(async () => {
     await js(`window.inkgraph.setReviewMode(true); window.inkgraph.nav('match', 'cand#1')`); await sleep(2500);
     const c1 = await js(`({ hint: document.querySelector('#cand-hint').textContent, rows: [...document.querySelectorAll('.cand-row')].map(r => r.dataset.kind), marks: document.querySelectorAll('.cand-mark').length, first: document.querySelector('.cand-row[data-kind=death]').textContent.replace(/\\s+/g, ' ').trim() })`);
     check(/デス: リザルト画面 3／いまの記録 1 → あと 2 件足りません/.test(c1.hint) && c1.rows.filter(x => x === 'death').length === 3 && c1.rows.length === 5 && c1.marks === 5 && /0:40/.test(c1.first) && /70%/.test(c1.first) && /HUD の自分アイコン×/.test(c1.first), '(26) レビューで、足りない数と、採用しなかった候補（確信度の高い順・信号つき）、タイムラインの候補の印が出る', JSON.stringify(c1));
+    // D88: タイムラインの補正候補は、オン・オフできる（レビューモードに入ると自動でオン）
+    const tg0 = await js(`({ box: !!document.querySelector('#cand-tl'), on: document.querySelector('#cand-tl')?.checked, marks: document.querySelectorAll('.cand-mark').length })`);
+    await js(`(() => { const c = document.querySelector('#cand-tl'); c.checked = false; c.dispatchEvent(new Event('change')); })()`); await sleep(500);
+    const tg1 = await js(`({ marks: document.querySelectorAll('.cand-mark').length, on: document.querySelector('#cand-tl').checked })`);
+    await js(`(() => { const c = document.querySelector('#cand-tl'); c.checked = true; c.dispatchEvent(new Event('change')); })()`); await sleep(500);
+    const tg2 = await js(`document.querySelectorAll('.cand-mark').length`);
+    check(tg0.box && tg0.on && tg0.marks === 5 && tg1.marks === 0 && !tg1.on && tg2 === 5, '(45) タイムラインの「補正候補を表示」で、候補の印をオン・オフできる（レビューモードでは最初オン）', JSON.stringify({ tg0, tg1, tg2 }));
+    // 要修正の 3 状態: 確認不要 → 要修正 → 修正済み（詳細のボタン）。一覧の「修正済み」フィルター
+    const fxs = await js(`(async () => { const q = s => document.querySelector(s), id = 'cand#1', get = () => window.inkgraph.db.getMatch(id), wait = ms => new Promise(r => setTimeout(r, ms)), out = {};
+      out.none = { flag: !!(await get()).needs_fix, done: getComputedStyle(q('#fix-done')).display };
+      q('#fix-toggle').click(); await wait(300); out.todo = { flag: !!(await get()).needs_fix, done: !!(await get()).needs_fix.done, label: q('#fix-done').textContent };
+      const orig = window.confirm; window.confirm = () => true; q('#fix-done').click(); await wait(300); window.confirm = orig; out.fixed = { flag: !!(await get()).needs_fix, done: !!(await get()).needs_fix.done, label: q('#fix-done').textContent };
+      return out; })()`);
+    check(fxs.none.flag === false && fxs.none.done === 'none' && fxs.todo.flag && !fxs.todo.done && /修正完了にする/.test(fxs.todo.label) && fxs.fixed.flag && fxs.fixed.done && /修正済み/.test(fxs.fixed.label), '(46) 詳細のボタンで、確認不要 → 要修正 → 修正済み に切り替わる（修正済みでも要修正の印は残る）', JSON.stringify(fxs));
+    await js(`window.inkgraph.db.getMatch('cand#1').then(m => { delete m.needs_fix; return window.inkgraph.db.putMatch(m); })`);
     await js(`document.querySelector('.cand-row[data-kind=death] .cand-add').click()`); await sleep(800);
     const c2 = await js(`window.inkgraph.db.getMatch('cand#1').then(m => ({ added: m.review.added, hint: document.querySelector('#cand-hint').textContent, marks: document.querySelectorAll('.cand-mark').length, row: document.querySelector('.cand-row[data-kind=death] span:last-of-type')?.textContent }))`);
     check(c2.added.length === 1 && c2.added[0].kind === 'death' && c2.added[0].t === 40 && c2.added[0].cand.conf === 0.7 && /あと 1 件足りません/.test(c2.hint) && c2.marks === 4, '(27) 「追加」で、候補の時刻に見逃しとして追加され（候補の確信度つき）、足りない数と印が更新される', JSON.stringify(c2));

@@ -829,12 +829,13 @@ PAGES.list = async () => {
     if (listFilters.mode !== 'ALL' && (r.mode || '不明') !== listFilters.mode) return false;
     if (listFilters.stage !== 'ALL' && (r.stage || '不明') !== listFilters.stage) return false;
     if (listFilters.result !== 'ALL' && r.result !== listFilters.result) return false;
-    if (listFilters.fix === 'FIX' && !m.needs_fix) return false;
+    if (listFilters.fix === 'FIX' && FP.fixState(m) !== 'todo') return false;
+    if (listFilters.fix === 'DONE' && FP.fixState(m) !== 'done') return false;
     return true;
   }).sort((a, b) => (b.created || '').localeCompare(a.created || '') || (b.match || 0) - (a.match || 0)); // 日時の降順（最新が一番上）
 
   const hasMatches = ms.length > 0;
-  const fixCount = ms.filter(m => m.needs_fix).length;
+  const fixCount = ms.filter(m => FP.fixState(m) === 'todo').length, fixDoneCount = ms.filter(m => FP.fixState(m) === 'done').length;
   const pending = FB.pendingMatches(ms);
   const pendingConfirmed = pending.reduce((a, m) => a + FB.confirmedCount(m), 0);
   const recentHist = [...FB.getFeedbackHistory()].slice(-5).reverse();
@@ -935,11 +936,12 @@ PAGES.list = async () => {
           <span class="filter-label">修正</span>
           <button class="chip ${listFilters.fix === 'ALL' ? 'active' : ''}" data-fkind="fix" data-fval="ALL">すべて</button>
           <button class="chip ${listFilters.fix === 'FIX' ? 'active' : ''}" data-fkind="fix" data-fval="FIX">⚑ 要修正（${fixCount}）</button>
+          <button class="chip ${listFilters.fix === 'DONE' ? 'active' : ''}" data-fkind="fix" data-fval="DONE">✔ 修正済み（${fixDoneCount}）</button>
         </div>
       </div>
-      ${fixCount ? `<div class="card fix-bar" id="fix-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)">
-        <span><strong>⚑ 要修正 ${fixCount} 件</strong>　試合を開くと、録画を見ながらレビューモードで直せます。</span>
-        <button class="btn btn-sm" id="fix-export" type="button">要修正の試合を AI 用に書き出す（zip）</button>
+      ${fixCount || fixDoneCount ? `<div class="card fix-bar" id="fix-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-4)">
+        <span><strong>⚑ 要修正 ${fixCount} 件・✔ 修正済み ${fixDoneCount} 件</strong>　試合を開いて、録画を見ながらレビューモードで直し、「修正完了」にすると、AI 用に書き出せます。</span>
+        <button class="btn btn-sm" id="fix-export" type="button">修正済みの試合を AI 用に書き出す（zip）</button>
       </div>` : ''}
 
       <div class="match-list">
@@ -975,7 +977,7 @@ PAGES.list = async () => {
                 <button class="fav-btn" data-id="${esc(m.id)}" type="button" aria-label="お気に入り" title="お気に入り">${m.favorite === true ? '★' : '☆'}</button>
                 <span class="${badgeCls(r.result)}">${resJa(r.result)}</span>
                 ${isVerificationMatch(m) ? '<span class="verify-badge">検証用</span>' : ''}
-                ${m.needs_fix ? `<span class="badge" style="background:rgba(250,204,21,.15);color:#facc15" title="${esc((m.needs_fix.reasons || []).map(k => FP.FIX_REASONS[k] || k).join('・') || '要修正')}">⚑ 要修正${m.needs_fix.auto ? '（自動）' : ''}</span>` : ''}
+                ${m.needs_fix && m.needs_fix.done ? `<span class="badge" style="background:rgba(74,222,128,.15);color:#4ade80" title="修正済み（AI 用に書き出せます）">✔ 修正済み</span>` : m.needs_fix ? `<span class="badge" style="background:rgba(250,204,21,.15);color:#facc15" title="${esc((m.needs_fix.reasons || []).map(k => FP.FIX_REASONS[k] || k).join('・') || '要修正')}">⚑ 要修正${m.needs_fix.auto ? '（自動）' : ''}</span>` : ''}
                 <span class="match-row-date num">${esc(dtStr)}</span>
               </div>
 
@@ -1361,15 +1363,15 @@ async function exportFixPack(sel, onProgress = () => {}) {
 
 async function showFixExportDialog() {
   document.querySelector('.fix-dialog-overlay')?.remove();
-  const all = (await db.allMatches()).filter(m => m.needs_fix);
+  const all = (await db.allMatches()).filter(m => m.needs_fix), doneAll = all.filter(m => FP.fixState(m) === 'done');
   const ov = document.createElement('div'); ov.className = 'fix-dialog-overlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
-  const rows = all.map(m => { const d = FP.diffOf(m), r = resultOf(m); return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" class="fixsel" value="${esc(m.id)}" checked> <span>${esc((m.created || '').slice(0, 16).replace('T', ' '))} ${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="muted">誤検出 ${d.false_positives.length}・見逃し ${d.misses.length}・読み違い ${d.result_fixes.length}${d.unreviewed ? `・未確認 ${d.unreviewed}` : ''}${m.recording ? '・録画あり' : ''}</span></span></label>`; }).join('');
-  ov.innerHTML = `<div class="card" style="max-width:720px;width:92vw;max-height:84vh;overflow:auto;padding:var(--sp-4)"><h3>要修正の試合を AI 用に書き出す</h3>
+  const rows = all.map(m => { const d = FP.diffOf(m), r = resultOf(m); return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" class="fixsel" value="${esc(m.id)}" ${FP.fixState(m) === 'done' ? 'checked' : 'disabled'}> <span>${esc((m.created || '').slice(0, 16).replace('T', ' '))} ${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="muted">誤検出 ${d.false_positives.length}・見逃し ${d.misses.length}・読み違い ${d.result_fixes.length}${d.unreviewed ? `・未確認 ${d.unreviewed}` : ''}${m.recording ? '・録画あり' : ''}</span>${FP.fixState(m) === 'done' ? '' : ' <span class="muted" style="font-size:var(--fs-xs)">未修正（先にレビューで正解を付けて、「修正完了」にしてください）</span>'}</span></label>`; }).join('');
+  ov.innerHTML = `<div class="card" style="max-width:720px;width:92vw;max-height:84vh;overflow:auto;padding:var(--sp-4)"><h3>修正済みの試合を AI 用に書き出す</h3>
     <p class="muted" style="font-size:var(--fs-xs)">ソフトの分析結果と、人の修正（✓／✗・追加した見逃し・直した値）、録画（そのまま）または静止画を zip にします。Claude Code に渡して、検出ロジックの修正に生かせます。レビューモードで直してから書き出すと、差分が正しく入ります。</p>
-    <div>${rows || '<p class="muted">要修正の試合がありません</p>'}</div>
+    <div>${rows || '<p class="muted">要修正の試合がありません</p>'}</div>${all.length && !doneAll.length ? '<p class="muted">修正済みの試合がありません。試合の詳細で、レビューモードで直してから「修正完了」にしてください。</p>' : ''}
     <p id="fix-size" class="muted" style="font-size:var(--fs-xs);margin-top:8px"></p>
     <p id="fix-progress" class="muted" style="min-height:1.4em;font-size:var(--fs-xs)"></p>
-    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${all.length ? '' : 'disabled'}>書き出す</button></div></div>`;
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${doneAll.length ? '' : 'disabled'}>書き出す</button></div></div>`;
   document.body.appendChild(ov);
   $('#fix-cancel', ov).onclick = () => ov.remove();
   const D = window.inkgraphDesktop, canDisk = !!(D && D.packWrite);
@@ -1598,13 +1600,13 @@ PAGES.match = async () => {
         <span class="toggle-switch" aria-hidden="true"></span>
         <span>レビューモード</span>
       </label>`}
-      ${m.remote ? '' : `<span class="fix-flag-ctl" style="display:inline-flex;gap:6px;align-items:center;margin-left:12px"><button class="btn btn-sm" id="fix-toggle" type="button">${m.needs_fix ? '⚑ 修正完了にする（要修正を外す）' : '⚑ 要修正にする'}</button></span>`}
+      ${m.remote ? '' : `<span class="fix-flag-ctl" style="display:inline-flex;gap:6px;align-items:center;margin-left:12px"><button class="btn btn-sm" id="fix-toggle" type="button"></button> <button class="btn btn-sm" id="fix-done" type="button"></button></span>`}
     </div>
 
     <div class="detail-body ${reviewMode ? 'review-on' : ''}" id="detail-body">
       <div class="card detail-timeline-card" id="rec-top-card" style="display:none"><div class="card-title">録画</div><div id="rec-top-slot" style="max-width:820px"></div></div>
       <div class="card detail-timeline-card">
-        <div class="card-title">タイムライン</div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>タイムライン</span>${m.remote || !m.cands ? '' : '<label class="muted" style="font-size:var(--fs-xs);font-weight:400;display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" id="cand-tl"> 補正候補を表示</label>'}</div>
         <div id="tl"></div>
       </div>
 
@@ -1658,12 +1660,26 @@ PAGES.match = async () => {
   mountPage(page, false);
 
   $('#pick', page).onchange = e => nav('match', e.target.value);
-  const fixBtn = $('#fix-toggle', page); if (fixBtn) fixBtn.onclick = async () => { FP.flagMatch(m, !m.needs_fix, m.needs_fix?.reasons || []); await db.putMatch(m); fixBtn.textContent = m.needs_fix ? '⚑ 修正完了にする（要修正を外す）' : '⚑ 要修正にする'; };
+  // D88: 要修正の状態は 3 つ。確認不要（印なし）／要修正（まだ直していない）／修正済み（正解を付け終えた。AI 用に書き出せるのはこれだけ）
+  const fixBtn = $('#fix-toggle', page), fixDoneBtn = $('#fix-done', page);
+  const fixUI = () => { const st = FP.fixState(m); if (!fixBtn) return;
+    fixBtn.textContent = st === 'none' ? '⚑ 要修正にする' : '要修正を外す（確認不要）';
+    fixDoneBtn.style.display = st === 'none' ? 'none' : ''; fixDoneBtn.textContent = st === 'done' ? '✔ 修正済み（要修正に戻す）' : '✔ 修正完了にする'; fixDoneBtn.classList.toggle('btn-primary', st === 'todo'); };
+  if (fixBtn) {
+    fixBtn.onclick = async () => { FP.flagMatch(m, !m.needs_fix, m.needs_fix?.reasons || []); await db.putMatch(m); fixUI(); };
+    fixDoneBtn.onclick = async () => {
+      if (FP.fixState(m) === 'todo') { const un = FP.diffOf(m).unreviewed; if (un > 0 && !confirm(`未確認の検出が ${un} 件残っています。このまま「修正完了」にしますか？（AI は、確認していない検出を正しいものとして扱います）`)) return; FP.markFixDone(m, true); }
+      else FP.markFixDone(m, false);
+      await db.putMatch(m); fixUI();
+    };
+    fixUI();
+  }
   if ($('#review-toggle', page)) $('#review-toggle', page).onchange = e => {
     reviewMode = e.target.checked;
     $('#detail-body', page).classList.toggle('review-on', reviewMode);
     placeRec();
     if (!reviewMode && tlEl) tlEl.closePopover();
+    candOnTL = reviewMode; { const ct = $('#cand-tl', page); if (ct) ct.checked = candOnTL; }
     drawTL();
   };
 
@@ -1862,9 +1878,9 @@ PAGES.match = async () => {
       <div id="rec-cap" class="muted" style="margin-top:6px;font-size:var(--fs-xs)"></div>
       <div class="muted" style="font-size:var(--fs-xs)">キー: Space 再生/停止・←→ 1秒・, . 1コマ・K キー／D デス／S スペシャルを、いま見ている時刻に追加（レビューモード中）</div>`;
     recVideo = $('#rec-video', page); setVideoMode(true);
-    // D79: レビューモードでないときは、録画をタイムラインの上に置く（タイムラインのクリックで、その秒数の録画が見られる）。レビューモードでは右の確認パネルに戻す
+    // D79・D88: 録画は、通常モードでもレビューモードでも、タイムラインの上に置く（タイムラインのクリックで、その秒数の録画が見られる。見ながら直せる）
     placeRec = () => {
-      if (!recVideo) return; const top = !reviewMode, was = { t: recVideo.currentTime, playing: !recVideo.paused };
+      if (!recVideo) return; const top = true, was = { t: recVideo.currentTime, playing: !recVideo.paused };
       const card = $('#rec-top-card', page), slot = $('#rec-top-slot', page);
       if (top) { slot.appendChild(recBox); card.style.display = ''; } else { recHome.insertBefore(recBox, recHomeNext && recHomeNext.parentNode === recHome ? recHomeNext : null); card.style.display = 'none'; }
       recBox.style.display = '';
@@ -1940,7 +1956,7 @@ PAGES.match = async () => {
   const candKey = (kind, c) => `${kind}@${candTime(kind, c).toFixed(1)}`;
   const candAdded = (kind, c) => (m.review.added || []).some(a => a.kind === kind && Math.abs(a.t - candTime(kind, c)) <= 1.5);
   const candDismissed = (kind, c) => (m.review.cand_dismissed || []).includes(candKey(kind, c));
-  let candShowAll = false, candShowDismissed = false;
+  let candShowAll = false, candShowDismissed = false, candOnTL = reviewMode; // D88: タイムラインに補正候補を出すか（レビューモードに入ると自動でオン。あとは自分でオン・オフ）
   const visibleCands = () => { const out = []; for (const [k] of CAND_KINDS) for (const c of ((m.cands || {})[k] || [])) if (!candAdded(k, c) && !candDismissed(k, c)) out.push({ kind: k, t: candTime(k, c), from: k === 'special' ? c.ready : undefined, conf: c.conf }); return out; };
   const candDraw = () => {
     const host = $('#cand-list', page), hint = $('#cand-hint', page); if (!host) return;
@@ -1983,7 +1999,7 @@ PAGES.match = async () => {
   const drawTL = (opts = {}) => {
     tlEl = renderTimeline(m, {
       reviewMode,
-      cands: reviewMode ? visibleCands() : null,
+      cands: candOnTL ? visibleCands() : null,
       onSeek: seek,
       // ヤグラ保持ラベル / カウント点の変更: 保存して帯を描き直す（カウント追加・削除ではポップオーバーを開いたままにする）
       onReviewChange: async ({ reopen, focus }) => { await save(); drawTL({ reopen, focus }); },
@@ -1992,6 +2008,7 @@ PAGES.match = async () => {
     if (opts.reopen) tlEl.openPopover(opts.reopen);
     else if (opts.focus) tlEl.focusSegment(opts.focus);
   };
+  { const ct = $('#cand-tl', page); if (ct) { ct.checked = candOnTL; ct.onchange = () => { candOnTL = ct.checked; drawTL(); }; } }
 
   const accDraw = () => {
     const a = accuracy([m]);
