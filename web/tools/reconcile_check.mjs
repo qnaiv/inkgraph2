@@ -76,11 +76,14 @@ const run = (F, ctx) => buildMatch({ a: 0, b: F[F.length - 1].t, F, th: [0, 0], 
   const F = mkF(150, t => ({ sig: (t >= 10 && t < 14) || (t >= 60 && t < 64), sy: (t >= 10 && t < 14) || (t >= 60 && t < 64) ? 0.8 : (t >= 100 && t < 103 ? 0.4 : 0) }));
   const base = run(F, {});
   check(base.own_deaths.length === 2 && base.recon === null, '(11) 結果画面なしなら補正しない（従来と同じ 2 件）', `n=${base.own_deaths.length}`);
-  const fix = run(F, { own: own(null, 3, null), frames: 20 });
+  const fix = run(F, { own: own(null, 3, null), frames: 20, reconcile: true });
   const added = fix.own_deaths.find(e => e.auto === 'added');
   check(fix.own_deaths.length === 3 && added && added.start >= 100 && added.start < 101 && fix.recon.summary.deaths.after === 3, '(12) 結果画面デス3 → 弱い信号(100秒)の候補を戻して 3 件', JSON.stringify(fix.recon && fix.recon.summary));
   check(fix.own_deaths.every(e => typeof e.conf === 'number'), '(13) 全デスに conf が付く');
-  const same = run(F, { own: own(null, 2, null), frames: 20 });
+  // D77: 結果画面の数があっても、既定では件数合わせの補正をしない（reconcile を明示した手入力の再補正だけが使う）
+  const noFix = run(F, { own: own(null, 3, null), frames: 20 });
+  check(noFix.own_deaths.length === 2 && noFix.recon === null && !noFix.own_deaths.some(e => e.auto), '(12b) 結果画面デス3 でも、既定では補正しない（2 件のまま・auto 印なし・recon なし）', `n=${noFix.own_deaths.length}`);
+  const same = run(F, { own: own(null, 2, null), frames: 20, reconcile: true });
   check(same.own_deaths.length === 2 && same.recon.applied.length === 0, '(14) 結果画面と一致していれば何も直さない');
 }
 {
@@ -88,13 +91,13 @@ const run = (F, ctx) => buildMatch({ a: 0, b: F[F.length - 1].t, F, th: [0, 0], 
   const F = mkF(150, t => ({ gw: t >= 20 && t < 30 ? 0.9 : (t >= 80 && t < 80.6 ? 0.16 : 0) }));
   const base = run(F, {});
   check(base.special.filter(e => e.outcome === 'activated').length === 1, '(15) 補正前は発動 1');
-  const fix = run(F, { own: own(null, null, 2), frames: 20 });
+  const fix = run(F, { own: own(null, null, 2), frames: 20, reconcile: true });
   const a = fix.special.filter(e => e.outcome === 'activated');
   check(a.length === 2 && a.some(e => e.auto === 'added' && e.ready >= 79 && e.ready < 81), '(16) 結果画面スペシャル2 → 弱いゲージ(80秒)を発動として足す', JSON.stringify(fix.recon && fix.recon.summary));
 }
 {
   const F = mkF(60, t => ({ killSlots: [(t >= 10 && t < 12) || (t >= 30 && t < 32) || (t >= 45 && t < 47)], kill: false, ks: (t >= 10 && t < 12) ? 0.9 : (t >= 30 && t < 32) ? 0.65 : (t >= 45 && t < 47) ? 0.8 : 0 }));
-  const r = run(F, { own: own(2, null, null), frames: 20 });
+  const r = run(F, { own: own(2, null, null), frames: 20, reconcile: true });
   check(r.own_kills.length === 2 && !r.own_kills.some(e => e.start === 30), '(17) キル 3 → K+A=2 で conf 最低(30秒)を落とす', JSON.stringify(r.own_kills));
 }
 

@@ -7,6 +7,7 @@ import { runs, medfilt, median, r1 } from './img.js';
 import { readKiller, decideKiller, KP } from './killer.js';
 import { LiveSpecialTracker } from './live_special.js';
 import { reconcileCounts, reconcileDeaths } from './reconcile.js';
+import { countCheck } from '../count_check.js';
 import { fuseDeath, fusedAccept, fuseKill, FUSE } from './fusion.js';
 import { packCues } from './cues_pack.js';
 export const P = { icon_th: 0.7, med: 5, minlen: 2.0, gap: 2.5, cover: 3.0, sig_gap: 4.0, sp_min: 0.3, dead_max_sat: 55, battle_gap: 25, battle_min: 60, result_max: 240, sp_drain_min: 0.15, sp_drain_win: 1.5, sp_end_tol: 0.5, sig_th: 0.5, ready_th: 0.2, sp_gap: 3.0, kill_th: 0.6 }; // sig_gap is kept for backwards compatibility (unused in mergeDeathRuns)
@@ -149,13 +150,14 @@ export class Analyzer {
     else if (this.state === 'result') this.finish(); }
   finish() {
     const m = this.cur; if (!m) return; if (!m.th) this.fixHue();
-    const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH, { own: rs.own, frames: m.RS.personal.length + m.RS.board.length });
+    const rs = R.finalizeResult(m.RS); const rec = buildMatch(m, this.matchNo++, this.srcH, {});
     const readFrames = m.RS.personal.length + m.RS.board.length;
     rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, mode_unknown: !rs.mode && readFrames > 0 ? true : undefined, mode_guess: !rs.mode ? (rs.mode_guess ?? null) : undefined, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
     rec.cues = packCues(m.F);
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length, ...(m.boardRejected ? { board_rejected: m.boardRejected } : {}) };
+    rec.count_check = countCheck(rec); // D77: 検出した数と結果画面の数の突き合わせ（補正はしない）
     const ownRow = rs.board ? rs.board.find(b => b.own) : null;
     rec.enemy_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === (ownRow.group === 'top' ? 'bot' : 'top')).map(b => ({ slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
     // D65: 味方 4 人（自分を含む）のブキのアイコンも同じ形で保存する。自分の行には own:true を付ける（自分のブキの集計用）
@@ -282,7 +284,8 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   for (const c of [...deathCands].sort((x, y) => y.conf - x.conf)) if (fusedAccept({ conf: c.conf, signals: c.sigs }) && !near(c, ev.L0)) ev.L0.push({ start: c.start, end: c.end, src: c.src, conf: c.conf, sigs: c.sigs, auto: 'fused' });
   ev.L0.sort((x, y) => x.start - y.start);
   deathCands = deathCands.filter(c => !near(c, ev.L0));
-  const deathRecon = reconcileDeaths(ev.L0, ctx.own, ctx.frames, deathCands, ctx.lim);
+  // D77: 結果画面の数に合わせた自動補正は廃止（件数合わせで出来事を足したり消したりしない）。手入力に合わせる再補正（recorrect.js）だけが ctx.reconcile で使う
+  const deathRecon = ctx.reconcile ? reconcileDeaths(ev.L0, ctx.own, ctx.frames, deathCands, ctx.lim) : { applied: [], summary: {} };
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
   const hidden = runs(t, ok.map(v => !v), 1.0, 0.6), maps = runs(t, mp, 0.4, 1.0);
   const owndead = t.map(x => ev.L0.some(e => x >= e.start && x <= e.end));
@@ -312,8 +315,8 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
-  const rest = reconcileCounts(rec, { own: ctx.own, frames: ctx.frames, spCands, drainAt, skipDeaths: true, lim: ctx.lim });
-  rec.recon = ctx.own ? { applied: deathRecon.applied.concat(rest.applied), summary: { ...deathRecon.summary, ...rest.summary } } : null;
+  const rest = ctx.reconcile ? reconcileCounts(rec, { own: ctx.own, frames: ctx.frames, spCands, drainAt, skipDeaths: true, lim: ctx.lim }) : { applied: [], summary: {} };
+  rec.recon = ctx.reconcile && ctx.own ? { applied: deathRecon.applied.concat(rest.applied), summary: { ...deathRecon.summary, ...rest.summary } } : null;
   for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
   attachKillers(rec.own_deaths, m.kscan || []);
   for (const e of rec.special) { const [a, b] = aliveAt(rec, e.ready); e.alive_at_ready = `${a}v${b}`; }
