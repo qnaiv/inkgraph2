@@ -6,7 +6,6 @@ import * as T from './tower.js';
 import { runs, medfilt, median, r1 } from './img.js';
 import { readKiller, decideKiller, KP } from './killer.js';
 import { LiveSpecialTracker } from './live_special.js';
-import { reconcileCounts, reconcileDeaths } from './reconcile.js';
 import { countCheck } from '../count_check.js';
 import { fuseDeath, fusedAccept, fuseKill, FUSE } from './fusion.js';
 import { packCues } from './cues_pack.js';
@@ -284,8 +283,7 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   for (const c of [...deathCands].sort((x, y) => y.conf - x.conf)) if (fusedAccept({ conf: c.conf, signals: c.sigs }) && !near(c, ev.L0)) ev.L0.push({ start: c.start, end: c.end, src: c.src, conf: c.conf, sigs: c.sigs, auto: 'fused' });
   ev.L0.sort((x, y) => x.start - y.start);
   deathCands = deathCands.filter(c => !near(c, ev.L0));
-  // D77: 結果画面の数に合わせた自動補正は廃止（件数合わせで出来事を足したり消したりしない）。手入力に合わせる再補正（recorrect.js）だけが ctx.reconcile で使う
-  const deathRecon = ctx.reconcile ? reconcileDeaths(ev.L0, ctx.own, ctx.frames, deathCands, ctx.lim) : { applied: [], summary: {} };
+  // D77: 結果画面の数に合わせた補正（旧 D52・D57）は廃止。件数合わせで出来事を足したり消したりしない（突き合わせは count_check.js）
   F.forEach(f => { if (!f.ally) return; for (const [k, crossed] of Object.entries(f.ally)) if (crossed && !ev[k].some(e => e.start - P.cover <= f.t && f.t <= e.end + P.cover)) { ev[k].push({ start: r1(f.t), end: r1(f.t), src: 'map_ally' }); ev[k].sort((x, y) => x.start - y.start); } });
   const hidden = runs(t, ok.map(v => !v), 1.0, 0.6), maps = runs(t, mp, 0.4, 1.0);
   const owndead = t.map(x => ev.L0.some(e => x >= e.start && x <= e.end));
@@ -315,8 +313,6 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, hud_hidden: rr(hidden), map_open: rr(maps),
     stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
-  const rest = ctx.reconcile ? reconcileCounts(rec, { own: ctx.own, frames: ctx.frames, spCands, drainAt, skipDeaths: true, lim: ctx.lim }) : { applied: [], summary: {} };
-  rec.recon = ctx.reconcile && ctx.own ? { applied: deathRecon.applied.concat(rest.applied), summary: { ...deathRecon.summary, ...rest.summary } } : null;
   for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
   attachKillers(rec.own_deaths, m.kscan || []);
   for (const e of rec.special) { const [a, b] = aliveAt(rec, e.ready); e.alive_at_ready = `${a}v${b}`; }

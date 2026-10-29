@@ -70,7 +70,7 @@ export function fixReadme({ count, exported, withFrames }) {
     '【Claude Code での使い方】',
     'このフォルダで Claude Code を開き、次のように頼む:',
     '  「diff.json の誤検出と見逃しについて、frames のコマを見て、なぜソフトが間違えたか原因を調べて。',
-    '   検出ロジック（web/src/core/ の cues.js・analyzer.js・fusion.js・reconcile.js など）の修正案を、',
+    '   検出ロジック（web/src/core/ の cues.js・analyzer.js・fusion.js・count_check.js など）の修正案を、',
     '   閾値の調整かコードの修正かで分けて出して。誤検出・見逃しの傾向が複数の試合で共通なら、そこを優先して。」',
     '',
     '【ご注意】',

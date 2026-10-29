@@ -2,7 +2,6 @@ import * as db from './db.js';
 import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { recorrect, recorrectStatus, undoRecorrect } from './recorrect.js';
 import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows, unknownIconGroups } from './analysis.js';
 import { b64bytes } from './core/img.js';
 import { prepEnemyIconLib } from './core/board_icons.js';
@@ -2141,7 +2140,6 @@ PAGES.match = async () => {
         <div class="card">
           <div class="card-title">リザルト画面の読み取り</div>
           <table class="table" id="rtab"></table>
-          <div class="muted" id="recon-note" style="font-size:12px;margin-top:6px"></div>
         </div>
 
         <details class="card collapsible-card">
@@ -2487,25 +2485,10 @@ PAGES.match = async () => {
         if (['ka', 'deaths', 'specials'].includes(f)) v = v === '' || !Number.isFinite(+v) ? undefined : Math.max(0, Math.round(+v));
         if (f === 'result') v = /^w|勝/i.test(v) ? 'WIN' : /^l|負/i.test(v) ? 'LOSE' : v;
         m.review.fix[f] = v;
-        // D57: 手入力した K+A・デス・スペシャルに合わせて、保存してある信号から検出を作り直す（信号が残っている試合だけ）
-        if (['ka', 'deaths', 'specials'].includes(f) && v !== undefined) recorrect(m);
         await save();
         if (['ka', 'deaths', 'specials'].includes(f)) { rtab(); refresh(); }
       };
     });
-    reconNote();
-  };
-
-  const reconNote = () => {
-    const el = $('#recon-note', page); if (!el) return;
-    const st = recorrectStatus(m), hasFix = ['ka', 'deaths', 'specials'].some(k => Number.isInteger(m.review.fix[k]));
-    const ap = (m.recon && m.recon.manual) ? m.recon.applied : null;
-    const L = { added: '追加', promoted: '発動に変更', dropped: '削除' };
-    el.innerHTML = ap
-      ? `<span>手入力の値に合わせて検出を直しました${ap.length ? '：' + esc(ap.map(a => `${KINDS[a.kind] || a.kind}${L[a.action] || a.action} ${mss(a.t - ((m.battle && m.battle[0]) || 0))}`).join('、')) : '（検出はすでに一致していました）'}。</span> ${m.pre_recorrect ? '<button class="btn btn-secondary btn-sm" id="recon-undo" type="button">もとの検出に戻す</button>' : ''}`
-      : (hasFix && !st.ok && st.reason === 'no-cues') ? '<span>この試合は信号を保存する前の解析なので、検出は直せません。手入力の値は、傾向分析と自動調整の正解にだけ使われます。</span>'
-      : (st.ok ? '<span>キル+アシスト・デス・スペシャルを間違いにして正しい値を入れると、その値に合わせて検出を自動で直します。</span>' : '');
-    const u = $('#recon-undo', el); if (u) u.onclick = async () => { undoRecorrect(m); await save(); rtab(); refresh(); };
   };
 
   const etab = () => {
