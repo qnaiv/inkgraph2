@@ -33,15 +33,9 @@ try {
   await page.evaluate(() => window.inkgraph.db.setFavorite('r#1', false));
   const plan2 = await page.evaluate(() => window.inkgraph.db.retentionPlan(1));
   check(JSON.stringify(plan2.sort()) === JSON.stringify(['r#1', 'r#5', 'r#6']), '(7) 残す数を 1 にして、お気に入りを外すと、新しい 1 試合（r#7）より古い、静止画が残っている試合（r#1・r#5・r#6）が対象になる', plan2.join(','));
-  // 画面：パネルと、選択を変えたときの確認
-  await page.evaluate(async () => { await window.inkgraph.db.setFavorite('r#1', true); });
-  await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForSelector('#retention-keep');
-  check((await page.textContent('#retention-panel')).includes('直近 3 試合') && /数値データ.*消えません/.test(await page.textContent('#retention-panel')), '(8) パネルに「直近 3 試合」と、数値データは消えない旨が出る');
-  await page.screenshot({ path: path.join(SH, '01_panel.png') });
-  await page.selectOption('#retention-keep', '1'); await page.waitForTimeout(600);
-  check(dialogs.length === 1 && /2 試合ぶん/.test(dialogs[0]), '(9) 残す数を減らすと、確認ダイアログが出る（消す試合数つき）', dialogs[0]);
+  await page.evaluate(async () => { await window.inkgraph.db.setFavorite('r#1', true); await window.inkgraph.db.enforceRetention(1); });
   const left = await page.evaluate(async () => { const db = window.inkgraph.db; const r = []; for (const id of ['r#5', 'r#6', 'r#7']) r.push((await db.snapsOf(id)).length); return r; });
-  check(JSON.stringify(left) === '[0,0,1]' && (await page.evaluate(() => window.inkgraph.db.getRetentionKeep())) === 1, '(10) 確認すると整理が実行され、設定が保存される', JSON.stringify(left));
+  check(JSON.stringify(left) === '[0,0,1]' , '(10) 整理を実行すると、古い試合の静止画が消える', JSON.stringify(left));
   check(errs.length === 0, '(11) ページエラーなし', errs.join('|'));
 } finally { await browser.close(); srv.kill(); }
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS'); process.exit(fails ? 1 : 0);

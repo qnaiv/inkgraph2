@@ -1,11 +1,9 @@
 import * as db from './db.js';
-import * as learn from './learn.js';
 import { frameStepForState } from './analysis.js';
 import { powerForMatchType } from './core/result.js';
 import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
-import * as detectParams from './detect_params.js';
 import { countCheck } from './count_check.js';
 import { desktop, isDesktop, recordingAvailable } from './desktop.js';
 import { MatchRecorder, pickRecordingStart, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo, ensureDirPermission } from './video_rec.js';
@@ -44,10 +42,7 @@ export class Session {
       this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
     }
     this.worker = new AnalyzerWorker();
-    const learnState = await db.getLearnState().catch(() => null);
-    const activePack = await db.activeLearnPack(learnState).catch(() => null);
-    const learnThresholds = activePack?.thresholds || null;
-    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, learnThresholds, detectParams: detectParams.activeParams(), verify: db.getVerifyOn() }); });
+    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
 
     // visibilitychange リスナ: hidden 時はガードに通知、visible 復帰時に running なら resume()
@@ -160,7 +155,6 @@ export class Session {
     }
     else if (m.type === 'snapshot') this.pendingSnaps.push(m);
     else if (m.type === 'clip') this.pendingClips.push(m);
-    else if (m.type === 'verify') this.pendingVerify = m;
     else if (m.type === 'match') this.saving = (this.saving || Promise.resolve()).then(() => this.saveMatch(m.rec));
     else if (m.type === 'flushed') this.flushed?.();
   }
@@ -201,7 +195,7 @@ export class Session {
         const battleStart = rec.battle?.[0] ?? 0;
         this.pendingSnaps = this.pendingSnaps.filter(s => !(s.t >= battleStart - 30));
         this.pendingClips = this.pendingClips.filter(c => !(c.t >= battleStart - 30));
-        this.pendingVerify = null; await this.videoFinalize(rec, false);
+        await this.videoFinalize(rec, false);
         this.stats.discarded = (this.stats.discarded || 0) + 1;
         this.cb.discarded?.({ rec, interrupted: v.interrupted });
         return;
@@ -240,18 +234,9 @@ export class Session {
 
     rec.video = { kind: 'none' }; rec.stills = { count: snaps.length, bytes: bytes + totalClipBytes };
     rec.favorite = rec.favorite ?? false; rec.stillsState = (snaps.length || sel.length) ? 'kept' : 'none';
-    const matchLearnFeats = [];
-    const snapFeatPairs = [];
-    for (const s of snaps) {
-      const feat = learn.featureFromHeader(s);
-      if (feat) matchLearnFeats.push(feat);
-      snapFeatPairs.push({ snap: s, feat });
-    }
-    rec.learnFeatures = matchLearnFeats;
     await db.putMatch(rec);
-    if (this.pendingVerify) { const v = this.pendingVerify; this.pendingVerify = null; try { await db.putVerify(id, v.frames); rec.verify = { count: v.frames.length }; await db.putMatch(rec); } catch (e) { console.warn('putVerify failed', e); } }
-    for (const { snap: s, feat } of snapFeatPairs) {
-      await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob, features: feat });
+    for (const s of snaps) {
+      await db.putSnap({ matchId: id, t: s.t, reason: s.reason, kind: s.kind || null, header: s.header || null, event: s.event || null, blob: s.blob });
     }
     for (let clipIndex = 0; clipIndex < sel.length; clipIndex++) {
       const c = sel[clipIndex];
@@ -306,7 +291,5 @@ export class Session {
     if (this.stream) this.stream.getTracks().forEach(t => t.stop());
     this.worker?.terminate();
     this.cb.stopped?.();
-    // D54: 解析が止まって手が空いたら、結果画面の数に合わせた検出パラメータの自動調整を試す（条件を満たしたときだけ適用。失敗しても何も壊さない）
-    detectParams.autoTune().then(c => { if (c && c.ok) this.cb.tuned?.(c); }).catch(e => console.warn('autoTune failed', e));
   }
 }

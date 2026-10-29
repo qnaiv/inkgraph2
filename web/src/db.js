@@ -25,7 +25,7 @@ export const pendingDeletes = () => { try { return JSON.parse(localStorage.getIt
 export const clearPendingDeletes = ids => { try { localStorage.setItem(DEL_KEY, JSON.stringify(pendingDeletes().filter(d => !ids.includes(d.id)))); } catch { /* ignore */ } };
 export const delMatch = async (id, opts = {}) => {
   if (!opts.fromCloud) { try { localStorage.setItem(DEL_KEY, JSON.stringify([...pendingDeletes().filter(d => d.id !== id), { id, at: new Date().toISOString() }])); if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('inkgraph:dirty')); } catch { /* ignore */ } }
-  await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); if ((await verifyInfo())?.matchId === id) await clearVerify(); };
+  await tx('matches', 'readwrite', s => s.delete(id)); await tx('videos', 'readwrite', s => s.delete(id)); await delSnaps(id); await clearVerify().catch(() => {}); };
 export async function snapsCount(id) { return (await snapsOf(id)).length; }
 // m.favorite: boolean / m.stillsState: 'kept'|'deleted'|'none' (旧レコードはフィールド無し可)
 export function stillsStateOf(m, snapCount) {
@@ -176,133 +176,8 @@ export async function importBackup({ matches = [], stills = [] } = {}) {
   return { matches: matchCount, stills: snapCount };
 }
 
-function normalizeLearnState(row) {
-  if (!row) {
-    return { stack: [], versions: [], activePackId: null };
-  }
-  const stack = Array.isArray(row.stack) ? row.stack : [];
-  let versions = null;
-  if (Array.isArray(row.versions)) {
-    const seen = new Set();
-    versions = [];
-    for (const p of row.versions) {
-      if (p && p.packId && !seen.has(p.packId)) {
-        seen.add(p.packId);
-        versions.push(p);
-      }
-    }
-  } else {
-    const seen = new Set();
-    versions = [];
-    for (const p of stack) {
-      if (p && p.packId && !seen.has(p.packId)) {
-        seen.add(p.packId);
-        versions.push(p);
-      }
-    }
-  }
-  const activePackId = (stack.length > 0 && stack[stack.length - 1]?.packId) ? stack[stack.length - 1].packId : null;
-  return { stack, versions, activePackId };
-}
-
-export async function getLearnState() {
-  const row = await tx('learn', 'readonly', s => s.get('state')).catch(() => null);
-  return normalizeLearnState(row);
-}
-
-export async function putLearnState(state) {
-  const norm = normalizeLearnState(state);
-  const rec = { key: 'state', stack: norm.stack, versions: norm.versions, activePackId: norm.activePackId };
-  await tx('learn', 'readwrite', s => s.put(rec));
-  return norm;
-}
-
-export async function applyLearnPack(pack) {
-  const state = await getLearnState();
-  let candidateId = pack?.packId || ('lp-' + new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').split('.')[0]);
-  const existingIds = new Set(state.versions.map(p => p.packId));
-  if (existingIds.has(candidateId)) {
-    let counter = 2;
-    while (existingIds.has(`${candidateId}-${counter}`)) {
-      counter++;
-    }
-    candidateId = `${candidateId}-${counter}`;
-  }
-  const savedPack = { ...pack, packId: candidateId };
-  state.versions.push(savedPack);
-  state.stack.push(savedPack);
-  await putLearnState(state);
-  return savedPack;
-}
-
-export async function listLearnPacks() {
-  const state = await getLearnState();
-  return [...state.versions].sort((a, b) => (b.created || '').localeCompare(a.created || ''));
-}
-
-export async function activateLearnPack(packId) {
-  const state = await getLearnState();
-  const pack = state.versions.find(p => p.packId === packId);
-  if (!pack) return null;
-  state.stack.push(pack);
-  await putLearnState(state);
-  return pack;
-}
-
-export async function deactivateLearnPack() {
-  const state = await getLearnState();
-  state.stack = [];
-  await putLearnState(state);
-  return null;
-}
-
-export async function activeLearnPack(state = null) {
-  const s = state || await getLearnState();
-  const st = s?.stack;
-  return (st && st.length) ? st[st.length - 1] : null;
-}
-
-export async function rollbackLearnPack() {
-  const state = await getLearnState();
-  if (state.stack.length > 0) {
-    state.stack.pop();
-    await putLearnState(state);
-  }
-  return state.stack.length ? state.stack[state.stack.length - 1] : null;
-}
-
-export async function updateSnapFeatures(snapId, features) {
-  const snap = await tx('snaps', 'readonly', s => s.get(snapId));
-  if (!snap) return null;
-  snap.features = features;
-  await tx('snaps', 'readwrite', s => s.put(snap));
-  return snap;
-}
-
-export async function setMatchLearnFeatures(matchId, list) {
-  const m = await getMatch(matchId);
-  if (!m) return null;
-  m.learnFeatures = list;
-  await putMatch(m);
-  return m;
-}
-
-// D67: 検証録画。直近1試合の全コマ（約0.4秒おき）だけを持つ。新しい試合を保存すると前のぶんは消す（容量の整理・同期の対象外）
+// D84: 検証録画は廃止（フル録画に置き換え）。昔の検証録画のデータが残っていれば、消すだけ
 export const clearVerify = () => tx('verify', 'readwrite', s => s.clear());
-export async function putVerify(matchId, frames) {
-  await clearVerify();
-  for (const f of frames) await tx('verify', 'readwrite', s => s.add({ matchId, t: f.t, blob: f.blob }));
-}
-export const verifyOf = async matchId => (await tx('verify', 'readonly', s => s.index('match').getAll(matchId))).sort((a, b) => a.t - b.t);
-export async function verifyInfo() {
-  const all = await tx('verify', 'readonly', s => s.getAll());
-  if (!all.length) return null;
-  let bytes = 0; for (const f of all) bytes += f.blob?.size || 0;
-  return { matchId: all[0].matchId, count: all.length, bytes };
-}
-const VERIFY_KEY = 'inkgraph.verifyRec';
-export function getVerifyOn() { try { return localStorage.getItem(VERIFY_KEY) === '1'; } catch { return false; } }
-export function setVerifyOn(on) { try { localStorage.setItem(VERIFY_KEY, on ? '1' : '0'); } catch { /* ignore */ } }
 
 // D68: 録画の保存先フォルダのハンドル（File System Access API）。learn ストアに持つ
 export const getVideoDir = async () => (await tx('learn', 'readonly', s => s.get('videoDir')).catch(() => null))?.handle || null;
