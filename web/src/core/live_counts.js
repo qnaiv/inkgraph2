@@ -33,3 +33,19 @@ export function recountDiff(live = {}, fin = {}, fields = COUNT_FIELDS) {
 
   return { changed, text };
 }
+
+/**
+ * D82: 速報のキル数。「たおした」通知は、新しい通知が出ると古いものが上の段へ繰り上がる。段ごとの立ち上がりで数えると、同じ通知を何度も数える。
+ * そこで、出ている通知の数 n が増えたときだけ、増えた分を数える。n が変わったら、2 フレーム続けて同じ数のときに確定する（1 フレームのちらつきは無視）。
+ * step(slots) は、このフレームで新しく数えるキルの数を返す。
+ */
+export class LiveKillCounter {
+  constructor(confirm = 2) { this.confirm = confirm; this.n = 0; this.cand = null; this.cc = 0; }
+  step(slots) {
+    const n = slots.reduce((c, v) => c + (v ? 1 : 0), 0);
+    if (n === this.n) { this.cand = null; this.cc = 0; return 0; }
+    if (n === this.cand) this.cc++; else { this.cand = n; this.cc = 1; }
+    if (this.cc < this.confirm) return 0;
+    const add = Math.max(0, n - this.n); this.n = n; this.cand = null; this.cc = 0; return add;
+  }
+}

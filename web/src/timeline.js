@@ -171,8 +171,10 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
   }
 
   // ---------------- 4. 勝率グラフ (132px >= 120px) ----------------
-  const wpY = ownY + ownH + 8, wpH = 132, wpMid = wpY + wpH / 2;
+  const SHOW_WP = false; // D81: 勝率予測は一旦出さない（計算と wp_delta の保存は残す）
+  const wpY = ownY + ownH + 8, wpH = SHOW_WP ? 132 : 0, wpMid = wpY + wpH / 2;
   const Ywp = v => wpY + wpH - 8 - Math.max(0, Math.min(1, v)) * (wpH - 16);
+  if (SHOW_WP) {
   defs += `<clipPath id="wp-up-${uid}"><rect x="${L}" y="${wpY}" width="${Wd}" height="${wpH / 2}"/></clipPath>`;
   defs += `<clipPath id="wp-dn-${uid}"><rect x="${L}" y="${wpMid}" width="${Wd}" height="${wpH / 2}"/></clipPath>`;
   body += `<text x="${L - 8}" y="${wpMid + 4}" text-anchor="end" font-size="12" font-weight="500" fill="var(--text-muted)">勝率</text>`;
@@ -188,6 +190,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
   body += `<g clip-path="url(#wp-dn-${uid})"><polygon points="${wpAreaPts}" fill="var(--enemy-soft)"/><polyline points="${wpLinePts}" fill="none" stroke="var(--winrate-down)" stroke-width="2"/></g>`;
   body += unknownBand(wpY, wpH);
   body += `<text x="${L + Wd + 4}" y="${wpMid + 4}" class="num" font-size="10" fill="var(--text-muted)">50%</text>`;
+  }
 
   // Draw events on Lane 3 (Self) + vertical dotted connectors to Lane 4 (Winrate)
   for (const e of ev) {
@@ -195,12 +198,12 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
     const x = X(e.t);
     const attr = `class="ev" data-t="${e.t}" style="cursor:pointer"`;
     if (e.kind === 'kill' || e.kind === 'death') {
-      const wy = Ywp(wpAt(m, S, e.t));
+      const wy = SHOW_WP ? Ywp(wpAt(m, S, e.t)) : 0;
       const sy = e.kind === 'kill' ? rowY.kill : rowY.death;
       const lineCol = e.kind === 'kill' ? 'var(--kill)' : 'var(--enemy)';
       // Vertical dotted connector from self lane to winrate point
-      body += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${sy + 8}" y2="${wy.toFixed(1)}" stroke="${lineCol}" stroke-width="1" stroke-dasharray="2,3" stroke-opacity="0.75"/>`;
-      body += `<circle cx="${x.toFixed(1)}" cy="${wy.toFixed(1)}" r="3" fill="${e.wp_delta >= 0 ? 'var(--winrate-up)' : 'var(--winrate-down)'}"/>`;
+      if (SHOW_WP) body += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${sy + 8}" y2="${wy.toFixed(1)}" stroke="${lineCol}" stroke-width="1" stroke-dasharray="2,3" stroke-opacity="0.75"/>`;
+      if (SHOW_WP) body += `<circle cx="${x.toFixed(1)}" cy="${wy.toFixed(1)}" r="3" fill="${e.wp_delta >= 0 ? 'var(--winrate-up)' : 'var(--winrate-down)'}"/>`;
       if (e.kind === 'kill') {
         body += `<g ${attr}><title>${mss(e.t - t0)} キル</title><text x="${x.toFixed(1)}" y="${rowY.kill + 6}" text-anchor="middle" font-size="17" fill="var(--kill)">★</text></g>`;
       } else {
@@ -213,7 +216,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
           : '';
         body += `<g ${attr}><title>${mss(e.t - t0)} デス</title><rect x="${x.toFixed(1)}" y="${rowY.death - 8}" width="${rw.toFixed(1)}" height="16" rx="3" fill="var(--respawn)"/><g class="death-mark" data-size="14" stroke="var(--death)" stroke-width="2" stroke-linecap="round"><line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/><line x1="${x2}" y1="${y1}" x2="${x1}" y2="${y2}"/></g>${wastedTri}</g>`;
       }
-      if (e.wp_delta !== undefined && Math.abs(e.wp_delta) >= 0.05) {
+      if (SHOW_WP && e.wp_delta !== undefined && Math.abs(e.wp_delta) >= 0.05) {
         const dp = Math.round(e.wp_delta * 100);
         const dTxt = dp > 0 ? `+${dp}%` : `\u2212${Math.abs(dp)}%`;
         const dCol = dp > 0 ? 'var(--winrate-up)' : 'var(--winrate-down)';
@@ -431,13 +434,11 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
     const s = S.length ? T.at(S, t) : null;
     const ph = T.phase(s) || '互角';
     const diff = s ? s.diff : 0;
-    const wp = Math.round(wpAt(m, S, t) * 100);
 
     tooltip.innerHTML = `
       <span class="num">${mss(t - t0)}</span>
       <span class="phase-badge ${phaseClass(ph)}">${ph}</span>
       <span class="num ${diffClass(diff)}">カウント差 ${fmtDiff(diff)}</span>
-      <span class="num">勝率 ${wp}%</span>
     `;
     tooltip.style.display = 'inline-flex';
     const rect = wrap.getBoundingClientRect();

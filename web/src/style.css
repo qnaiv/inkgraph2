@@ -679,7 +679,7 @@ button, input, select {
 
 .live-context-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.2fr;
+  grid-template-columns: 1fr 1fr;
   gap: var(--sp-3);
   align-items: stretch;
 }
