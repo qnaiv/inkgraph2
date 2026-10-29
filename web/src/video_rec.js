@@ -29,16 +29,19 @@ export function pickMime(format = 'mp4') {
 }
 export const extOfMime = m => (/mp4/.test(m || '') ? 'mp4' : 'webm');
 // 映像のビットレート（Mbps）。60fps なので既定は 8（1 試合 約 300MB）。音声は 192kbps
-export const BITRATE_CHOICES = [5, 8, 12], AUDIO_BPS = 192_000;
+export const BITRATE_CHOICES = [3, 5, 8, 12, 16, 24], AUDIO_CHOICES = [96, 128, 192, 256, 320], AUDIO_BPS = 192_000;
 export const getBitrateMbps = () => { try { const v = parseInt(localStorage.getItem('inkgraph.videoBitrate') || '', 10); return BITRATE_CHOICES.includes(v) ? v : 8; } catch { return 8; } };
 export const setBitrateMbps = v => { try { localStorage.setItem('inkgraph.videoBitrate', String(v)); } catch { /* ignore */ } };
+/** 音質（kbps）。既定 192 */
+export const getAudioKbps = () => { try { const v = parseInt(localStorage.getItem('inkgraph.audioKbps') || '', 10); return AUDIO_CHOICES.includes(v) ? v : AUDIO_BPS / 1000; } catch { return AUDIO_BPS / 1000; } };
+export const setAudioKbps = v => { try { localStorage.setItem('inkgraph.audioKbps', String(v)); } catch { /* ignore */ } };
 
 /** 1 試合ぶんの録画。start() → stop() で Blob（ブラウザ）／ディスク上のファイルの控え（デスクトップ版: 2 秒ごとに保存先へ直接書く） */
 export class MatchRecorder {
   /** buffer: 待機中の巻き戻し録画。ディスクに書かず、メモリに持っておく（promote() で、持っていた分をディスクへ書き出して、続きを書く。デスクトップ版のみ） */
   constructor(stream, { bps = getBitrateMbps() * 1_000_000, buffer = false } = {}) {
     const mimeType = pickMime(), D = desktop();
-    this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps, ...(stream.getAudioTracks?.().length ? { audioBitsPerSecond: AUDIO_BPS } : {}) });
+    this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps, ...(stream.getAudioTracks?.().length ? { audioBitsPerSecond: getAudioKbps() * 1000 } : {}) });
     this.mime = this.rec.mimeType || mimeType || 'video/webm'; this.ext = extOfMime(this.mime); this.chunks = []; this.state = 'idle'; this.D = D;
     this.buffering = !!buffer && !!D; this.pending = []; this.bytes = 0;
     if (D && !this.buffering) this._open();

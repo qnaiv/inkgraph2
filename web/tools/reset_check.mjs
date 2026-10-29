@@ -13,15 +13,15 @@ try {
   const seed = () => page.evaluate(async () => {
     const db = window.inkgraph.db, blob = () => new Promise(res => { const c = document.createElement('canvas'); c.width = 8; c.height = 8; c.toBlob(res, 'image/jpeg'); });
     for (const [i, id] of ['x#1', 'x#2'].entries()) { await db.putMatch({ id, match: i + 1, created: new Date(2026, 9, 20, 12, i).toISOString(), battle: [0, 100], squid_down: {}, own_deaths: [], own_kills: [], special: [], result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'テスト', own: { ka: 1, deaths: 1, specials: 0 } }, review: { marks: {}, added: [], fix: {} }, stills: { count: 1, bytes: 9 }, stillsState: 'kept', video: { kind: 'none' } }); await db.putSnap({ matchId: id, t: 1, reason: 't', kind: 'death', header: null, blob: await blob() }); }
-    await db.putVerify('x#2', [{ t: 1, blob: await blob() }]); localStorage.setItem('inkgraph.weaponLib', JSON.stringify({ v: 1, items: [{ name: 'テスト' }] })); localStorage.setItem('inkgraph.retentionKeep', '5');
+    localStorage.setItem('inkgraph.weaponLib', JSON.stringify({ v: 1, items: [{ name: 'テスト' }] })); localStorage.setItem('inkgraph.retentionKeep', '5');
   });
-  const state = () => page.evaluate(async () => ({ m: (await window.inkgraph.db.allMatches()).length, s: (await window.inkgraph.db.snapsOf('x#1')).length, v: (await window.inkgraph.db.verifyInfo())?.count ?? 0, lib: !!localStorage.getItem('inkgraph.weaponLib'), keep: localStorage.getItem('inkgraph.retentionKeep'), del: window.inkgraph.db.pendingDeletes().length }));
-  const open = async () => { await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.waitForSelector('#reset-all'); };
-  await seed(); let st = await state(); check(st.m === 2 && st.s === 1 && st.v === 1, '(0) 準備', JSON.stringify(st));
+  const state = () => page.evaluate(async () => ({ m: (await window.inkgraph.db.allMatches()).length, s: (await window.inkgraph.db.snapsOf('x#1')).length, lib: !!localStorage.getItem('inkgraph.weaponLib'), keep: localStorage.getItem('inkgraph.retentionKeep'), del: window.inkgraph.db.pendingDeletes().length }));
+  const open = async () => { await page.goto(`http://127.0.0.1:${PORT}/#live`); await page.goto(`http://127.0.0.1:${PORT}/#settings`); await page.waitForSelector('#reset-all'); };
+  await seed(); let st = await state(); check(st.m === 2 && st.s === 1 , '(0) 準備', JSON.stringify(st));
   await open(); promptAnswer = 'ちがう'; await page.click('#reset-all'); await page.waitForTimeout(500);
   st = await state(); check(st.m === 2, '(1) 確認の入力が違うと消えない', JSON.stringify(st));
   promptAnswer = '消す'; await page.click('#reset-all'); await page.waitForTimeout(800);
-  st = await state(); check(st.m === 0 && st.s === 0 && st.v === 0, '(2) 試合・静止画・検証録画がすべて消える', JSON.stringify(st));
+  st = await state(); check(st.m === 0 && st.s === 0 , '(2) 試合・静止画がすべて消える', JSON.stringify(st));
   check(st.lib && st.keep === '5', '(3) 「学習結果なども」にチェックしなければ、見本・設定は残る');
   check(st.del === 2, '(4) クラウドに「消した」と伝える印が付く（同期でクラウド側も消える）', String(st.del));
   await seed(); await open(); await page.check('#reset-learn'); await page.click('#reset-all'); await page.waitForTimeout(800);

@@ -1,5 +1,4 @@
 import * as db from './db.js';
-import * as learn from './learn.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
 import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows, unknownIconGroups } from './analysis.js';
@@ -7,7 +6,6 @@ import { b64bytes } from './core/img.js';
 import { prepEnemyIconLib } from './core/board_icons.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
-import * as VP from './verify_pack.js';
 import * as VR from './video_rec.js';
 import * as FP from './fix_pack.js';
 import { compareCounts, mismatchText } from './count_check.js';
@@ -19,11 +17,9 @@ import { EXPORT_STATE_LABEL, exportStateOf, syncExportState, confirmedCount } fr
 import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, planCapacityCleanup } from './capacity.js';
 import { CLIP, CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
-import * as DP from './detect_params.js';
 import * as Cloud from './cloud/index.js';
 import * as WL from './weapon_lib.js';
 import { WEAPON_TYPES, UNCLASSIFIED, typeOfWeapon, weaponOptions } from './core/weapons.js';
-import { TUNABLE } from './core/tuning.js';
 
 const app = document.getElementById('app');
 const liveSlot = document.createElement('div');
@@ -90,7 +86,6 @@ window.inkgraph = {
   db,
   VR,
   Session,
-  learn,
   analysis: AN,
   capacity: CP,
   feedback: FB,
@@ -817,32 +812,6 @@ PAGES.list = async () => {
   const snapsById = new Map();
   for (const m of ms) snapsById.set(m.id, await db.snapsOf(m.id));
 
-  // 学習パネル表示時に, features欠けのsnapがあれば computeStillFeature で補完し db.updateSnapFeatures + setMatchLearnFeatures で永続化 (失敗は無視/表示のみ)
-  for (const m of ms) {
-    const snaps = snapsById.get(m.id) || [];
-    let updatedAny = false;
-    for (const s of snaps) {
-      if (s.kind === 'clip') continue;
-      if (!s.features && s.blob) {
-        try {
-          const feat = await learn.computeStillFeature(s.blob, s);
-          s.features = feat;
-          await db.updateSnapFeatures(s.id, feat);
-          updatedAny = true;
-        } catch (e) {
-          console.warn('computeStillFeature backfill failed', s.id, e);
-        }
-      }
-    }
-    if (updatedAny) {
-      const validFeats = snaps.filter(s => s.kind !== 'clip').map(s => s.features).filter(Boolean);
-      if (validFeats.length > 0) {
-        await db.setMatchLearnFeatures(m.id, validFeats).catch(() => {});
-        m.learnFeatures = validFeats;
-      }
-    }
-  }
-
   const summary = BK.summarize(ms, snapsById);
   const expLabel = `バックアップを書き出す（ZIP）・${summary.matches}試合／静止画${summary.stills}枚／約${fmtBytes(summary.bytes)}`;
   const capUsage = await db.stillsUsage(getCapBytes());
@@ -934,12 +903,6 @@ PAGES.list = async () => {
       </details>
     ` : ''}
 
-    <section id="retention-panel" class="card learn-panel"></section>
-    <section id="verify-panel" class="card learn-panel"></section>
-    <section id="reset-panel" class="card learn-panel"></section>
-    <section id="cloud-panel" class="card learn-panel"></section>
-    <section id="learn-panel" class="card learn-panel"></section>
-    <section id="tune-panel" class="card learn-panel"></section>
 
     ${!hasMatches ? `
       <div class="card">
@@ -1169,450 +1132,17 @@ PAGES.list = async () => {
   if (fbbar) fbbar.onclick = () => showFeedbackExportDialog('diff');
   if (openDialogOnList) { const md = openDialogOnList; openDialogOnList = null; showFeedbackExportDialog(md); }
 
-  // 自己学習パネル（S0-S2）
-  let learnCandidate = null;
-  let learnConfirming = false;
-  let versionSwitchingPack = null;
+};
 
-  function renderCandidateResult(cand, confirming) {
-    const renderRow = (section, fieldLabel, cmp, isInsuf) => {
-      if (isInsuf) {
-        return `<tr>
-          <td>${esc(section)}</td>
-          <td>${esc(fieldLabel)}</td>
-          <td colspan="5" class="muted">材料不足（サンプル3件未満）</td>
-        </tr>`;
-      }
-      const p1 = (cmp.beforeAcc * 100).toFixed(1) + '%';
-      const p2 = (cmp.afterAcc * 100).toFixed(1) + '%';
-      return `<tr>
-        <td>${esc(section)}</td>
-        <td>${esc(fieldLabel)}</td>
-        <td class="num">${cmp.beforeCorrect} → ${cmp.afterCorrect} / ${cmp.n}</td>
-        <td class="num">${p1} → ${p2}</td>
-        <td class="num ${cmp.fixed > 0 ? 'text-success' : 'muted'}">${cmp.fixed > 0 ? `+${cmp.fixed}` : '0'}</td>
-        <td class="num ${cmp.broken > 0 ? 'text-danger' : 'muted'}">${cmp.broken > 0 ? `-${cmp.broken}` : '0'}</td>
-        <td class="num muted">${cmp.unchanged}</td>
-      </tr>`;
-    };
-
-    const trn = cand.trainCompare;
-    const hld = cand.holdoutCompare;
-    const isModeInsuf = cand.insufficient.includes('mode');
-    const isStageInsuf = cand.insufficient.includes('stage');
-
-    const rows = [];
-    rows.push(renderRow('train (学習)', 'ルール (mode)', trn.mode, isModeInsuf));
-    rows.push(renderRow('train (学習)', 'ステージ (stage)', trn.stage, isStageInsuf));
-    rows.push(renderRow('train (学習)', '合計', trn.total, false));
-
-    if (hld) {
-      rows.push(renderRow('holdout (評価)', 'ルール (mode)', hld.mode, isModeInsuf));
-      rows.push(renderRow('holdout (評価)', 'ステージ (stage)', hld.stage, isStageInsuf));
-      rows.push(renderRow('holdout (評価)', '合計', hld.total, false));
-    }
-
-    const totalBroken = trn.total.broken + (hld?.total?.broken || 0);
-
-    return `
-      <div class="learn-candidate-card">
-        <div class="learn-candidate-header">
-          <h3 class="learn-candidate-title">再判定結果（候補閾値: ルール <strong>${cand.thresholds.mode.toFixed(2)}</strong> / ステージ <strong>${cand.thresholds.stage.toFixed(2)}</strong>）</h3>
-          <span class="learn-candidate-note muted">${esc(cand.note)}</span>
-        </div>
-
-        <table class="table learn-result-table">
-          <thead>
-            <tr>
-              <th>区分</th>
-              <th>対象</th>
-              <th>正解数 (前 → 後)</th>
-              <th>一致率 (前 → 後)</th>
-              <th>直った</th>
-              <th>新たに壊れた</th>
-              <th>不変</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.join('')}
-          </tbody>
-        </table>
-
-        ${cand.insufficient.length > 0 ? `
-          <div class="learn-insufficient-banner muted">
-            ⚠️ 材料不足（サンプル3件未満）: ${cand.insufficient.map(f => f === 'mode' ? 'ルール' : 'ステージ').join(', ')} は既定値（0.50）を維持します。
-          </div>
-        ` : ''}
-
-        <div class="learn-decision-actions">
-          <button class="btn btn-primary" id="learn-apply" type="button">この候補を端末内に適用</button>
-          <button class="btn btn-ghost" id="learn-reject" type="button">候補を却下</button>
-        </div>
-
-        <div id="learn-confirm" class="learn-confirm-card" ${confirming ? '' : 'hidden'}>
-          ${totalBroken > 0 ? `
-            <div class="learn-broken-warning">
-              ⚠️ <strong>警告: 新たに判定が壊れた件数が ${totalBroken} 件あります。</strong><br>
-              適用すると、これまで正解判定されていた試合の一部が不正解（未検出）になる可能性があります。
-            </div>
-          ` : `
-            <div class="learn-confirm-msg">
-              この候補を端末内に適用します。今後の試合解析および静止画再判定に反映されます。よろしいですか？
-            </div>
-          `}
-          <div class="learn-confirm-actions">
-            <button class="btn ${totalBroken > 0 ? 'btn-danger' : 'btn-primary'}" id="learn-confirm-yes" type="button">確認して適用</button>
-            <button class="btn btn-secondary" id="learn-confirm-no" type="button">やめる</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderSwitchConfirmCard(targetPack, currentThr, samples) {
-    const switchCmp = learn.compareSamples(samples, currentThr, targetPack.thresholds);
-    const totalBroken = switchCmp.total.broken;
-    const currentThrStr = `ルール <strong>${currentThr.mode.toFixed(2)}</strong> / ステージ <strong>${currentThr.stage.toFixed(2)}</strong>`;
-    const targetThrStr = `ルール <strong>${targetPack.thresholds.mode.toFixed(2)}</strong> / ステージ <strong>${targetPack.thresholds.stage.toFixed(2)}</strong>`;
-
-    return `
-      <div id="learn-switch-confirm" class="learn-confirm-card">
-        <div class="learn-candidate-header">
-          <h3 class="learn-candidate-title">版切り替えの確認: <code>${esc(targetPack.packId)}</code></h3>
-          <span class="learn-candidate-note muted">
-            現在の閾値（${currentThrStr}）から対象の版（${targetThrStr}）への全サンプル再判定比較
-          </span>
-        </div>
-
-        <table class="table learn-result-table">
-          <thead>
-            <tr>
-              <th>区分</th>
-              <th>正解数 (前 → 後)</th>
-              <th>一致率 (前 → 後)</th>
-              <th>直った</th>
-              <th>新たに壊れた</th>
-              <th>不変</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>全体</strong></td>
-              <td class="num">${switchCmp.total.beforeCorrect} → ${switchCmp.total.afterCorrect} / ${switchCmp.total.n}</td>
-              <td class="num">${(switchCmp.total.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.total.afterAcc * 100).toFixed(1)}%</td>
-              <td class="num ${switchCmp.total.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.total.fixed > 0 ? `+${switchCmp.total.fixed}` : '0'}</td>
-              <td class="num ${switchCmp.total.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.total.broken > 0 ? `-${switchCmp.total.broken}` : '0'}</td>
-              <td class="num muted">${switchCmp.total.unchanged}</td>
-            </tr>
-            <tr>
-              <td>ルール (mode)</td>
-              <td class="num">${switchCmp.mode.beforeCorrect} → ${switchCmp.mode.afterCorrect} / ${switchCmp.mode.n}</td>
-              <td class="num">${(switchCmp.mode.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.mode.afterAcc * 100).toFixed(1)}%</td>
-              <td class="num ${switchCmp.mode.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.mode.fixed > 0 ? `+${switchCmp.mode.fixed}` : '0'}</td>
-              <td class="num ${switchCmp.mode.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.mode.broken > 0 ? `-${switchCmp.mode.broken}` : '0'}</td>
-              <td class="num muted">${switchCmp.mode.unchanged}</td>
-            </tr>
-            <tr>
-              <td>ステージ (stage)</td>
-              <td class="num">${switchCmp.stage.beforeCorrect} → ${switchCmp.stage.afterCorrect} / ${switchCmp.stage.n}</td>
-              <td class="num">${(switchCmp.stage.beforeAcc * 100).toFixed(1)}% → ${(switchCmp.stage.afterAcc * 100).toFixed(1)}%</td>
-              <td class="num ${switchCmp.stage.fixed > 0 ? 'text-success' : 'muted'}">${switchCmp.stage.fixed > 0 ? `+${switchCmp.stage.fixed}` : '0'}</td>
-              <td class="num ${switchCmp.stage.broken > 0 ? 'text-danger font-bold' : 'muted'}">${switchCmp.stage.broken > 0 ? `-${switchCmp.stage.broken}` : '0'}</td>
-              <td class="num muted">${switchCmp.stage.unchanged}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        ${totalBroken > 0 ? `
-          <div class="learn-broken-warning">
-            ⚠️ <strong>警告: 新たに判定が壊れた件数が ${totalBroken} 件あります。</strong><br>
-            切り替えると、現在正解判定されている試合の一部が不正解（未検出）になる可能性があります。
-          </div>
-        ` : `
-          <div class="learn-confirm-msg">
-            この版（<code>${esc(targetPack.packId)}</code>）に切り替えます。今後の試合解析および静止画再判定に反映されます。よろしいですか？
-          </div>
-        `}
-
-        <div class="learn-confirm-actions">
-          <button class="btn ${totalBroken > 0 ? 'btn-danger' : 'btn-primary'}" id="learn-switch-confirm-yes" type="button">確認して切り替える</button>
-          <button class="btn btn-secondary" id="learn-switch-confirm-no" type="button">やめる</button>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderVersionsSection(versions, activePackId) {
-    if (!versions || versions.length === 0) {
-      return `
-        <div class="learn-versions-section">
-          <h3 class="learn-versions-title">学習パックの版</h3>
-          <div class="learn-versions-empty muted">保存された学習パックの版はありません。</div>
-        </div>
-      `;
-    }
-
-    const rows = versions.map(p => {
-      const isActive = p.packId === activePackId;
-      let createdStr = '-';
-      if (p.created) {
-        try {
-          createdStr = new Date(p.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
-        } catch {
-          createdStr = p.created.slice(0, 16).replace('T', ' ');
-        }
-      }
-      const modeThr = p.thresholds?.mode ?? 0.50;
-      const stageThr = p.thresholds?.stage ?? 0.50;
-      const matchCount = p.sourceMatchIds ? p.sourceMatchIds.length : 0;
-
-      return `
-        <tr class="${isActive ? 'row-active' : ''}">
-          <td><strong class="num">${esc(p.packId)}</strong></td>
-          <td>${esc(createdStr)}</td>
-          <td>ルール <strong>${modeThr.toFixed(2)}</strong> / ステージ <strong>${stageThr.toFixed(2)}</strong></td>
-          <td>${matchCount} 試合</td>
-          <td>
-            <span class="learn-badge ${isActive ? 'badge-active' : 'badge-neutral'}">
-              ${isActive ? '適用中' : '保存済み'}
-            </span>
-          </td>
-          <td>
-            ${isActive ? `
-              <span class="muted text-sm">適用中</span>
-            ` : `
-              <button class="btn btn-secondary btn-sm learn-switch-btn" data-pack-id="${esc(p.packId)}" type="button">この版を使う</button>
-            `}
-          </td>
-        </tr>
-      `;
-    }).join('');
-
-    return `
-      <div class="learn-versions-section">
-        <h3 class="learn-versions-title">学習パックの版（全 ${versions.length} 件）</h3>
-        <div class="table-wrap">
-          <table class="table learn-versions-table">
-            <thead>
-              <tr>
-                <th>版ID</th>
-                <th>作成日時 (JST)</th>
-                <th>閾値</th>
-                <th>学習元</th>
-                <th>状態</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
-  }
-
-  const updateLearnPanel = async () => {
-    const learnPanelEl = $('#learn-panel', page);
-    if (!learnPanelEl) return;
-
-    const allSamples = learn.collectSamples(ms, snapsById);
-    const confirmedMatchesCount = new Set(allSamples.map(s => s.matchId)).size;
-    const { train: trn, holdout: hld } = learn.splitHoldout(allSamples);
-    const hasHoldout = hld.length > 0;
-    const activePack = await db.activeLearnPack().catch(() => null);
-    const activePackId = activePack?.packId || null;
-    const packVersions = await db.listLearnPacks().catch(() => []);
-    const currentThr = activePack ? activePack.thresholds : learn.DEFAULT_THRESHOLDS;
-
-    learnPanelEl.innerHTML = `
-      <div class="learn-panel-header">
-        <div class="learn-panel-title-wrap">
-          <h2 class="learn-panel-title">自己学習（候補提示・版管理）</h2>
-          <span class="learn-badge ${activePack ? 'badge-active' : 'badge-neutral'}">${activePack ? '学習適用中' : '未適用（既定値）'}</span>
-        </div>
-        <div class="learn-header-actions">
-          ${activePack ? `
-            <button class="btn btn-secondary btn-sm" id="learn-deactivate" type="button">未適用に戻す</button>
-            <button class="btn btn-secondary btn-sm" id="learn-rollback" type="button">学習を1つ前に戻す</button>
-          ` : ''}
-        </div>
-      </div>
-
-      <div class="learn-panel-body">
-        <div class="learn-meta-row">
-          <div class="learn-meta-item">確認済み試合数: <strong class="num">${confirmedMatchesCount}</strong> 試合</div>
-          <div class="learn-meta-item">サンプル数: <strong class="num">${allSamples.length}</strong> 件</div>
-          <div class="learn-meta-item">holdout: <strong>${hasHoldout ? `あり（${hld.length}件）` : 'なし'}</strong></div>
-        </div>
-        <p class="learn-note muted">※ 映像は保存されていないため再判定は静止画・特徴量・系列のみで行われます。学習パックおよび閾値は端末内（IndexedDB）のみに保持され、外部送信されません。</p>
-
-        <div class="learn-active-info">
-          ${activePack ? `
-            <div class="learn-pack-desc">
-              適用中パック: <strong class="num">${esc(activePack.packId)}</strong>（作成: ${esc(activePack.created ? new Date(activePack.created).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }) : activePack.created)}) / 
-              閾値: ルール <strong>${activePack.thresholds.mode.toFixed(2)}</strong>、ステージ <strong>${activePack.thresholds.stage.toFixed(2)}</strong> / 
-              元試合: <strong>${activePack.sourceMatchIds ? activePack.sourceMatchIds.length : 0}</strong> 試合
-            </div>
-          ` : `
-            <div class="learn-pack-desc muted">適用中パック: なし（既定値: ルール 0.50 / ステージ 0.50）</div>
-          `}
-        </div>
-
-        <div class="learn-actions-row">
-          <button class="btn btn-primary" id="learn-candidate" type="button">候補を作って再判定</button>
-        </div>
-
-        <div id="learn-result" class="learn-result" ${learnCandidate ? '' : 'hidden'}>
-          ${learnCandidate ? renderCandidateResult(learnCandidate, learnConfirming) : ''}
-        </div>
-
-        ${versionSwitchingPack ? renderSwitchConfirmCard(versionSwitchingPack, currentThr, allSamples) : ''}
-
-        ${renderVersionsSection(packVersions, activePackId)}
-      </div>
-    `;
-
-    const btnCand = $('#learn-candidate', learnPanelEl);
-    if (btnCand) {
-      btnCand.onclick = () => {
-        versionSwitchingPack = null;
-        learnCandidate = learn.generateCandidate(allSamples);
-        learnConfirming = false;
-        updateLearnPanel();
-      };
-    }
-    const btnDeactivate = $('#learn-deactivate', learnPanelEl);
-    if (btnDeactivate) {
-      btnDeactivate.onclick = async () => {
-        await db.deactivateLearnPack();
-        versionSwitchingPack = null;
-        learnCandidate = null;
-        learnConfirming = false;
-        PAGES.list();
-      };
-    }
-    const btnRollback = $('#learn-rollback', learnPanelEl);
-    if (btnRollback) {
-      btnRollback.onclick = async () => {
-        await db.rollbackLearnPack();
-        versionSwitchingPack = null;
-        learnCandidate = null;
-        learnConfirming = false;
-        PAGES.list();
-      };
-    }
-    const btnReject = $('#learn-reject', learnPanelEl);
-    if (btnReject) {
-      btnReject.onclick = () => {
-        learnCandidate = null;
-        learnConfirming = false;
-        updateLearnPanel();
-      };
-    }
-    const btnApply = $('#learn-apply', learnPanelEl);
-    if (btnApply) {
-      btnApply.onclick = () => {
-        learnConfirming = true;
-        updateLearnPanel();
-      };
-    }
-    const btnConfirmNo = $('#learn-confirm-no', learnPanelEl);
-    if (btnConfirmNo) {
-      btnConfirmNo.onclick = () => {
-        learnConfirming = false;
-        updateLearnPanel();
-      };
-    }
-    const btnConfirmYes = $('#learn-confirm-yes', learnPanelEl);
-    if (btnConfirmYes) {
-      btnConfirmYes.onclick = async () => {
-        const pack = learn.makePack(learnCandidate, new Date().toISOString());
-        await db.applyLearnPack(pack);
-        learnCandidate = null;
-        learnConfirming = false;
-        PAGES.list();
-      };
-    }
-
-    // 版切り替えボタン
-    learnPanelEl.querySelectorAll('.learn-switch-btn').forEach(btn => {
-      btn.onclick = () => {
-        const pid = btn.dataset.packId;
-        const target = packVersions.find(p => p.packId === pid);
-        if (target) {
-          versionSwitchingPack = target;
-          learnCandidate = null;
-          learnConfirming = false;
-          updateLearnPanel();
-        }
-      };
-    });
-
-    const btnSwitchYes = $('#learn-switch-confirm-yes', learnPanelEl);
-    if (btnSwitchYes) {
-      btnSwitchYes.onclick = async () => {
-        if (versionSwitchingPack) {
-          await db.activateLearnPack(versionSwitchingPack.packId);
-          versionSwitchingPack = null;
-          learnCandidate = null;
-          learnConfirming = false;
-          PAGES.list();
-        }
-      };
-    }
-    const btnSwitchNo = $('#learn-switch-confirm-no', learnPanelEl);
-    if (btnSwitchNo) {
-      btnSwitchNo.onclick = () => {
-        versionSwitchingPack = null;
-        updateLearnPanel();
-      };
-    }
-  };
-
-  await updateLearnPanel();
-
-  // D54: 検出の自動調整パネル（結果画面の数を正解にして、検出のしきい値を端末内で探す）
-  let tuneCand = null, tuneBusy = null;
-  const updateTunePanel = async () => {
-    const el = $('#tune-panel', page); if (!el) return;
-    const st = DP.loadState(), active = st.params, cur = active || DP.defaults();
-    const items = await DP.collectItems().catch(() => []);
-    const fmt = v => (typeof v === 'number' ? String(v) : '-');
-    const lbl = k => (TUNABLE.find(d => d.key === k) || {}).label || k;
-    const cand = tuneCand;
-    const candHtml = tuneBusy ? `<p class="muted">調整中… <span id="tune-progress">${esc(tuneBusy)}</span></p>` : !cand ? '' : cand.reason === 'few' ? `<p class="muted">対象の試合が足りません（${cand.have}／${cand.need} 試合）。結果画面を読めた試合が増えると調整できます。</p>`
-      : `<div class="learn-result"><p><strong>${cand.ok ? '候補が見つかりました' : '今回は適用しません'}</strong>${cand.ok ? '' : `（${esc({ nochange: '今の値より良い値がありませんでした', smallgain: '改善が小さすぎます', holdout: '取り置いた試合で悪化しました' }[cand.reason] || '')}）`}</p>
-        <table class="table"><tbody>
-          <tr><th>学習した試合（${cand.train.n}）の件数の誤差</th><td class="num">${cand.train.before} → ${cand.train.after}</td></tr>
-          <tr><th>取り置いた試合（${cand.holdout.n}）の件数の誤差</th><td class="num">${cand.holdout.before} → ${cand.holdout.after}</td></tr>
-          ${cand.changes.map(c => `<tr><th>${esc(c.label)}</th><td class="num">${fmt(c.from)} → ${fmt(c.to)}</td></tr>`).join('')}
-        </tbody></table>
-        ${cand.ok ? '<div class="learn-actions-row"><button class="btn btn-primary" id="tune-apply" type="button">この候補を端末内に適用</button></div>' : ''}</div>`;
-    const hist = (st.history || []).slice(-3).reverse().map(h => `<li class="muted">${esc(new Date(h.at).toLocaleString('ja-JP'))} ${h.auto ? '自動で適用' : h.note || '適用'}${h.changes ? `（${esc(h.changes.map(c => `${c.key} ${c.from}→${c.to}`).join('、'))}）` : ''}</li>`).join('');
-    el.innerHTML = `
-      <div class="learn-panel-header"><div class="learn-panel-title-wrap"><h2 class="learn-panel-title">検出の自動調整</h2>
-        <span class="learn-badge ${active ? 'badge-active' : 'badge-neutral'}">${active ? '調整適用中' : '既定値'}</span></div></div>
-      <div class="learn-panel-body">
-        <p class="muted">結果画面のデス数・スペシャル回数・K+A を正解にして、保存した試合の信号から検出をやり直し、件数のずれが減るしきい値を探します（手動のラベルは要りません。外部送信なし）。対象: <strong class="num">${items.length}</strong> 試合。</p>
-        <table class="table"><tbody>${TUNABLE.map(d => `<tr><th>${esc(d.label)}</th><td class="num">${fmt(cur[d.key])}</td></tr>`).join('')}</tbody></table>
-        <div class="learn-actions-row">
-          <button class="btn btn-primary" id="tune-run" type="button" ${tuneBusy ? 'disabled' : ''}>今すぐ調整する</button>
-          <button class="btn" id="tune-rollback" type="button" ${(st.history || []).length ? '' : 'disabled'}>ひとつ前に戻す</button>
-          <button class="btn" id="tune-reset" type="button" ${active ? '' : 'disabled'}>既定値に戻す</button>
-          <label class="muted"><input type="checkbox" id="tune-auto" ${DP.autoEnabled() ? 'checked' : ''}> 解析が終わるたびに自動で調整する</label>
-        </div>
-        ${candHtml}
-        ${hist ? `<ul>${hist}</ul>` : ''}
-      </div>`;
-    $('#tune-run', el).onclick = async () => { tuneCand = null; tuneBusy = '準備中'; updateTunePanel(); tuneCand = await DP.makeCandidate({ onProgress: (i, n) => { const e = $('#tune-progress', page); if (e) e.textContent = `${Math.round(100 * i / n)}%`; } }).catch(e => ({ ok: false, reason: 'error', changes: [], train: { n: 0, before: 0, after: 0 }, holdout: { n: 0, before: 0, after: 0 }, err: String(e) })); tuneBusy = null; updateTunePanel(); };
-    const ap = $('#tune-apply', el); if (ap) ap.onclick = () => { DP.applyParams(cand.params, { changes: cand.changes, train: cand.train, holdout: cand.holdout }); tuneCand = null; updateTunePanel(); };
-    $('#tune-rollback', el).onclick = () => { DP.rollback(); tuneCand = null; updateTunePanel(); };
-    $('#tune-reset', el).onclick = () => { DP.reset(); tuneCand = null; updateTunePanel(); };
-    $('#tune-auto', el).onchange = e => DP.setAutoEnabled(e.target.checked);
-  };
-  await updateTunePanel();
-
+// D84: 設定画面。記録の消去（リセット）とクラウド同期は、試合一覧から移した
+PAGES.settings = async () => {
+  const ms = await db.allMatches();
+  const page = document.createElement('div');
+  page.innerHTML = `
+    <div class="page-header"><h1 class="page-title">設定</h1></div>
+    <section id="cloud-panel" class="card learn-panel"></section>
+    <section id="reset-panel" class="card learn-panel"></section>`;
+  mountPage(page, false);
   // D58: クラウド同期パネル（アカウントに紐付けて、数値と時刻だけを同期する。画像・クリップ・信号は端末に残す）
   let cloudMsg = '', cloudBusy = false;
   const updateCloudPanel = async () => {
@@ -1661,56 +1191,18 @@ PAGES.list = async () => {
   };
   await updateCloudPanel();
 
-  // D59: 静止画・場面クリップを残す試合数（古いものから自動で消す。数値データは残る）
-  const updateRetentionPanel = async () => {
-    const el = $('#retention-panel', page); if (!el) return;
-    const keep = db.getRetentionKeep(), plan = await db.retentionPlan(keep), favN = ms.filter(x => x.favorite === true).length;
-    el.innerHTML = `
-      <div class="learn-panel-header"><div class="learn-panel-title-wrap"><h2 class="learn-panel-title">画像・クリップの保存数</h2>
-        <span class="learn-badge badge-neutral">直近 ${keep} 試合</span></div></div>
-      <div class="learn-panel-body">
-        <p class="muted">確認用の静止画・場面クリップ（と、昔の録画）を、新しい試合から何試合ぶん残すかを決めます。試合を保存するたびに、これより古いものを自動で消します。<strong>試合の数値データ（検出結果・確認画面の修正）は消えません</strong>（クラウドにも同期されます）。お気に入り（★）の試合は数えず、自動では消しません${favN ? `（今は ${favN} 試合）` : ''}。</p>
-        <div class="learn-actions-row">
-          <label>残す試合数
-            <select id="retention-keep" class="input-sm">${db.RETENTION_CHOICES.concat(db.RETENTION_CHOICES.includes(keep) ? [] : [keep]).sort((a, b) => a - b).map(n => `<option value="${n}" ${n === keep ? 'selected' : ''}>${n} 試合${n === db.RETENTION_DEFAULT ? '（既定）' : ''}</option>`).join('')}</select>
-          </label>
-          <button class="btn" id="retention-now" type="button" ${plan.length ? '' : 'disabled'}>いま整理する（${plan.length} 試合ぶんを消す）</button>
-        </div>
-      </div>`;
-    const run = async n => { const p = await db.retentionPlan(n); if (p.length && !confirm(`${p.length} 試合ぶんの静止画・場面クリップ（と昔の録画）を削除します。試合の数値データは残ります。よろしいですか？`)) return false; db.setRetentionKeep(n); await db.enforceRetention(n); return true; };
-    $('#retention-keep', el).onchange = async e => { const n = +e.target.value, prev = db.getRetentionKeep(); if (await run(n)) PAGES.list(); else e.target.value = String(prev); };
-    $('#retention-now', el).onclick = async () => { if (await run(db.getRetentionKeep())) PAGES.list(); };
-  };
-  await updateRetentionPanel();
-  const updateVerifyPanel = async () => {
-    const el = $('#verify-panel', page); if (!el) return;
-    const on = db.getVerifyOn(), info = await db.verifyInfo().catch(() => null), m = info ? ms.find(x => x.id === info.matchId) : null;
-    el.innerHTML = `<h3>検証録画（精度の検証用）</h3>
-      <p class="muted">オンにすると、次に解析する試合から<strong>全コマ</strong>（約0.4秒おき）を直近1試合ぶんだけ残します。ソフトの分析結果と一緒にzipで書き出して Claude Code に渡し、見逃しや誤検出の洗い出しに使います（クラウド同期の対象外・新しい試合で上書き）。</p>
-      <label class="row"><input type="checkbox" id="verify-on" ${on ? 'checked' : ''}> 検証録画をオンにする</label>
-      <p class="muted" id="verify-info">${info ? `保存中: ${esc(m ? (m.created || '').slice(0, 16).replace('T', ' ') + ' 試合' + m.match : info.matchId)}・${info.count}コマ・約${fmtBytes(info.bytes)}` : '保存中の検証録画はありません'}</p>
-      <button class="btn" id="verify-export" type="button" ${info ? '' : 'disabled'}>直近1試合の検証zipを書き出す</button>`;
-    $('#verify-on', el).onchange = e => { db.setVerifyOn(e.target.checked); };
-    $('#verify-export', el).onclick = async () => {
-      const btn = $('#verify-export', el); btn.disabled = true; btn.textContent = '作成中…';
-      try { const { blob, filename } = await buildVerifyZip(info.matchId); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); }
-      catch (e) { alert('書き出しに失敗しました: ' + (e?.message || e)); }
-      btn.disabled = false; btn.textContent = '直近1試合の検証zipを書き出す';
-    };
-  };
-  await updateVerifyPanel();
   const updateResetPanel = () => {
     const el = $('#reset-panel', page); if (!el) return;
     el.innerHTML = `<h3>記録をすべて消す（リセット）</h3>
-      <p class="muted">この端末の<strong>試合の記録・静止画・場面クリップ・検証録画</strong>をすべて消します（${ms.length} 試合）。元に戻せません（録画ファイルは消えません）。クラウド同期（ログイン中）をしていると、次の同期で<strong>クラウドの記録も消えます</strong>。必要なら先に「バックアップを書き出す」で保存してください。</p>
-      <label class="row"><input type="checkbox" id="reset-learn"> 学習結果・検出パラメータの調整・ブキの名前・各種の設定も初期化する</label>
+      <p class="muted">この端末の<strong>試合の記録・静止画・場面クリップ</strong>をすべて消します（${ms.length} 試合）。元に戻せません（録画ファイルは消えません）。クラウド同期（ログイン中）をしていると、次の同期で<strong>クラウドの記録も消えます</strong>。必要なら先に「バックアップを書き出す」で保存してください。</p>
+      <label class="row"><input type="checkbox" id="reset-learn"> ブキの名前・各種の設定も初期化する</label>
       <button class="btn btn-stop" id="reset-all" type="button">すべての記録を消す</button>`;
     $('#reset-all', el).onclick = async () => {
       const learn = $('#reset-learn', el).checked;
-      if (!confirm(`${ms.length} 試合ぶんの記録をすべて消します。元に戻せません。${learn ? '\n学習結果・調整・ブキの名前・設定も初期化します。' : ''}\n\nよろしいですか？`)) return;
+      if (!confirm(`${ms.length} 試合ぶんの記録をすべて消します。元に戻せません。${learn ? '\nブキの名前・設定も初期化します。' : ''}\n\nよろしいですか？`)) return;
       if (prompt('確認のため「消す」と入力してください') !== '消す') { alert('入力が違うので、中止しました'); return; }
       try { const r = await db.resetAll({ includeLearn: learn }); alert(`${r.matches} 試合の記録を消しました`); } catch (e) { alert('消去に失敗しました: ' + (e?.message || e)); }
-      PAGES.list();
+      PAGES.settings();
     };
   };
   updateResetPanel();
@@ -1782,25 +1274,6 @@ async function buildBatchZip(matches, { mode = 'diff', batchId = FB.makeBatchId(
   return { blob: new Blob([zip], { type: 'application/zip' }), filename: FB.batchFilename(mode, now), meta };
 }
 
-// D67: 検証パック（直近1試合の全コマ＋ソフトの分析結果）。Claude Code に読ませて検出ロジックの改善材料にする。
-async function buildVerifyZip(matchId) {
-  const rec = await db.getMatch(matchId); if (!rec) throw new Error('試合が見つかりません');
-  const files = {}, full = [], clips = [], stills = [], now = new Date();
-  for (const f of await db.verifyOf(matchId)) { const name = VP.fullName(f.t); files[name] = new Uint8Array(await f.blob.arrayBuffer()); full.push({ time: f.t, file: name }); }
-  const snaps = await db.snapsOf(matchId);
-  for (const c of await db.clipsOf(matchId)) for (const f of c.frames || []) { const name = VP.clipName(c.idx ?? 0, f.t); files[name] = new Uint8Array(await f.blob.arrayBuffer()); clips.push({ time: f.t, file: name, clip_events: c.events || [] }); }
-  for (const s of snaps.filter(x => x.kind !== 'clip').sort((a, b) => a.t - b.t)) { const name = VP.stillName(s.kind, s.t, s.id); files[name] = new Uint8Array(await s.blob.arrayBuffer()); stills.push({ time: s.t, file: name, kind: s.kind || null, reason: s.reason || null }); }
-  const params = DP.activeParams?.() ?? null;
-  const meta = VP.buildVerifyMeta(rec, { full, clips, stills, params, exportedAt: now.toISOString(), step: 0.4 });
-  files['manifest.json'] = strToU8(JSON.stringify(meta, null, 1));
-  files['software.json'] = strToU8(JSON.stringify(rec));
-  files['summary.json'] = strToU8(JSON.stringify(VP.softwareSummary(rec), null, 1));
-  files['detect_params.json'] = strToU8(JSON.stringify(params, null, 1));
-  files['README.txt'] = strToU8(VP.verifyReadme(meta));
-  const zip = zipSync(files, { level: 0 });
-  return { blob: new Blob([zip], { type: 'application/zip' }), filename: VP.verifyFilename(rec, now), meta };
-}
-
 // D74: 録画の設定（ライブ画面に出す）
 async function renderVideoSettings(el) {
     if (!el) return;
@@ -1818,13 +1291,18 @@ async function renderVideoSettings(el) {
       <p class="muted">オンにすると、配信映像／キャプチャー映像の解析中、バトル開始から結果画面までを<strong>1 試合 = 1 ファイル</strong>で保存します。ファイル名は <code>日時_ルール_ステージ_勝敗.mp4</code> で、結果画面を読めたあとに自動で付きます（例: 20261027_2105_ガチエリア_ヒラメが丘団地_勝ち.mp4）。録画した試合は、試合の詳細（レビュー）画面で録画を見ながら確認・修正できます。60fps・音声 192kbps。録画ファイルを読み込んでの解析（ファイル再生）では録画されません。</p>
       <label class="row"><input type="checkbox" id="video-on" ${on ? 'checked' : ''}> 試合ごとに録画する</label>
       <label class="row"><input type="checkbox" id="video-audio" ${VR.getAudioOn() ? 'checked' : ''}> ゲーム音も録音する（次に解析を始めるときから）</label>
-      <label class="row">画質（60fps） <select id="video-bitrate" class="input-sm">${VR.BITRATE_CHOICES.map(m => `<option value="${m}" ${VR.getBitrateMbps() === m ? 'selected' : ''}>${m} Mbps（1 試合 約 ${Math.round(m * 6 * 60 / 8 + 6 * 60 * 192 / 8000)}MB${m === 8 ? '・おすすめ' : ''}）</option>`).join('')}</select></label>
+      <label class="row">画質（60fps） <select id="video-bitrate" class="input-sm">${VR.BITRATE_CHOICES.map(m => `<option value="${m}" ${VR.getBitrateMbps() === m ? 'selected' : ''}>${m} Mbps${m === 8 ? '（おすすめ）' : ''}</option>`).join('')}</select></label>
+      <label class="row">音質 <select id="video-audio-kbps" class="input-sm">${VR.AUDIO_CHOICES.map(k => `<option value="${k}" ${VR.getAudioKbps() === k ? 'selected' : ''}>${k} kbps${k === 192 ? '（おすすめ）' : ''}</option>`).join('')}</select></label>
+      <p class="muted" id="video-size-est"></p>
       <p class="muted">${D ? '画面共有: ウィンドウ／画面を選ぶと、Windows ではシステム音も録れます。キャプチャー映像: ボードの音声入力（映像と同じ機器の音声）を自動で探して足します。' : '配信映像（画面共有）: 共有ダイアログの「タブの音声／システムの音声も共有」にチェックを入れてください。キャプチャー映像: ボードの音声入力を自動で探して足します。'} 見つからないときは音声なしで録画します。録画中、画面からの再生音は出しません（二重に聞こえるのを防ぐため）。</p>
       <p class="muted" id="video-dir">保存先: ${D ? esc(dirInfo?.dir || '') + (dirInfo?.custom ? '' : '（既定）') : (dir ? esc(dir.name) + (perm === 'granted' ? '（書き込み許可済み）' : '（許可が切れています。「保存先を選ぶ」で選び直してください）') : '未設定（ダウンロードフォルダに自動ダウンロード）')}</p>
       <button class="btn" id="video-pick" type="button" ${canPick ? '' : 'disabled'}>${D || dir ? '保存先を選び直す' : '保存先フォルダを選ぶ'}</button>${D ? ' <button class="btn" id="video-open" type="button">保存先を開く</button>' : ''}${!D && dir && perm !== 'granted' ? ' <button class="btn" id="video-regrant" type="button">書き込みを許可する</button>' : ''}`;
     $('#video-on', el).onchange = e => { VR.setVideoOn(e.target.checked); const sm = document.querySelector('#live-video-summary'); if (sm) sm.textContent = e.target.checked ? '（オン）' : '（オフ）'; };
     $('#video-audio', el).onchange = e => VR.setAudioOn(e.target.checked);
-    $('#video-bitrate', el).onchange = e => VR.setBitrateMbps(+e.target.value);
+    const sizeEst = () => { const m = VR.getBitrateMbps(), k = VR.getAudioKbps(), mb = Math.round((m * 1000 + (VR.getAudioOn() ? k : 0)) * 6 * 60 / 8 / 1000); $('#video-size-est', el).textContent = `目安: 6 分の試合で 約 ${mb}MB（画質・音質を変えると、次の試合の録画から反映されます）`; };
+    $('#video-bitrate', el).onchange = e => { VR.setBitrateMbps(+e.target.value); sizeEst(); };
+    $('#video-audio-kbps', el).onchange = e => { VR.setAudioKbps(+e.target.value); sizeEst(); };
+    $('#video-audio', el).addEventListener('change', sizeEst); sizeEst();
     const rg = $('#video-regrant', el); if (rg) rg.onclick = async () => { await VR.ensureDirPermission(dir); await updateVideoPanel(); };
     const op = $('#video-open', el); if (op) op.onclick = () => D.openVideoDir();
     $('#video-pick', el).onclick = async () => { try { if (D) { await D.pickVideoDir(); } else { const h = await window.showDirectoryPicker({ mode: 'readwrite' }); await db.setVideoDir(h); } await updateVideoPanel(); } catch { /* cancelled */ } };
@@ -1859,7 +1337,7 @@ async function buildFixPack(matches, { whole = false, onProgress = () => {} } = 
     files[dir + 'software.json'] = strToU8(JSON.stringify(m));
     index.push({ id: m.id, dir, counts: { false_positives: d.false_positives.length, misses: d.misses.length, result_fixes: d.result_fixes.length, unreviewed: d.unreviewed }, frame_source: source, frames: frames.length, reasons: (m.needs_fix?.reasons || []).map(k => FP.FIX_REASONS[k] || k) });
   }
-  const params = DP.activeParams?.() ?? null;
+  const params = null; // D84: 検出の自動調整は廃止（常に既定値）
   files['INDEX.json'] = strToU8(JSON.stringify({ app: 'InkGraph', kind: 'fix-pack', format: 1, exported: now.toISOString(), matches: index }, null, 1));
   files['detect_params.json'] = strToU8(JSON.stringify(params, null, 1));
   files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording') }));
