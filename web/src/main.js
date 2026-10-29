@@ -134,6 +134,7 @@ function nav(page, arg, seekTo = null) {
   }
   if (!PAGES[page]) page = 'live';
   if (page === 'live' && isNarrow()) page = 'list'; // D58: スマホなど狭い画面ではライブ分析を使わない
+  if (currentPage === 'match' && page !== 'match') reviewMode = false; // D86: 試合の詳細は、開くたびに普通モード（レビューモードは自分で入る）
   currentPage = page;
   if (arg) currentId = arg;
   pendingSeek = seekTo;
@@ -1505,7 +1506,6 @@ PAGES.match = async () => {
   };
 
   if (m.remote) reviewMode = false; // クラウドから取り込んだ試合は閲覧のみ（D58）
-  else if (m.needs_fix) reviewMode = true; // D75: 要修正の試合は、レビューモードで開く
   const r = resultOf(m);
   const rsStat = resultStatus(m);
   const matchTypeLabel = (r.match_type && MATCH_TYPE_LABEL[r.match_type]) || '不明';

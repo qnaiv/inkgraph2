@@ -1,5 +1,5 @@
 // Board enemy weapon icon reading and matching (720p result screen)
-import { b64bytes } from './img.js';
+import { b64bytes, crop } from './img.js';
 
 export const BI = { x0: 696, w: 56, h: 34, ix0: 7, ix1: 49, iy0: 2, iy1: 32, match_th: 0.93, group_th: 0.93 };
 export const ROW_Y = { top: [262, 306, 350, 394], bot: [499, 543, 587, 631] };
@@ -7,17 +7,10 @@ export const AMBIG = [['リッター4K', '4Kスコープ']];
 
 /** 1280x720 RGBA fr から 56x34 の枠を切り出し、グレー Uint8Array を返す */
 export function boardIconGray(fr, dx, dy, group, idx) {
-  const x0 = BI.x0 + dx, y0 = ROW_Y[group][idx] + dy, w = BI.w, h = BI.h, o = new Uint8Array(w * h), d = fr.data, fw = fr.w, fh = fr.h;
-  for (let y = 0; y < h; y++) {
-    const fy = y0 + y;
-    for (let x = 0; x < w; x++) {
-      const fx = x0 + x;
-      if (fx >= 0 && fx < fw && fy >= 0 && fy < fh) {
-        const p = (fy * fw + fx) * 4;
-        o[y * w + x] = Math.round(0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]);
-      }
-    }
-  }
+  // D86: 1080p などの映像でも、720p の座標どおりに切り出す（crop は 720p 換算の面積平均）。以前は元の映像の画素を 720p の座標のまま読んでいて、1080p ではブキと別の場所を切り出していた
+  const x0 = BI.x0 + dx, y0 = ROW_Y[group][idx] + dy, w = BI.w, h = BI.h, o = new Uint8Array(w * h);
+  const c = crop(fr, x0, y0, x0 + w, y0 + h), ox = Math.max(0, -x0), oy = Math.max(0, -y0);
+  for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) { const i = y * c.w + x; o[(y + oy) * w + x + ox] = Math.round(0.299 * c.r[i] + 0.587 * c.g[i] + 0.114 * c.b[i]); }
   return o;
 }
 
