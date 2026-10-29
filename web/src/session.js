@@ -8,7 +8,7 @@ import { CaptureGuard } from './capture_guard.js';
 import * as detectParams from './detect_params.js';
 import { countCheck } from './count_check.js';
 import { desktop, isDesktop, recordingAvailable } from './desktop.js';
-import { MatchRecorder, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo, ensureDirPermission } from './video_rec.js';
+import { MatchRecorder, pickRecordingStart, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo, ensureDirPermission } from './video_rec.js';
 export async function listDevices() {
   try { const s = await navigator.mediaDevices.getUserMedia({ video: true }); s.getTracks().forEach(t => t.stop()); } catch (e) { /* permission denied */ }
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
@@ -77,7 +77,7 @@ export class Session {
       }, 2000);
     }
 
-    this.liveLoop();
+    this.liveLoop(); this.ringStart();
   }
   now() { return (performance.now() - this.t0) / 1000; }
   _notifyInterrupted(info) {
@@ -85,8 +85,32 @@ export class Session {
   }
   grab(t) {
     { const now = performance.now(); const info = this.guard.frame(now); if (info) this._notifyInterrupted(info); }
-    const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720; if (this.canvas.width !== vw) { this.canvas.width = vw; this.canvas.height = vh; } this.ctx.drawImage(this.video, 0, 0, vw, vh); const d = this.ctx.getImageData(0, 0, vw, vh); this.busy = true; this.stats.frames++;
+    const vw = this.video.videoWidth || 1280, vh = this.video.videoHeight || 720; if (this.canvas.width !== vw) { this.canvas.width = vw; this.canvas.height = vh; } this.ctx.drawImage(this.video, 0, 0, vw, vh); const d = this.ctx.getImageData(0, 0, vw, vh); this.busy = true; this.stats.frames++; this.blackNote(t, d.data);
     this.worker.postMessage({ type: 'frame', t, w: vw, h: vh, buf: d.data.buffer }, [d.data.buffer]); }
+  /** D80: 暗転（ほぼ真っ黒な画面＝ロード）の区間を覚えておく。録画の開始点を決めるのに使う */
+  blackNote(t, px) {
+    let sum = 0, n = 0; for (let i = 0; i < px.length; i += 256) { sum += px[i] + px[i + 1] + px[i + 2]; n += 3; }
+    const black = n > 0 && sum / n < 10, runs = this.blackRuns = this.blackRuns || [];
+    if (black) { if (this.blackFrom == null) this.blackFrom = t; return; }
+    if (this.blackFrom != null) { if (t - this.blackFrom >= 0.4) runs.push({ from: this.blackFrom, to: t }); this.blackFrom = null; while (runs.length && runs[0].to < t - 180) runs.shift(); }
+  }
+  /** D80: 巻き戻し録画。待機中は、メモリにだけ録っておく（20秒ずつずらして2本、古いほうから捨てる）。バトル開始で本物の録画に昇格する */
+  ringWanted() { return isDesktop() && getVideoOn() && recordingAvailable() && videoSupported() && !!this.stream && this.running; }
+  ringTick() {
+    this.ring = this.ring || [];
+    if (!this.ringWanted()) return this.ringClear();
+    if (this.vcur && this.vcur.r.state === 'recording') return; // 試合を録っている間は、待機の録画を回さない
+    const now = this.now();
+    try {
+      const newest = this.ring[this.ring.length - 1];
+      if (!newest || now - newest.sess0 >= 20) this.ring.push({ r: new MatchRecorder(this.stream, { buffer: true }).start(), sess0: now });
+      while (this.ring.length > 1 && now - this.ring[0].sess0 >= 40) this.ringDrop(this.ring.shift());
+    } catch (e) { console.warn('ring failed', e); }
+  }
+  ringDrop(x) { try { x.r.stop().then(b => b?.discard?.()).catch(() => {}); } catch { /* ignore */ } }
+  ringClear() { for (const x of this.ring || []) this.ringDrop(x); this.ring = []; }
+  ringStart() { if (this._ringId || !isDesktop()) return; this._ringId = setInterval(() => this.ringTick(), 1000); this.ringTick(); }
+  ringStop() { if (this._ringId) { clearInterval(this._ringId); this._ringId = null; } this.ringClear(); }
   liveLoop() {
     const gen = ++this._loopGen;
     let next = 0;
@@ -128,7 +152,7 @@ export class Session {
     if (m.type === 'ack') { this.busy = false; this.stats.ms += m.ms; this.lastState = m.state; this.cb.status?.(m); if (this.ackWait) { const f = this.ackWait; this.ackWait = null; f(); } }
     else if (m.type === 'event') {
       if (m.e) {
-        if (m.e.type === 'battle_start') { this.guard.battleStart(performance.now()); this.videoStart(); }
+        if (m.e.type === 'battle_start') { this.guard.battleStart(performance.now()); this.videoStart(m.e.t); }
         else if (m.e.type === 'battle_discard') { this.guard.battleDiscard(); this.videoDrop(); }
         else if (m.e.type === 'battle_end') this.videoEndSoon();
       }
@@ -142,12 +166,23 @@ export class Session {
   }
   // D68: 試合ごとの録画。バトル開始で録り始め、終了の 25 秒後（結果画面ぶん）に止めて、試合の保存時に名前を付けて保存する
   videoNote(msg, level = 'info') { try { this.cb.videoStatus?.({ msg, level }); } catch { /* ignore */ } }
-  videoStart() {
+  videoStart(t) {
     if (!getVideoOn()) return;
     if (!this.stream) return this.videoNote('録画: 映像ストリームが無いので録画できません', 'error');
     if (!videoSupported()) return this.videoNote('録画: この環境では録画できません（ブラウザ版は録画に対応していません）', 'error');
     this.videoQueue = this.videoQueue || [];
-    try { const t0 = this.now(); const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null, t0 }; this.videoQueue.push(this.vcur); this.videoNote('録画: 開始しました（バトル終了と結果画面のあとに保存します）'); } catch (e) { console.warn('video start failed', e); this.vcur = null; this.videoNote('録画: 開始できませんでした（' + (e?.message || e) + '）', 'error'); }
+    try {
+      const bs = Number.isFinite(t) ? t : this.now(), pre = (this.ring || []).filter(x => x.r.state === 'recording');
+      if (pre.length) {
+        const keep = pre[0]; this.ring = []; for (const x of pre.slice(1)) this.ringDrop(x);
+        keep.r.promote();
+        const pk = pickRecordingStart({ runs: this.blackRuns || [], battleStart: bs, recStart: keep.sess0 }), ss = Math.max(0, pk.cut - keep.sess0);
+        this.vcur = { r: keep.r, timer: null, t0: keep.sess0, ss, cut: { reason: pk.reason, black: pk.black } }; this.videoQueue.push(this.vcur);
+        this.videoNote(pk.reason === 'black' ? `録画: 開始しました。暗転の終わり（バトル開始の${(bs - pk.cut).toFixed(0)}秒前）から録ります` : '録画: 開始しました。暗転が見つからなかったので、バトル開始の少し前から録ります');
+      } else {
+        const t0 = this.now(); const r = new MatchRecorder(this.stream).start(); this.vcur = { r, timer: null, t0, ss: 0 }; this.videoQueue.push(this.vcur); this.videoNote('録画: 開始しました（バトル終了と結果画面のあとに保存します）');
+      }
+    } catch (e) { console.warn('video start failed', e); this.vcur = null; this.videoNote('録画: 開始できませんでした（' + (e?.message || e) + '）', 'error'); }
   }
   videoEndSoon() { const c = this.vcur; if (!c) { if (getVideoOn()) this.videoNote('録画: バトルが終わりましたが、この試合の録画は始まっていませんでした', 'error'); return; } if (!c.timer) { c.timer = setTimeout(() => c.r.stop(), 25000); this.videoNote('録画: バトル終了。結果画面ぶん（約25秒）を録ってから、試合の保存時に名前を付けて保存します'); } }
   videoDrop() { const c = this.vcur; if (!c) return; this.videoNote('録画: 試合として確定しなかったので、録画を捨てました'); clearTimeout(c.timer); c.r.stop().then(b => b?.discard?.()).catch(() => {}); this.videoQueue = (this.videoQueue || []).filter(x => x !== c); this.vcur = null; }
@@ -156,7 +191,7 @@ export class Session {
     if (!keep) this.videoNote('録画: 試合を保存しなかったので、録画も捨てました');
     clearTimeout(c.timer); if (this.vcur === c) this.vcur = null;
     const blob = await c.r.stop(); if (!keep) { await blob?.discard?.(); return; } if (!blob || !blob.size) { this.videoNote('録画: 映像が空だったので保存しませんでした', 'error'); return; }
-    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }); rec.videoFile = res.filename || name; if (res.path) rec.recording = { path: res.path, file: res.filename, t0: Math.round(c.t0 * 100) / 100, bytes: res.bytes || blob.size, remuxed: !!res.remuxed }; if (res.path && !res.remuxed) this.videoNote('録画: 保存しましたが、シークできる形式への変換に失敗しました（再生は出来ますが、他のプレーヤーでシークできないことがあります。試合の詳細から変換できます）', 'error'); this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
+    try { const name = videoFilename({ ...rec, created: new Date(Date.parse(this.sessionId) + (rec.battle?.[0] ?? 0) * 1000).toISOString() }, c.r.ext || 'webm'), res = await saveVideo(blob, name, { getDir: db.getVideoDir }, { ss: c.ss || 0 }); rec.videoFile = res.filename || name; if (res.path) rec.recording = { path: res.path, file: res.filename, t0: Math.round((c.t0 + (res.trimmed ? c.ss || 0 : 0)) * 100) / 100, ...(c.cut ? { cut: c.cut } : {}), bytes: res.bytes || blob.size, remuxed: !!res.remuxed }; if (res.path && !res.remuxed) this.videoNote('録画: 保存しましたが、シークできる形式への変換に失敗しました（再生は出来ますが、他のプレーヤーでシークできないことがあります。試合の詳細から変換できます）', 'error'); this.cb.videoSaved?.({ ...res, bytes: blob.size }); }
     catch (e) { console.warn('video save failed', e); this.videoNote('録画: 保存に失敗しました（' + (e?.message || e) + '）', 'error'); }
   }
   async saveMatch(rec) {
@@ -253,6 +288,7 @@ export class Session {
   async stop() {
     if (!this.running) return;
     this.running = false;
+    this.ringStop();
     this._loopGen++;
     if (this._watchdogId) {
       clearInterval(this._watchdogId);

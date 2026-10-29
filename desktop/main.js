@@ -38,10 +38,11 @@ const safeName = n => String(n).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice
 
 // ---- 録画を、どのプレーヤーでもシークできる普通の MP4 にする（MediaRecorder の MP4 は断片化していて、シーク用の索引が無い）。ffmpeg（同梱）で、再エンコードせずに詰め替える ----
 function ffmpegPath() { try { const p = process.env.INKGRAPH_FFMPEG || require('ffmpeg-static'); return p ? String(p).replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep).replace('app.asar/', 'app.asar.unpacked/') : null; } catch { return null; } }
-function remux(inp, out, ext) {
+function remux(inp, out, ext, ss = 0) {
   return new Promise(res => {
     const ff = ffmpegPath(); if (!ff) return res(false);
-    const args = ['-y', '-loglevel', 'error', '-fflags', '+genpts', '-i', inp, '-c', 'copy', '-avoid_negative_ts', 'make_zero', ...(ext === '.mp4' ? ['-movflags', '+faststart', '-f', 'mp4'] : ['-f', 'webm']), out];
+    // ss > 0: 先頭を ss 秒だけ切る。入力側の -ss ＋ 再エンコードなし。直前のキーフレームから入れ、編集リストで、再生は ss 秒ちょうどから始まる（-avoid_negative_ts make_zero は、この切り出しを打ち消すので付けない）
+    const args = ['-y', '-loglevel', 'error', '-fflags', '+genpts', ...(ss > 0 ? ['-ss', Number(ss).toFixed(3)] : []), '-i', inp, '-c', 'copy', ...(ss > 0 ? [] : ['-avoid_negative_ts', 'make_zero']), ...(ext === '.mp4' ? ['-movflags', '+faststart', '-f', 'mp4'] : ['-f', 'webm']), out];
     let done = false; const fin = ok => { if (!done) { done = true; res(ok); } };
     try { const p = spawn(ff, args, { windowsHide: true, stdio: 'ignore' }); p.on('error', () => fin(false)); p.on('close', code => fin(code === 0 && fs.existsSync(out) && fs.statSync(out).size > 0)); } catch { fin(false); }
   });
@@ -57,13 +58,13 @@ ipcMain.handle('rec:open', async () => {
 });
 ipcMain.handle('rec:write', (_e, id, buf) => new Promise((res, rej) => { const r = recs.get(id); if (!r) return rej(new Error('録画が開かれていません')); const b = Buffer.from(buf); r.bytes += b.length; r.stream.write(b, err => err ? rej(err) : res(r.bytes)); }));
 const endStream = r => new Promise(res => r.stream.end(res));
-ipcMain.handle('rec:close', async (_e, id, finalName) => {
+ipcMain.handle('rec:close', async (_e, id, finalName, opts) => {
   const r = recs.get(id); if (!r) throw new Error('録画が開かれていません'); recs.delete(id); await endStream(r);
   const name = safeName(finalName), ext = path.extname(name).toLowerCase(), dest = uniquePath(r.dir, name), conv = dest + '.converting';
   let remuxed = false;
-  if (await remux(r.tmp, conv, ext)) { try { fs.renameSync(conv, dest); fs.unlinkSync(r.tmp); remuxed = true; } catch { /* 下で元のファイルを使う */ } }
+  if (await remux(r.tmp, conv, ext, Math.max(0, Number(opts && opts.ss) || 0))) { try { fs.renameSync(conv, dest); fs.unlinkSync(r.tmp); remuxed = true; } catch { /* 下で元のファイルを使う */ } }
   if (!remuxed) { try { fs.unlinkSync(conv); } catch { /* ignore */ } fs.renameSync(r.tmp, dest); }
-  return { path: dest, folder: path.basename(r.dir), filename: path.basename(dest), bytes: fs.statSync(dest).size, remuxed };
+  return { path: dest, folder: path.basename(r.dir), filename: path.basename(dest), bytes: fs.statSync(dest).size, remuxed, trimmed: remuxed && Number(opts && opts.ss) > 0 };
 });
 // 以前の録画（断片化したまま）を、シークできる形式に直す。許可したフォルダの .mp4/.webm だけ
 ipcMain.handle('rec:repair', async (_e, file) => {
