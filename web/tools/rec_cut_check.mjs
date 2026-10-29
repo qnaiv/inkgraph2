@@ -1,0 +1,20 @@
+// rec_cut_check.mjs: D80 録画の開始点（暗転の終わりの少し前）の選び方（純関数）
+import { pickRecordingStart as P } from '../src/video_rec.js';
+let fails = 0; const check = (ok, name, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' - ' + extra : ''}`); if (!ok) fails++; };
+let r = P({ runs: [{ from: 10, to: 18 }], battleStart: 35, recStart: 0 });
+check(r.reason === 'black' && Math.abs(r.cut - 17) < 1e-9, '(1) 暗転が終わる1秒前', JSON.stringify(r));
+r = P({ runs: [{ from: 5, to: 6 }, { from: 10, to: 18 }, { from: 25, to: 25.9 }], battleStart: 35, recStart: 0 });
+check(r.black.to === 18, '(2) いちばん長い暗転を選ぶ', JSON.stringify(r.black));
+r = P({ runs: [{ from: 10, to: 10.4 }], battleStart: 35, recStart: 0 });
+check(r.reason === 'fallback' && r.cut === 27, '(3) 短すぎる暗転は無視してフォールバック（8秒前）', JSON.stringify(r));
+r = P({ runs: [{ from: 10, to: 18 }], battleStart: 100, recStart: 50 });
+check(r.reason === 'fallback' && r.cut === 92, '(4) 60秒より前の暗転は使わない', JSON.stringify(r));
+r = P({ runs: [{ from: 30, to: 34 }], battleStart: 35, recStart: 0 });
+check(r.reason === 'fallback', '(5) バトル開始の直前（2秒以内）に終わる暗転は使わない（開始後の暗転）');
+r = P({ runs: [{ from: 10, to: 18 }], battleStart: 35, recStart: 17.5 });
+check(r.reason === 'black' && r.cut === 17.5, '(6) 録画を始めた時刻より前にはならない');
+r = P({ runs: [{ from: 1, to: 3 }], battleStart: 20, recStart: 5 });
+check(r.reason === 'fallback' && r.cut === 12, '(7) 録画開始より前に終わった暗転は使わない');
+r = P({ battleStart: 5, recStart: 4 });
+check(r.cut === 4, '(8) 暗転なし・録画が短い: 録画開始から', JSON.stringify(r));
+console.log(fails ? `FAIL ${fails}` : 'ALL PASS'); process.exit(fails ? 1 : 0);

@@ -188,6 +188,34 @@ app.whenReady().then(async () => {
     const fd = await js(`window.inkgraph.db.getMatch('cand#1').then(m => window.inkgraph.buildFixPack([m]).then(async r => { const u = new Uint8Array(await r.blob.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode(...u.subarray(i, i + 32768)); return btoa(s); }))`);
     const z2 = require('../../web/node_modules/fflate').unzipSync(new Uint8Array(Buffer.from(fd, 'base64'))), dj = JSON.parse(require('../../web/node_modules/fflate').strFromU8(z2[Object.keys(z2).find(n => n.endsWith('diff.json'))]));
     check(dj.candidates.saved && dj.candidates.added_from_candidates === 1 && dj.candidates.dismissed === 1 && dj.misses[0].from_candidate === true, '(30) 要修正パックの diff に、候補の使われ方（候補から追加／見送った数）が入る', JSON.stringify(dj.candidates));
+    // D80: 巻き戻し録画。待機中にメモリへ録っておき、バトル開始で昇格し、暗転の終わりの少し前から切り出す
+    await js(`localStorage.setItem('inkgraph.videoRec', '1')`);
+    const pre = await js(`(async () => {
+      const { Session } = window.inkgraph, log = [], saved = [];
+      const s = new Session(document.createElement('video'), { videoStatus: r => log.push(r.msg), videoSaved: r => saved.push(r.filename) });
+      const c = document.createElement('canvas'); c.width = 320; c.height = 180; const g = c.getContext('2d'); let n = 0; setInterval(() => { g.fillStyle = 'hsl(' + (n++ * 20) + ',80%,50%)'; g.fillRect(0, 0, 320, 180); }, 40);
+      s.mode = 'stream'; s.stream = c.captureStream(25); s.t0 = performance.now(); s.sessionId = new Date(2026, 9, 27, 22, 0).toISOString(); s.fast = false; s.running = true;
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      s.ringStart(); await wait(7000);
+      const ringBefore = (s.ring || []).length;
+      s.blackRuns = [{ from: 1, to: 3 }];
+      s.onMsg({ type: 'event', e: { type: 'battle_start', t: s.now() } });
+      const ringAfter = (s.ring || []).length, ss = s.vcur && s.vcur.ss, cutReason = s.vcur && s.vcur.cut && s.vcur.cut.reason;
+      await wait(2500);
+      s.onMsg({ type: 'event', e: { type: 'battle_end', t: s.now() } }); clearTimeout(s.vcur.timer); s.vcur.r.stop(); await wait(1500);
+      await s.saveMatch({ match: 9, battle: [7, 10], squid_down: {}, own_deaths: [], own_kills: [], special: [], result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'ユノハナ大渓谷', own: { ka: 1, deaths: 1, specials: 0 } }, review: { marks: {}, added: [], fix: {} } });
+      s.ringStop();
+      const m = (await window.inkgraph.db.allMatches()).find(x => x.match === 9);
+      return { ringBefore, ringAfter, ss, cutReason, log, rec: m && m.recording };
+    })()`);
+    check(pre.ringBefore >= 1 && pre.ringAfter === 0, '(36) 待機中の巻き戻し録画がメモリに溜まり、バトル開始で本物の録画に昇格する', JSON.stringify({ b: pre.ringBefore, a: pre.ringAfter }));
+    check(pre.cutReason === 'black' && pre.log.some(x => /暗転の終わり/.test(x)) && Math.abs(pre.ss - 2) < 0.4, '(37) 暗転が終わる1秒前（t=2）から録る（ログにも出る）', JSON.stringify({ ss: pre.ss, r: pre.cutReason }));
+    const f9 = pre.rec && pre.rec.path;
+    check(!!f9 && fs.existsSync(f9) && Math.abs(pre.rec.t0 - 2) < 0.4, '(38) 録画の開始時刻（t0）が、切り出した位置に合っている', JSON.stringify(pre.rec));
+    if (f9) {
+      const ff = require('ffmpeg-static'), o = require('child_process').spawnSync(ff, ['-i', f9], { encoding: 'utf8' }).stderr, m = /Duration: (\d+):(\d+):([\d.]+)/.exec(o), dur = m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : -1;
+      check(dur > 4 && dur < 12, '(39) 切り出した動画の長さが、開始からの録画の長さと合う', 'dur=' + dur);
+    }
   } catch (e) { console.log('FAIL exception', e); fails++; }
   fs.rmSync(tmp, { recursive: true, force: true }); app.exit(fails ? 1 : 0);
 });

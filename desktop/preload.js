@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('inkgraphDesktop', {
   openVideoDir: () => ipcRenderer.invoke('desktop:open-dir'),
   recOpen: () => ipcRenderer.invoke('rec:open'),
   recWrite: (id, buf) => ipcRenderer.invoke('rec:write', id, buf),
-  recClose: (id, name) => ipcRenderer.invoke('rec:close', id, name),
+  recClose: (id, name, opts) => ipcRenderer.invoke('rec:close', id, name, opts),
   recDiscard: id => ipcRenderer.invoke('rec:discard', id),
   recRepair: file => ipcRenderer.invoke('rec:repair', file),
   windowCmd: cmd => ipcRenderer.invoke('desktop:window', cmd)

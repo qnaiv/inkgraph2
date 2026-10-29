@@ -35,21 +35,43 @@ export const setBitrateMbps = v => { try { localStorage.setItem('inkgraph.videoB
 
 /** 1 試合ぶんの録画。start() → stop() で Blob（ブラウザ）／ディスク上のファイルの控え（デスクトップ版: 2 秒ごとに保存先へ直接書く） */
 export class MatchRecorder {
-  constructor(stream, { bps = getBitrateMbps() * 1_000_000 } = {}) {
+  /** buffer: 待機中の巻き戻し録画。ディスクに書かず、メモリに持っておく（promote() で、持っていた分をディスクへ書き出して、続きを書く。デスクトップ版のみ） */
+  constructor(stream, { bps = getBitrateMbps() * 1_000_000, buffer = false } = {}) {
     const mimeType = pickMime(), D = desktop();
     this.rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: bps, ...(stream.getAudioTracks?.().length ? { audioBitsPerSecond: AUDIO_BPS } : {}) });
     this.mime = this.rec.mimeType || mimeType || 'video/webm'; this.ext = extOfMime(this.mime); this.chunks = []; this.state = 'idle'; this.D = D;
-    if (D) { this.idP = D.recOpen(); this.chain = this.idP.then(() => 0); this.bytes = 0; }
+    this.buffering = !!buffer && !!D; this.pending = []; this.bytes = 0;
+    if (D && !this.buffering) this._open();
     this.rec.ondataavailable = e => {
       if (!e.data || !e.data.size) return;
       if (!D) { this.chunks.push(e.data); return; }
-      this.chain = this.chain.then(async () => { const buf = new Uint8Array(await e.data.arrayBuffer()); this.bytes += buf.length; await D.recWrite(await this.idP, buf); });
+      if (this.buffering) { this.pending.push(e.data); return; }
+      this._write(e.data);
     };
     this.done = new Promise((res, rej) => { this.rec.onstop = () => { this.state = 'stopped'; if (!D) return res(new Blob(this.chunks, { type: this.mime.split(';')[0] }));
-      this.chain.then(() => res({ disk: true, size: this.bytes, finalize: async name => ({ where: 'folder', ...(await D.recClose(await this.idP, name)) }), discard: async () => D.recDiscard(await this.idP) }), rej); }; });
+      if (this.buffering) { this.pending = []; return res({ disk: true, size: 0, finalize: async () => { throw new Error('録画が確定していません'); }, discard: async () => {} }); }
+      this.chain.then(() => res({ disk: true, size: this.bytes, finalize: async (name, opts) => ({ where: 'folder', ...(await D.recClose(await this.idP, name, opts || {})) }), discard: async () => D.recDiscard(await this.idP) }), rej); }; });
   }
+  _open() { this.idP = this.D.recOpen(); this.chain = this.idP.then(() => 0); }
+  _write(data) { const D = this.D; this.chain = this.chain.then(async () => { const buf = new Uint8Array(await data.arrayBuffer()); this.bytes += buf.length; await D.recWrite(await this.idP, buf); }); }
+  /** 待機中の録画を、試合の録画にする（持っていた分をディスクへ書き出して、続きを書く） */
+  promote() { if (!this.D || !this.buffering) return; this._open(); this.buffering = false; for (const d of this.pending) this._write(d); this.pending = []; }
   start() { this.rec.start(2000); this.state = 'recording'; return this; }
   stop() { if (this.state === 'recording') { try { this.rec.stop(); } catch { this.state = 'stopped'; } } return this.done; }
+}
+
+/**
+ * D80: 録画の開始点（解析時刻）。試合の録画は、バトル開始より前から巻き戻して録り、**バトル開始の前の、最後の暗転（黒い画面＝ロード）が終わる少し前**から始める。
+ * runs: 暗転の区間 [{from, to}]（to ＝ 暗転が終わった時刻）。複数あるときは、いちばん長い暗転（＝ロード）を選ぶ（短い暗転は、場面の切り替わり）。
+ * 暗転が見つからなければ、バトル開始の fallback 秒前から。録画を始めた時刻（recStart）より前にはならない。
+ */
+export function pickRecordingStart({ runs = [], battleStart, recStart, lead = 1.0, fallback = 8, minLen = 0.8, maxBack = 60, minBefore = 2 }) {
+  const c = runs.filter(r => r.to - r.from >= minLen && r.to <= battleStart - minBefore && r.to >= battleStart - maxBack && r.to > recStart);
+  if (c.length) {
+    const best = c.reduce((a, b) => ((b.to - b.from) > (a.to - a.from) + 1e-9 ? b : a));
+    return { cut: Math.max(recStart, best.to - lead), reason: 'black', black: { from: best.from, to: best.to }, found: c.length };
+  }
+  return { cut: Math.max(recStart, battleStart - fallback), reason: 'fallback', black: null, found: 0 };
 }
 
 // ---- 保存先 ----
@@ -66,8 +88,8 @@ export async function ensureDirPermission(h) {
 }
 
 /** 保存先フォルダ（File System Access API）。ハンドルは IndexedDB の learn ストア（key: videoDir）に持つ。使えないときはダウンロード */
-export async function saveVideo(blob, filename, store) {
-  if (blob && blob.disk) return blob.finalize(filename); // デスクトップ版: すでに保存先に書いてある。名前を付けて確定するだけ
+export async function saveVideo(blob, filename, store, opts = {}) {
+  if (blob && blob.disk) return blob.finalize(filename, opts); // デスクトップ版: すでに保存先に書いてある。名前を付けて確定する（opts.ss: 先頭を切る秒数）
   const h = await store.getDir?.();
   let why = h ? null : 'フォルダ未設定';
   if (h) {
