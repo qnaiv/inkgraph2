@@ -1604,20 +1604,22 @@ PAGES.match = async () => {
     </div>
 
     <div class="detail-body ${reviewMode ? 'review-on' : ''}" id="detail-body">
-      <div class="card detail-timeline-card" id="rec-top-card" style="display:none"><div class="card-title">録画</div><div id="rec-top-slot" style="max-width:820px"></div></div>
+      <div class="card detail-timeline-card" id="rec-top-card" style="display:none"><div class="card-title">録画</div><div id="rec-top-slot"></div></div>
       <div class="card detail-timeline-card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>タイムライン</span>${m.remote || !m.cands ? '' : '<label class="muted" style="font-size:var(--fs-xs);font-weight:400;display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" id="cand-tl"> 補正候補を表示</label>'}</div>
         <div id="tl"></div>
       </div>
 
       <div class="card detail-events-card">
-        <div class="card-title">出来事</div>
-        <table class="table" id="etab"></table>
+        <div class="evt-scroll">
+          <div class="card-title">出来事</div>
+          <table class="table" id="etab"></table>
+        </div>
       </div>
 
-      <aside class="review-panel" id="review-panel">
+      <aside class="review-panel" id="review-panel"><div class="rv-scroll">
         <div class="card">
-          <div class="card-title">確認用の映像</div>
+          <div class="card-title" id="rv-title">確認用の映像</div>
           <div id="rec-box" class="rec-box" style="display:none"></div>
           <div class="review-video-wrap" style="position:relative">
             <img id="still-img" alt="確認用の静止画" style="width:100%;height:100%;object-fit:contain;display:none">
@@ -1653,7 +1655,7 @@ PAGES.match = async () => {
 
         <button class="btn btn-primary" id="fbone" type="button" style="width:100%">試合一覧でまとめて書き出す →</button>
         <div class="export-state" id="fbone-state">この試合：${esc(EXPORT_STATE_LABEL[exportStateOf(m)])}（確認済み ${confirmedCount(m)}件）</div>
-      </aside>
+      </div></aside>
     </div>
   `;
 
@@ -1883,7 +1885,7 @@ PAGES.match = async () => {
       if (!recVideo) return; const top = true, was = { t: recVideo.currentTime, playing: !recVideo.paused };
       const card = $('#rec-top-card', page), slot = $('#rec-top-slot', page);
       if (top) { slot.appendChild(recBox); card.style.display = ''; } else { recHome.insertBefore(recBox, recHomeNext && recHomeNext.parentNode === recHome ? recHomeNext : null); card.style.display = 'none'; }
-      recBox.style.display = '';
+      recBox.style.display = ''; $('#detail-body', page).classList.add('has-rec'); { const rt = $('#rv-title', page); if (rt) rt.textContent = '確認・修正'; } // D89: 録画があるときは、上段＝録画｜出来事（｜確認パネル）、下段＝タイムライン
       if (Number.isFinite(was.t) && Math.abs(recVideo.currentTime - was.t) > 0.3) recVideo.currentTime = was.t; // 付け替えで位置が戻ることがあるので、直す
       if (was.playing) recVideo.play().catch(() => {});
     };
@@ -1902,7 +1904,7 @@ PAGES.match = async () => {
     const cap = $('#rec-cap', page);
     recVideo.ontimeupdate = () => { const t = rcd.t0 + recVideo.currentTime; lastSeekTime = t; cap.textContent = `${mss1(t)}（バトル開始から）`; if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(t); };
     recVideo.onloadedmetadata = () => { recSeekTo(Math.max(rcd.t0, m.battle[0]), false); };
-    recVideo.onerror = () => { recVideo = null; setVideoMode(false); recBox.style.display = ''; recBox.innerHTML = '<div class="muted">録画ファイルを開けません（移動・削除された可能性があります）。静止画で確認します。</div>'; showStill(lastSeekTime, Infinity); };
+    recVideo.onerror = () => { recVideo = null; $('#detail-body', page).classList.remove('has-rec'); { const rt = $('#rv-title', page); if (rt) rt.textContent = '確認用の映像'; } $('#rec-top-card', page).style.display = 'none'; setVideoMode(false); recBox.style.display = ''; recBox.innerHTML = '<div class="muted">録画ファイルを開けません（移動・削除された可能性があります）。静止画で確認します。</div>'; showStill(lastSeekTime, Infinity); };
     page.querySelectorAll('.rec-step').forEach(b => { b.onclick = () => { if (!recVideo) return; recVideo.pause(); recVideo.currentTime = Math.max(0, recVideo.currentTime + parseFloat(b.dataset.d)); }; });
     $('#rec-speed', page).onchange = e => { if (recVideo) recVideo.playbackRate = +e.target.value; };
     recKeyHandler = e => {
@@ -2009,6 +2011,7 @@ PAGES.match = async () => {
     else if (opts.focus) tlEl.focusSegment(opts.focus);
   };
   { const ct = $('#cand-tl', page); if (ct) { ct.checked = candOnTL; ct.onchange = () => { candOnTL = ct.checked; drawTL(); }; } }
+  { if (window.__tlResize) window.removeEventListener('resize', window.__tlResize); let rt = null, lastW = $('#tl', page)?.clientWidth || 0; window.__tlResize = () => { clearTimeout(rt); rt = setTimeout(() => { const w = $('#tl', page)?.clientWidth || 0; if (currentPage === 'match' && w && Math.abs(w - lastW) > 24) { lastW = w; drawTL(); } }, 250); }; window.addEventListener('resize', window.__tlResize); } // D89: タイムラインは、幅に合わせて描き直す
 
   const accDraw = () => {
     const a = accuracy([m]);

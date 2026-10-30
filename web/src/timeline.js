@@ -43,7 +43,8 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
   popAbort = new AbortController();
   const popSignal = popAbort.signal;
   const t0 = m.battle[0], t1 = m.battle[1], Tm = Math.max(60, t1 - t0);
-  const L = 72, Wd = 950, Rpad = 38, W = L + Wd + Rpad;
+  // D89: コンパクトな表示。幅は、置かれた場所の幅に合わせる（viewBox を実寸に近づけて、縦も文字も大きく伸びないようにする）
+  const L = 72, Rpad = 38, hostW = (typeof document !== 'undefined' && document.querySelector('#tl')?.clientWidth) || 0, Wd = hostW ? Math.max(640, Math.min(1700, hostW - L - Rpad)) : 950, W = L + Wd + Rpad;
   const X = t => L + Math.max(0, Math.min(1, (t - t0) / Tm)) * Wd;
   const ev = effective(m), S = series(m), holderSegs = holderSegments(m);
   const uid = Math.random().toString(36).slice(2, 8);
@@ -61,8 +62,8 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
   let body = '';
 
   // ---------------- 1. 局面の帯 (28px) ----------------
-  const phaseY = y, phaseH = 28;
-  body += `<text x="${L - 8}" y="${phaseY + 18}" text-anchor="end" font-size="12" font-weight="500" fill="var(--text-muted)">局面</text>`;
+  const phaseY = y, phaseH = 16;
+  body += `<text x="${L - 8}" y="${phaseY + 12}" text-anchor="end" font-size="12" font-weight="500" fill="var(--text-muted)">局面</text>`;
   body += `<rect x="${L}" y="${phaseY}" width="${Wd}" height="${phaseH}" fill="var(--surface-2)" rx="4"/>`;
   if (S.length) {
     const runs = [];
@@ -82,18 +83,18 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
       const col = r.ph === '抑え' ? 'var(--ally)' : r.ph === '打開' ? 'var(--enemy)' : 'var(--text-muted)';
       body += `<rect x="${xa.toFixed(1)}" y="${phaseY}" width="${w.toFixed(1)}" height="${phaseH}" fill="${fill}"/>`;
       if (w >= 36) {
-        body += `<text x="${((xa + xb) / 2).toFixed(1)}" y="${phaseY + 18}" text-anchor="middle" font-size="11" font-weight="700" fill="${col}">${r.ph}</text>`;
+        body += `<text x="${((xa + xb) / 2).toFixed(1)}" y="${phaseY + 12}" text-anchor="middle" font-size="11" font-weight="700" fill="${col}">${r.ph}</text>`;
       }
     }
   } else {
-    body += `<text x="${L + Wd / 2}" y="${phaseY + 18}" text-anchor="middle" font-size="11" fill="var(--text-faint)">互角</text>`;
+    body += `<text x="${L + Wd / 2}" y="${phaseY + 12}" text-anchor="middle" font-size="11" fill="var(--text-faint)">互角</text>`;
   }
   body += unknownBand(phaseY, phaseH);
   body += `<rect x="${L}" y="${phaseY}" width="${Wd}" height="${phaseH}" fill="none" stroke="var(--border)" rx="4"/>`;
-  y += phaseH + 8;
+  y += phaseH + 6;
 
   // ---------------- 2. カウント差のグラフ (80px) ----------------
-  const cdY = y, cdH = 80, cdMid = cdY + cdH / 2;
+  const cdY = y, cdH = 44, cdMid = cdY + cdH / 2;
   const Ycd = d => cdMid - (Math.max(-100, Math.min(100, d || 0)) / 100) * (cdH / 2 - 6);
   defs += `<clipPath id="cd-pos-${uid}"><rect x="${L}" y="${cdY}" width="${Wd}" height="${cdH / 2}"/></clipPath>`;
   defs += `<clipPath id="cd-neg-${uid}"><rect x="${L}" y="${cdMid}" width="${Wd}" height="${cdH / 2}"/></clipPath>`;
@@ -110,12 +111,12 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
   body += `<text x="${L + Wd + 4}" y="${cdY + 12}" class="num" font-size="10" fill="var(--ally)">+100</text>`;
   body += `<text x="${L + Wd + 4}" y="${cdMid + 4}" class="num" font-size="10" fill="var(--text-faint)">±0</text>`;
   body += `<text x="${L + Wd + 4}" y="${cdY + cdH - 4}" class="num" font-size="10" fill="var(--enemy)">−100</text>`;
-  y += cdH + 8;
+  y += cdH + 6;
 
   // ---------------- 3. 自分レーン (84px) ----------------
-  const ownY = y, ownH = 84;
-  const rowY = { kill: ownY + 18, death: ownY + 44, special: ownY + 68 };
-  body += `<text x="${L - 8}" y="${ownY + 46}" text-anchor="end" font-size="12" font-weight="700" fill="var(--text-muted)">自分</text>`;
+  const ownY = y, ownH = 64;
+  const rowY = { kill: ownY + 15, death: ownY + 35, special: ownY + 54 };
+  body += `<text x="${L - 8}" y="${ownY + 36}" text-anchor="end" font-size="12" font-weight="700" fill="var(--text-muted)">自分</text>`;
   body += `<rect x="${L}" y="${ownY}" width="${Wd}" height="${ownH}" fill="var(--surface-2)" fill-opacity="0.25"/>`;
   for (const r of [rowY.kill, rowY.death, rowY.special]) {
     body += `<line x1="${L}" x2="${L + Wd}" y1="${r}" y2="${r}" stroke="var(--border)" stroke-opacity="0.5"/>`;
@@ -172,7 +173,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
 
   // ---------------- 4. 勝率グラフ (132px >= 120px) ----------------
   const SHOW_WP = false; // D81: 勝率予測は一旦出さない（計算と wp_delta の保存は残す）
-  const wpY = ownY + ownH + 8, wpH = SHOW_WP ? 132 : 0, wpMid = wpY + wpH / 2;
+  const wpY = ownY + ownH + 6, wpH = SHOW_WP ? 132 : 0, wpMid = wpY + wpH / 2;
   const Ywp = v => wpY + wpH - 8 - Math.max(0, Math.min(1, v)) * (wpH - 16);
   if (SHOW_WP) {
   defs += `<clipPath id="wp-up-${uid}"><rect x="${L}" y="${wpY}" width="${Wd}" height="${wpH / 2}"/></clipPath>`;
@@ -225,10 +226,10 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
       }
     }
   }
-  y = wpY + wpH + 8;
+  y = wpY + wpH + (SHOW_WP ? 8 : 0);
 
   // ---------------- 5. 人数差 (56px, smoothed <1s) ----------------
-  const alY = y, alH = 56, alMid = alY + alH / 2;
+  const alY = y, alH = 32, alMid = alY + alH / 2;
   const Yal = d => alMid - (Math.max(-4, Math.min(4, d)) / 4) * (alH / 2 - 4);
   defs += `<clipPath id="al-pos-${uid}"><rect x="${L}" y="${alY}" width="${Wd}" height="${alH / 2}"/></clipPath>`;
   defs += `<clipPath id="al-neg-${uid}"><rect x="${L}" y="${alMid}" width="${Wd}" height="${alH / 2}"/></clipPath>`;
@@ -262,14 +263,14 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
   body += `<text x="${L + Wd + 4}" y="${alY + 12}" class="num" font-size="10" fill="var(--ally)">+4</text>`;
   body += `<text x="${L + Wd + 4}" y="${alMid + 4}" class="num" font-size="10" fill="var(--text-faint)">±0</text>`;
   body += `<text x="${L + Wd + 4}" y="${alY + alH - 4}" class="num" font-size="10" fill="var(--enemy)">−4</text>`;
-  y += alH + 8;
+  y += alH + 6;
 
   // ---------------- 6. ヤグラ (70px) ----------------
   if (S.length) {
     const isReview = reviewMode !== undefined ? !!reviewMode : (typeof document !== 'undefined' && !!document.querySelector('.detail-body.review-on'));
-    const tcY = y, tcH = 70;
+    const tcY = y, tcH = 46;
     const Ytc = v => tcY + tcH - 10 - (Math.max(0, Math.min(100, v || 0)) / 100) * (tcH - 18);
-    body += `<text x="${L - 8}" y="${tcY + 38}" text-anchor="end" font-size="12" font-weight="500" fill="var(--text-muted)">ヤグラ</text>`;
+    body += `<text x="${L - 8}" y="${tcY + 28}" text-anchor="end" font-size="12" font-weight="500" fill="var(--text-muted)">ヤグラ</text>`;
     body += `<rect x="${L}" y="${tcY}" width="${Wd}" height="${tcH}" fill="var(--surface-2)" fill-opacity="0.35"/>`;
     // Holder band at bottom of lane: review mode has 14px height and 24px hit area
     const bandH = isReview ? 14 : 8, bandY = tcY + tcH - bandH;
@@ -317,7 +318,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
     }
     body += unknownBand(tcY, tcH);
     body += `<text x="${L + Wd + 4}" y="${tcY + 12}" class="num" font-size="10" fill="var(--text-muted)">100</text>`;
-    y += tcH + 8;
+    y += tcH + 6;
   }
 
   // Time axis (30s ticks)
@@ -328,7 +329,7 @@ export function renderTimeline(m, { onSeek, onReviewChange, reviewMode, cands = 
     gridLines += `<line x1="${gx}" x2="${gx}" y1="${phaseY}" y2="${axisY}" stroke="var(--border)" stroke-opacity="0.45"/>`;
     body += `<text x="${gx}" y="${axisY + 16}" text-anchor="middle" class="num" font-size="11" fill="var(--text-muted)">${mss(dt)}</text>`;
   }
-  const totalH = axisY + 24;
+  const totalH = axisY + 22;
 
   const mainSvg = `<svg xmlns="${NS}" viewBox="0 0 ${W} ${totalH}" class="timeline-svg">
     <defs>${defs}</defs>

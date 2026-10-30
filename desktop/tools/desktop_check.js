@@ -127,7 +127,7 @@ app.whenReady().then(async () => {
       const vr = v.getBoundingClientRect(), tr = tl.getBoundingClientRect(), svg = tl.querySelector('svg'), sr = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
       const out = { shown: getComputedStyle(card).display !== 'none' && card.contains(v), above: vr.bottom <= tr.top + 1 && vr.width > 200, dur: v.duration };
       // タイムラインの 50% の位置（バトル 100 秒の中の 50 秒）をクリック
-      const fx = (72 + 0.5 * 950) / vb.width; svg.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: sr.left + fx * sr.width, clientY: sr.top + sr.height * 0.5 }));
+      const fx = (72 + 0.5 * (vb.width - 110)) / vb.width; svg.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: sr.left + fx * sr.width, clientY: sr.top + sr.height * 0.5 }));
       await new Promise(r => v.addEventListener('seeked', r, { once: true })); await new Promise(r => setTimeout(r, 300));
       out.after = v.currentTime; out.playing = !v.paused; return out; })()`);
     check(tp.shown && tp.above && Math.abs(tp.after - 50) < 1.5 && tp.playing, '(31) レビューモードでないとき、録画がタイムラインの上に出て、タイムラインのクリックで、その秒数（50 秒）から再生される', JSON.stringify(tp));
@@ -136,6 +136,16 @@ app.whenReady().then(async () => {
     check(tp2.top !== 'none' && tp2.inTop && !tp2.inAside && tp2.wide && tp2.above, '(32) レビューモードでも、録画はタイムラインの上に、通常モードと同じ大きさで出る（右の確認パネルには移らない）', JSON.stringify(tp2));
     await js(`document.querySelector('#review-toggle').click()`); await sleep(1200);
     check(await js(`getComputedStyle(document.querySelector('#rec-top-card')).display !== 'none' && !!document.querySelector('#rec-top-slot #rec-video')`), '(33) レビューモードを切っても、録画はタイムラインの上のまま');
+    // D89: 録画があるときの配置。上段＝録画｜出来事（レビューモードでは右に確認パネル）、下段＝タイムライン
+    const layout = () => js(`(() => { const r = s => document.querySelector(s).getBoundingClientRect(), v = r('#rec-video'), e = r('.detail-events-card'), t = r('#tl'), c = r('#rec-top-card'), rp = document.querySelector('#review-panel'), pr = rp ? rp.getBoundingClientRect() : null, cs = getComputedStyle(rp);
+      return { hasRec: document.querySelector('#detail-body').classList.contains('has-rec'), vw: Math.round(v.width), evtBeside: e.left >= c.right - 1 && Math.abs(e.top - c.top) < 2 && Math.abs(e.bottom - c.bottom) < 2, tlBelow: t.top >= Math.max(c.bottom, e.bottom) - 1, tlH: Math.round(t.height), rpShown: cs.display !== 'none', rpBeside: pr ? pr.left >= e.right - 1 && Math.abs(pr.top - c.top) < 2 : null, scrollsInside: document.querySelector('.evt-scroll').scrollHeight >= 0 }; })()`);
+    w.setContentSize(1920, 1080); await sleep(1200); // 画面が広いとき（3 列）の配置を確かめる
+    const L1 = await layout(); if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'layout_normal.png'), (await w.webContents.capturePage()).toPNG());
+    check(L1.hasRec && L1.vw >= 560 && L1.vw <= 620 && L1.evtBeside && L1.tlBelow && L1.tlH < 330 && !L1.rpShown, '(47) 通常モード: 上段に録画（約600px）と出来事が並び、タイムラインは下段で低い', JSON.stringify(L1));
+    await js(`window.inkgraph.setReviewMode(true)`); await sleep(2200);
+    const L2 = await layout(); if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'layout_review.png'), (await w.webContents.capturePage()).toPNG());
+    check(L2.hasRec && L2.evtBeside && L2.rpShown && L2.rpBeside && L2.tlBelow, '(48) レビューモード: 上段の右に確認パネルが並び、タイムラインは下段', JSON.stringify(L2));
+    w.setContentSize(1280, 800); await sleep(800);
     await js(`window.inkgraph.setReviewMode(false)`);
     // 要修正パック: 一覧に印・フィルター・書き出しボタンが出る。書き出した zip に、差分と、録画から切り出したコマが入る
     await js(`window.inkgraph.db.getMatch(${JSON.stringify(ms[0].id)}).then(m => { m.needs_fix = { at: new Date().toISOString(), reasons: ['kill'] }; m.review.marks = { }; return window.inkgraph.db.putMatch(m); })`);
