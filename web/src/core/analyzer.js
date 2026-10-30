@@ -150,6 +150,7 @@ export class Analyzer {
     const readFrames = m.RS.personal.length + m.RS.board.length;
     rec.result_screen = { result: rs.result, mode: rs.mode, stage: rs.stage, mode_unknown: !rs.mode && readFrames > 0 ? true : undefined, mode_guess: !rs.mode ? (rs.mode_guess ?? null) : undefined, own: rs.own ? { ka: rs.own.ka, deaths: rs.own.deaths, specials: rs.own.specials } : null, result_source: rs.result_source ?? null };
     rec.cues = packCues(m.F);
+    if (rs.stage_feats && rs.stage_feats.length) rec.stage_feats = rs.stage_feats; // D92: ステージが読めなかったときだけ。レビューで人が選んだら見本にする
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length, ...(m.boardRejected ? { board_rejected: m.boardRejected } : {}) };

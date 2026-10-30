@@ -5,6 +5,7 @@ import { selectClips } from './clips.js';
 import AnalyzerWorker from './worker.js?worker';
 import { CaptureGuard } from './capture_guard.js';
 import { countCheck } from './count_check.js';
+import * as StageLib from './stage_lib.js';
 import { desktop, isDesktop, recordingAvailable } from './desktop.js';
 import { MatchRecorder, pickRecordingStart, videoSupported, getVideoOn, getAudioOn, videoFilename, saveVideo, ensureDirPermission } from './video_rec.js';
 export async function listDevices() {
@@ -42,7 +43,7 @@ export class Session {
       this.video.srcObject = this.stream; this.video.muted = true; await this.video.play(); this.srcH = this.stream.getVideoTracks()[0]?.getSettings?.()?.height || 1080; this.t0 = performance.now();
     }
     this.worker = new AnalyzerWorker();
-    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH }); });
+    await new Promise(res => { this.worker.onmessage = e => { if (e.data.type === 'ready') res(); }; this.worker.postMessage({ type: 'init', assetsUrl: new URL('assets/inkgraph_assets.json', document.baseURI).href, srcH: this.srcH, userStageLib: StageLib.loadLib().items }); });
     this.worker.onmessage = e => this.onMsg(e.data); this.running = true;
 
     // visibilitychange リスナ: hidden 時はガードに通知、visible 復帰時に running なら resume()

@@ -19,6 +19,8 @@ import { CLIP, CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
 import * as Cloud from './cloud/index.js';
 import * as WL from './weapon_lib.js';
+import * as StageLib from './stage_lib.js';
+import { STAGES } from './stage_lib.js';
 import { WEAPON_TYPES, UNCLASSIFIED, typeOfWeapon, weaponOptions } from './core/weapons.js';
 
 const app = document.getElementById('app');
@@ -1345,10 +1347,16 @@ async function buildFixPack(matches, { whole = false, video = false, onProgress 
     files[dir + 'software.json'] = strToU8(JSON.stringify(m));
     index.push({ id: m.id, dir, counts: { false_positives: d.false_positives.length, misses: d.misses.length, result_fixes: d.result_fixes.length, unreviewed: d.unreviewed }, frame_source: source, frames: frames.length, reasons: (m.needs_fix?.reasons || []).map(k => FP.FIX_REASONS[k] || k) });
   }
+  // D93: 人が教えた見本（ブキの名前・ステージ名）。試合には紐づかない端末の見本全体。ソフトの同梱の見本に取り込む材料にする
+  const wl = WL.loadUserLib().items, sl = StageLib.loadLib().items, teaching = wl.length || sl.length ? { weapons: wl.length, stages: sl.length } : null;
+  if (teaching) {
+    files['teaching/weapons.json'] = strToU8(JSON.stringify({ format: 1, note: 'icon＝結果画面ボードの 56x34 のグレー画像（base64）。同梱の見本に足す材料', items: wl.map(x => ({ name: x.name, type: x.type ?? null, icon: x.icon, at: x.at ?? null })) }, null, 1));
+    files['teaching/stages.json'] = strToU8(JSON.stringify({ format: 1, note: 'feat＝ステージ名の文字の 120x32 の画像（base64）。同梱の見本（assets の lib.stage）に足す材料', items: sl }, null, 1));
+  }
   const params = null; // D84: 検出の自動調整は廃止（常に既定値）
-  files['INDEX.json'] = strToU8(JSON.stringify({ app: 'InkGraph', kind: 'fix-pack', format: 1, exported: now.toISOString(), matches: index }, null, 1));
+  files['INDEX.json'] = strToU8(JSON.stringify({ app: 'InkGraph', kind: 'fix-pack', format: 1, exported: now.toISOString(), ...(teaching ? { teaching } : {}), matches: index }, null, 1));
   files['detect_params.json'] = strToU8(JSON.stringify(params, null, 1));
-  files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording'), withVideo: videos.length > 0 }));
+  files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording'), withVideo: videos.length > 0, teaching }));
   if (video) return { files, videos, filename: FP.fixPackFilename(now), index };
   return { blob: new Blob([zipSync(files, { level: 0 })], { type: 'application/zip' }), filename: FP.fixPackFilename(now), index };
 }
@@ -1363,7 +1371,7 @@ async function exportFixPack(sel, onProgress = () => {}) {
 
 async function showFixExportDialog() {
   document.querySelector('.fix-dialog-overlay')?.remove();
-  const all = (await db.allMatches()).filter(m => m.needs_fix), doneAll = all.filter(m => FP.fixState(m) === 'done');
+  const all = (await db.allMatches()).filter(m => m.needs_fix), doneAll = all.filter(m => FP.fixState(m) === 'done'), teachN = WL.loadUserLib().items.length + StageLib.loadLib().items.length;
   const ov = document.createElement('div'); ov.className = 'fix-dialog-overlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
   const rows = all.map(m => { const d = FP.diffOf(m), r = resultOf(m); return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" class="fixsel" value="${esc(m.id)}" ${FP.fixState(m) === 'done' ? 'checked' : 'disabled'}> <span>${esc((m.created || '').slice(0, 16).replace('T', ' '))} ${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="muted">誤検出 ${d.false_positives.length}・見逃し ${d.misses.length}・読み違い ${d.result_fixes.length}${d.unreviewed ? `・未確認 ${d.unreviewed}` : ''}${m.recording ? '・録画あり' : ''}</span>${FP.fixState(m) === 'done' ? '' : ' <span class="muted" style="font-size:var(--fs-xs)">未修正（先にレビューで正解を付けて、「修正完了」にしてください）</span>'}</span></label>`; }).join('');
   ov.innerHTML = `<div class="card" style="max-width:720px;width:92vw;max-height:84vh;overflow:auto;padding:var(--sp-4)"><h3>修正済みの試合を AI 用に書き出す</h3>
@@ -1371,16 +1379,16 @@ async function showFixExportDialog() {
     <div>${rows || '<p class="muted">要修正の試合がありません</p>'}</div>${all.length && !doneAll.length ? '<p class="muted">修正済みの試合がありません。試合の詳細で、レビューモードで直してから「修正完了」にしてください。</p>' : ''}
     <p id="fix-size" class="muted" style="font-size:var(--fs-xs);margin-top:8px"></p>
     <p id="fix-progress" class="muted" style="min-height:1.4em;font-size:var(--fs-xs)"></p>
-    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${doneAll.length ? '' : 'disabled'}>書き出す</button></div></div>`;
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${doneAll.length || teachN ? '' : 'disabled'}>書き出す</button></div></div>`;
   document.body.appendChild(ov);
   $('#fix-cancel', ov).onclick = () => ov.remove();
   const D = window.inkgraphDesktop, canDisk = !!(D && D.packWrite);
   const selected = () => all.filter(m => [...ov.querySelectorAll('.fixsel:checked')].some(x => x.value === m.id));
   const sizeNote = () => { const v = selected().filter(m => m.recording && m.recording.path); const mb = v.reduce((n, m) => n + (m.recording.bytes || 0), 0) / 1048576;
-    $('#fix-size', ov).textContent = canDisk && v.length ? `録画 ${v.length} 本をそのまま（無加工で）入れます。約 ${mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb < 1 ? '1MB 未満' : Math.round(mb) + 'MB'}。保存先は、書き出すときに選びます。` : '録画がない試合は、保存してある静止画・場面クリップを入れます。'; };
+    $('#fix-size', ov).textContent = canDisk && v.length ? `録画 ${v.length} 本をそのまま（無加工で）入れます。約 ${mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb < 1 ? '1MB 未満' : Math.round(mb) + 'MB'}。保存先は、書き出すときに選びます。` : '録画がない試合は、保存してある静止画・場面クリップを入れます。'; if (teachN) $('#fix-size', ov).textContent += ` 教えたブキ・ステージの見本（${teachN} 件）も、teaching/ に入れます。`; };
   ov.addEventListener('change', sizeNote); sizeNote();
   $('#fix-go', ov).onclick = async () => {
-    const ids = [...ov.querySelectorAll('.fixsel:checked')].map(x => x.value), sel = all.filter(m => ids.includes(m.id)); if (!sel.length) return;
+    const ids = [...ov.querySelectorAll('.fixsel:checked')].map(x => x.value), sel = all.filter(m => ids.includes(m.id)); if (!sel.length && !teachN) return;
     const go = $('#fix-go', ov); go.disabled = true; const prog = $('#fix-progress', ov);
     try {
       if (canDisk && sel.some(m => m.recording && m.recording.path)) {
@@ -1563,7 +1571,7 @@ PAGES.match = async () => {
       </div>
     </div>
 
-    <div class="card detail-header-card">
+    <div class="card detail-header-card ${reviewMode ? 'review-on' : ''}">
       <div class="detail-header-left">
         <span class="${badgeCls(r.result)} result-hero">${resJa(r.result)}</span>
         <div class="detail-stage-info">
@@ -1583,15 +1591,18 @@ PAGES.match = async () => {
         <div class="stat">
           <div class="stat-label">キル</div>
           <div class="stat-value num" id="hdr-k">${kCount}</div>
+          <div class="hdr-res" id="hdr-res-k"></div>
           <div class="muted" id="hdr-ka" style="font-size:11px" title="${esc(ASSIST_NOTE)}">${esc(assistText(assistEstimate(r.ka, kCount)))}</div>
         </div>
         <div class="stat">
           <div class="stat-label">デス</div>
           <div class="stat-value num" id="hdr-d">${dCount}</div>
+          <div class="hdr-res" id="hdr-res-d"></div>
         </div>
         <div class="stat">
           <div class="stat-label">スペシャル発動</div>
           <div class="stat-value num" id="hdr-sp">${spCount}</div>
+          <div class="hdr-res" id="hdr-res-sp"></div>
         </div>
       </div>
 
@@ -1678,7 +1689,7 @@ PAGES.match = async () => {
   }
   if ($('#review-toggle', page)) $('#review-toggle', page).onchange = e => {
     reviewMode = e.target.checked;
-    $('#detail-body', page).classList.toggle('review-on', reviewMode);
+    $('#detail-body', page).classList.toggle('review-on', reviewMode); $('.detail-header-card', page)?.classList.toggle('review-on', reviewMode);
     placeRec();
     if (!reviewMode && tlEl) tlEl.closePopover();
     candOnTL = reviewMode; { const ct = $('#cand-tl', page); if (ct) ct.checked = candOnTL; }
@@ -2018,6 +2029,7 @@ PAGES.match = async () => {
     $('#acc', page).innerHTML = accTable(a);
   };
 
+  let stageNote = '', stageOther = false; // D92: ステージの訂正（選ぶと、見本に登録する）
   const rtab = () => {
     const rs = m.result_screen || {}, own = rs.own || {};
     const det = {
@@ -2043,7 +2055,7 @@ PAGES.match = async () => {
               <button class="mk ${mk === 'wrong' ? 'on-wrong' : ''}" data-f="${k}" data-v="wrong" type="button">✗</button>
             </td>
             <td>
-              ${mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
+              ${k === 'stage' && (mk === 'wrong' || !det.stage) && !stageOther && !(m.review.fix.stage && !STAGES.includes(m.review.fix.stage)) ? `<select class="input-sm" data-stage-sel title="正しいステージを選ぶと、この端末の見本に登録して、次の解析から読めるようになります"><option value="">ステージを選ぶ…</option>${STAGES.map(n => `<option value="${esc(n)}" ${m.review.fix.stage === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}<option value="__other__">その他（入力）…</option></select>${stageNote ? `<div class="muted" style="font-size:11px;margin-top:2px;max-width:220px">${esc(stageNote)}</div>` : ''}` : mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -2071,8 +2083,26 @@ PAGES.match = async () => {
         if (['ka', 'deaths', 'specials'].includes(f)) { rtab(); refresh(); }
       };
     });
+
+    const ss = $('#rtab', page).querySelector('select[data-stage-sel]');
+    if (ss) ss.onchange = async () => {
+      const v = ss.value; if (!v) return;
+      if (v === '__other__') { stageOther = true; m.review.rmarks.stage = 'wrong'; rtab(); return; }
+      m.review.rmarks.stage = 'wrong'; m.review.fix.stage = v;
+      const r = StageLib.addFromMatch(v, m, resultOf(m).mode);
+      stageNote = r.ok ? `見本に登録しました（${v}・${StageLib.countOf(v)}枚）。次の解析から、読めるようになります` : r.reason === 'no-feats' ? 'この試合は、見本の素を残す前の解析なので、見本にはできません（ステージの訂正だけ記録しました）' : r.reason === 'no-mode' ? 'ルールが分からず、見本にできません。先に「ルール」を直してください' : r.reason === 'dup' ? 'この見本は、登録済みです' : '';
+      await save(); rtab(); accDraw();
+    };
   };
 
+  // D91: レビューモードでは、ヘッダーの数字の下に、結果画面の読み取り値を並べる（見比べながら足していく）。キルは K+A なので、検出が K+A を超えたときだけ赤。デス・スペシャルは、違えば赤・同じなら緑
+  const hdrRes = (effList = effective(m)) => {
+    const r = resultOf(m), cnt = k => effList.filter(e => e.kind === k).length;
+    const set = (id, val, label, bad, tip) => { const el = $(id, page); if (!el) return; if (!Number.isInteger(val)) { el.textContent = ''; el.hidden = true; return; } el.hidden = false; el.textContent = label.replace('{v}', val); el.title = tip; el.classList.toggle('res-bad', bad); el.classList.toggle('res-ok', !bad); };
+    set('#hdr-res-k', r.ka, 'リザルト K+A {v}', cnt('kill') > r.ka, 'リザルト画面の K+A（キル＋アシスト）。検出したキルが、これを超えていたら赤');
+    set('#hdr-res-d', r.deaths, 'リザルト {v}', cnt('death') !== r.deaths, 'リザルト画面のデス数');
+    set('#hdr-res-sp', r.specials, 'リザルト {v}', cnt('special') !== r.specials, 'リザルト画面のスペシャル発動数');
+  };
   const etab = () => {
     const det = detected(m);
     const add = (m.review.added || []).map((a, i) => ({ ...a, addedIdx: i }));
@@ -2084,6 +2114,7 @@ PAGES.match = async () => {
     { const ka = $('#hdr-ka', page); if (ka) ka.textContent = assistText(assistEstimate(resultOf(m).ka, effList.filter(e => e.kind === 'kill').length)); }
     $('#hdr-d', page).textContent = effList.filter(e => e.kind === 'death').length;
     $('#hdr-sp', page).textContent = effList.filter(e => e.kind === 'special').length;
+    hdrRes(effList);
 
     const allRows = [
       ...det.map(e => ({ ...e, isAdded: false })),

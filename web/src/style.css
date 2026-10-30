@@ -2333,3 +2333,10 @@ tr.added td {
 .detail-body { gap: var(--sp-3); }
 .detail-body > .card, .detail-body .review-panel .card { padding: var(--sp-3) var(--sp-4); }
 .detail-body .card-title { margin-bottom: var(--sp-2); }
+
+/* D91: レビューモードで、ヘッダーの数字の下に、結果画面の読み取り値 */
+.detail-header-card .hdr-res { display: none; }
+.detail-header-card.review-on .detail-header-stats .stat { flex-wrap: wrap; row-gap: 0; align-items: baseline; }
+.detail-header-card.review-on .hdr-res:not([hidden]) { display: block; flex-basis: 100%; font-size: 11px; line-height: 1.3; white-space: nowrap; }
+.hdr-res.res-ok { color: var(--ok, #4ade80); }
+.hdr-res.res-bad { color: var(--death, #ff5d73); font-weight: var(--fw-bold); }

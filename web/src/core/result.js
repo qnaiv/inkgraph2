@@ -46,6 +46,8 @@ export function stageDxCandidates(mode) { if (mode in STAGE_DX_BY_MODE) return [
 function normText(c) { const b = bin(gray(c), 170); for (let i = 0; i < b.length; i++) b[i] *= 255; return resizeArea(b, c.w, c.h, 120, 32); }
 function pearson(a, b) { let ma = 0, mb = 0; const n = a.length; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n; let s = 0, sa = 0, sb = 0;
   for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) + 1e-6); }
+export const encodeFeat = v => { let t = ''; for (let i = 0; i < v.length; i++) t += String.fromCharCode(Math.max(0, Math.min(255, Math.round(v[i])))); return btoa(t); };
+function bestOf(v, lib) { let bk = null, bs = -1; for (const [k, t] of Object.entries(lib)) { const s = pearson(v, t); if (s > bs) { bs = s; bk = k; } } return [bk, bs]; }
 function best(c, lib) { const v = normText(c); let bk = null, bs = -1; for (const [k, t] of Object.entries(lib)) { const s = pearson(v, t); if (s > bs) { bs = s; bk = k; } } return [bk, bs]; }
 function bestMode(c, lib) {
   if (!lib || !Object.keys(lib).length) return [null, 0.0, null];
@@ -74,11 +76,14 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR, panel = null
   const sThr = (thr && typeof thr.stage === 'number') ? thr.stage : 0.5;
   const mode = acceptMode(bestRule, ms, margin, mThr) ? bestRule : null;
 
-  let sk = null, ss = -1;
+  let sk = null, ss = -1; const stageVecs = {};
   for (const stageDx of stageDxCandidates(mode)) {
     const stageBox = [STAGE_BOX[0] + stageDx, STAGE_BOX[1], STAGE_BOX[2] + stageDx, STAGE_BOX[3]];
-    const [k, sc2] = best(bx(stageBox), A.lib.stage); if (sc2 > ss) { sk = k; ss = sc2; }
+    const v = normText(bx(stageBox)); stageVecs[stageDx] = v;
+    const [k, sc2] = bestOf(v, A.lib.stage); if (sc2 > ss) { sk = k; ss = sc2; }
   }
+  // D92: ステージ名が読めなかった（確信が低い）ときだけ、切り出した文字の特徴を残す。レビューで人がステージを選んだら、これを見本に登録する（stage_lib.js）
+  const stage_feat = ss > 0.85 ? null : Object.fromEntries(Object.entries(stageVecs).map(([dx, v]) => [dx, encodeFeat(v)]));
   const strip = k => k ? k.split('__')[0] : null;
 
   let match_type = null, match_type_score = 0;
@@ -101,6 +106,7 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR, panel = null
     mode_margin: margin !== null ? Math.round(margin * 100) / 100 : null,
     stage: ss > sThr ? strip(sk) : null,
     stage_score: ss,
+    ...(stage_feat ? { stage_feat } : {}),
     match_type,
     match_type_score
   };
@@ -143,6 +149,7 @@ export function finalizeResult(S) {
   const hs = [...pick(S.board || []), ...pick(S.personal || [])].map(x => x.header);
   res.mode = vote(hs.map(h => h.mode)); res.mode_guess = res.mode ? null : vote(hs.map(h => h.mode_guess)); res.stage = vote(hs.map(h => h.stage));
   res.match_type = vote(hs.map(h => h.match_type));
+  res.stage_feats = hs.map(h => h.stage_feat).filter(Boolean).slice(0, 2); // D92: 読めなかったときの、ステージ名の特徴（見本の素）
   res.confidence = { mode: Math.max(0, ...hs.map(h => h.mode_score)), stage: Math.max(0, ...hs.map(h => h.stage_score)), match_type: hs.length ? Math.max(0, ...hs.map(h => h.match_type_score ?? 0)) : 0 };
   const pers = pick(S.personal || []).map(x => x.personal).filter(Boolean);
   if (pers.length) res.own = Object.fromEntries(['ka', 'deaths', 'specials'].map(k => [k, vote(pers.map(p => p[k]))]));
