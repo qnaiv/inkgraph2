@@ -19,6 +19,8 @@ import { CLIP, CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
 import * as Cloud from './cloud/index.js';
 import * as WL from './weapon_lib.js';
+import * as StageLib from './stage_lib.js';
+import { STAGES } from './stage_lib.js';
 import { WEAPON_TYPES, UNCLASSIFIED, typeOfWeapon, weaponOptions } from './core/weapons.js';
 
 const app = document.getElementById('app');
@@ -2021,6 +2023,7 @@ PAGES.match = async () => {
     $('#acc', page).innerHTML = accTable(a);
   };
 
+  let stageNote = '', stageOther = false; // D92: ステージの訂正（選ぶと、見本に登録する）
   const rtab = () => {
     const rs = m.result_screen || {}, own = rs.own || {};
     const det = {
@@ -2046,7 +2049,7 @@ PAGES.match = async () => {
               <button class="mk ${mk === 'wrong' ? 'on-wrong' : ''}" data-f="${k}" data-v="wrong" type="button">✗</button>
             </td>
             <td>
-              ${mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
+              ${k === 'stage' && (mk === 'wrong' || !det.stage) && !stageOther && !(m.review.fix.stage && !STAGES.includes(m.review.fix.stage)) ? `<select class="input-sm" data-stage-sel title="正しいステージを選ぶと、この端末の見本に登録して、次の解析から読めるようになります"><option value="">ステージを選ぶ…</option>${STAGES.map(n => `<option value="${esc(n)}" ${m.review.fix.stage === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}<option value="__other__">その他（入力）…</option></select>${stageNote ? `<div class="muted" style="font-size:11px;margin-top:2px;max-width:220px">${esc(stageNote)}</div>` : ''}` : mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -2074,6 +2077,16 @@ PAGES.match = async () => {
         if (['ka', 'deaths', 'specials'].includes(f)) { rtab(); refresh(); }
       };
     });
+
+    const ss = $('#rtab', page).querySelector('select[data-stage-sel]');
+    if (ss) ss.onchange = async () => {
+      const v = ss.value; if (!v) return;
+      if (v === '__other__') { stageOther = true; m.review.rmarks.stage = 'wrong'; rtab(); return; }
+      m.review.rmarks.stage = 'wrong'; m.review.fix.stage = v;
+      const r = StageLib.addFromMatch(v, m, resultOf(m).mode);
+      stageNote = r.ok ? `見本に登録しました（${v}・${StageLib.countOf(v)}枚）。次の解析から、読めるようになります` : r.reason === 'no-feats' ? 'この試合は、見本の素を残す前の解析なので、見本にはできません（ステージの訂正だけ記録しました）' : r.reason === 'no-mode' ? 'ルールが分からず、見本にできません。先に「ルール」を直してください' : r.reason === 'dup' ? 'この見本は、登録済みです' : '';
+      await save(); rtab(); accDraw();
+    };
   };
 
   // D91: レビューモードでは、ヘッダーの数字の下に、結果画面の読み取り値を並べる（見比べながら足していく）。キルは K+A なので、検出が K+A を超えたときだけ赤。デス・スペシャルは、違えば赤・同じなら緑

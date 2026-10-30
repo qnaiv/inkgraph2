@@ -1,3 +1,4 @@
+import { mergeIntoAssets } from './stage_lib.js';
 import { prepAssets } from './core/assets.js';
 import { Analyzer } from './core/analyzer.js';
 import { configureYolo, readHeaderTensor, preprocessHeader } from './yolo_runner.js';
@@ -121,6 +122,7 @@ self.onmessage = async (ev) => {
   if (m.type === 'init') {
     configureYolo(m.assetsUrl.replace(/[^/]*$/, ''));
     if (!A) { const r = await fetch(m.assetsUrl); A = prepAssets(await r.json()); }
+    if (m.userStageLib && m.userStageLib.length) mergeIntoAssets(A, m.userStageLib); // D92: 人が教えたステージ名の見本
     an = new Analyzer(A, { srcH: m.srcH || 1080, matchNo: m.matchNo || 1,
       onMatch: rec => {
         const pend = yoloPending, reads = yoloReads;

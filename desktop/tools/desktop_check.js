@@ -221,6 +221,16 @@ app.whenReady().then(async () => {
     const h2 = await hr();
     await js(`window.inkgraph.setReviewMode(true)`); await sleep(2000);
     check(!h2.k.shown && !h2.d.shown && !h2.sp.shown, '(50) 通常モードでは、リザルトの読み取り値は出ない', JSON.stringify(h2));
+    // D92: ステージが読めなかった試合で、レビューでステージを選ぶと、その試合の特徴が見本に登録される
+    await js(`window.inkgraph.db.putMatch({ id: 'stg#1', match: 1, created: new Date().toISOString(), battle: [0, 100], squid_down: {}, own_deaths: [], own_kills: [], special: [], stills: { count: 0, bytes: 0 }, video: { kind: 'none' },
+      result_screen: { result: 'WIN', mode: 'ガチエリア', stage: null, own: { ka: 0, deaths: 0, specials: 0 } }, stage_feats: [{ '0': 'QUJDRA==' }],
+      review: { marks: {}, added: [], fix: {}, rmarks: {} } })`);
+    await js(`localStorage.removeItem('inkgraph.stageLib'); window.inkgraph.setReviewMode(true); window.inkgraph.nav('match', 'stg#1')`); await sleep(2500);
+    const sg0 = await js(`({ sel: !!document.querySelector('select[data-stage-sel]'), n: document.querySelectorAll('select[data-stage-sel] option').length })`);
+    await js(`(() => { const s = document.querySelector('select[data-stage-sel]'); s.value = 'ナメロウ金属'; s.dispatchEvent(new Event('change')); })()`); await sleep(900);
+    const sg1 = await js(`window.inkgraph.db.getMatch('stg#1').then(m => ({ fix: m.review.fix.stage, mark: m.review.rmarks.stage, lib: JSON.parse(localStorage.getItem('inkgraph.stageLib') || 'null'), note: document.querySelector('#rtab').textContent }))`);
+    check(sg0.sel && sg0.n > 20 && sg1.fix === 'ナメロウ金属' && sg1.mark === 'wrong' && sg1.lib && sg1.lib.items.length === 1 && sg1.lib.items[0].name === 'ナメロウ金属' && sg1.lib.items[0].feat === 'QUJDRA==' && /見本に登録しました/.test(sg1.note), '(51) ステージが読めなかった試合: レビューでステージを選ぶと、訂正が記録され、その特徴が見本に登録される', JSON.stringify({ sg0, fix: sg1.fix, lib: sg1.lib && sg1.lib.items.length, note: sg1.note.slice(-60) }));
+    await js(`window.inkgraph.nav('match', 'cand#1')`); await sleep(2000);
     // 要修正の 3 状態: 確認不要 → 要修正 → 修正済み（詳細のボタン）。一覧の「修正済み」フィルター
     const fxs = await js(`(async () => { const q = s => document.querySelector(s), id = 'cand#1', get = () => window.inkgraph.db.getMatch(id), wait = ms => new Promise(r => setTimeout(r, ms)), out = {};
       out.none = { flag: !!(await get()).needs_fix, done: getComputedStyle(q('#fix-done')).display };
