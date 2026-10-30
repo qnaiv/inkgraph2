@@ -156,6 +156,7 @@ export class Analyzer {
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length, ...(m.boardRejected ? { board_rejected: m.boardRejected } : {}) };
     rec.count_check = countCheck(rec); // D77: 検出した数と結果画面の数の突き合わせ（補正はしない）
     const ownRow = rs.board ? rs.board.find(b => b.own) : null;
+    if (rs.board) { const ic = Object.fromEntries(rs.board.filter(b => b.iconc).map(b => [`${b.group}${b.idx}`, b.iconc])); if (Object.keys(ic).length) rec.icon_colors = ic; } // D94: ブキの絵の色つき版（名前付けの画面用。端末内のみ）
     rec.enemy_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === (ownRow.group === 'top' ? 'bot' : 'top')).map(b => ({ slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
     // D65: 味方 4 人（自分を含む）のブキのアイコンも同じ形で保存する。自分の行には own:true を付ける（自分のブキの集計用）
     rec.ally_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === ownRow.group).map(b => (b.own ? { slot: `${b.group}${b.idx}`, icon: b.icon, own: true } : { slot: `${b.group}${b.idx}`, icon: b.icon })) : [];

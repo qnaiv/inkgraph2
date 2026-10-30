@@ -3,7 +3,7 @@ import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
 import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows, unknownIconGroups } from './analysis.js';
 import { b64bytes } from './core/img.js';
-import { prepEnemyIconLib } from './core/board_icons.js';
+import { prepEnemyIconLib, nearestNames } from './core/board_icons.js';
 import * as AN from './analysis.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as VR from './video_rec.js';
@@ -2607,17 +2607,26 @@ PAGES.trend = async () => {
   // 未登録のアイコンに名前を付ける
   const unknownGroups = unknownIconGroups(filtered, enemyIconLib);
   const opts = weaponOptions(await getWeaponNames(), userTypeMap);
+  const weaponNameSet = new Set([...WEAPON_TYPES, UNCLASSIFIED].flatMap(t => [...opts[t]]));
+  const colorOf = new Map(); // D94: ブキの絵（グレー）→ 色つき版（解析のとき残した分）
+  for (const mm of filtered) if (mm.icon_colors) for (const f of ['enemy_icons', 'ally_icons']) for (const it of mm[f] || []) if (it && it.icon && it.slot && mm.icon_colors[it.slot] && !colorOf.has(it.icon)) colorOf.set(it.icon, mm.icon_colors[it.slot]);
   const optionsHtml = [...WEAPON_TYPES, UNCLASSIFIED].filter(t => opts[t].length).map(t => `<optgroup label="${esc(t)}">${[...opts[t]].sort((x, y) => x.localeCompare(y, 'ja')).map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>`).join('');
   const namingCardHtml = unknownGroups.length === 0 ? '' : `<div class="card trend-weapon-card" id="weapon-naming" style="margin-bottom:var(--sp-6)"><div class="card-title">未登録のブキアイコンに名前を付ける（${unknownGroups.length} 種類）</div>
-      <p class="muted" style="font-size:var(--fs-xs)">絵を見て、一覧からブキを選んでください（種類は自動で入ります）。この端末の見本に登録され、過去の試合にも反映されます（クラウド同期をしていれば他の端末にも届きます）。一覧に無いブキは「リストにない武器」を選んで、名前と種類を入れてください。</p>
-      <div class="weapon-naming-list" style="display:flex;flex-direction:column;gap:var(--sp-2)">${unknownGroups.slice(0, 30).map((g, i) => `<div class="weapon-naming-row" data-i="${i}" style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
-        <canvas class="weapon-icon-canvas" width="168" height="102" data-icon="${esc(g.rep)}" style="background:#000;border-radius:4px"></canvas>
-        <span class="muted" style="font-size:var(--fs-xs)">${g.slots}枠・${g.matches}試合（敵 ${g.side.enemy}・味方 ${g.side.ally}）</span>
-        <select class="input-sm weapon-name-select" style="min-width:200px"><option value="">ブキを選ぶ…</option>${optionsHtml}<option value="__custom__">リストにない武器…</option></select>
-        <span class="weapon-custom" hidden style="display:none;gap:var(--sp-2);align-items:center"><input class="input-sm weapon-name-input" placeholder="ブキ名" size="18"><select class="input-sm weapon-type-select">${[...WEAPON_TYPES, UNCLASSIFIED].map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select></span>
-        <span class="weapon-type-auto muted" style="font-size:var(--fs-xs)"></span>
-        <button class="btn btn-sm weapon-name-save" type="button" disabled>名前を付ける</button>
-      </div>`).join('')}</div>${unknownGroups.length > 30 ? '<p class="muted" style="font-size:var(--fs-xs)">多い順に 30 種類まで出しています。名前を付けると次が出ます。</p>' : ''}</div>`;
+      <p class="muted" style="font-size:var(--fs-xs)">絵を見て、「近いブキ」を押すか、ブキ名を入れて（文字を打つと候補が絞られます）選んでください（種類は自動で入ります）。この端末の見本に登録され、過去の試合にも反映されます（クラウド同期をしていれば他の端末にも届きます）。一覧に無いブキは「リストにない武器」を選んで、名前と種類を入れてください。</p>
+      <datalist id="weapon-dl">${[...WEAPON_TYPES, UNCLASSIFIED].flatMap(t => [...opts[t]].map(n => `<option value="${esc(n)}">${esc(t)}</option>`)).join('')}</datalist>
+      <div class="weapon-naming-list" style="display:flex;flex-direction:column;gap:var(--sp-3)">${unknownGroups.slice(0, 30).map((g, i) => { const near = nearestNames(enemyIconLib, g.rep, 3).filter(x => x.score >= 0.6); return `<div class="weapon-naming-row" data-i="${i}" style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
+         <canvas class="weapon-icon-canvas" width="168" height="102" data-icon="${esc(g.rep)}" style="background:#000;border-radius:4px"></canvas>
+         <div style="display:flex;flex-direction:column;gap:6px;min-width:260px">
+           <span class="muted" style="font-size:var(--fs-xs)">${g.slots}枠・${g.matches}試合（敵 ${g.side.enemy}・味方 ${g.side.ally}）</span>
+           ${near.length ? `<div class="weapon-near" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="muted" style="font-size:var(--fs-xs)">近いブキ:</span>${near.map(x => `<button class="btn btn-sm weapon-near-btn" type="button" data-name="${esc(x.name)}" title="似ている度 ${Math.round(x.score * 100)}%（見た目が近い順。違うこともあります）">${esc(x.name)} <span class="muted">${Math.round(x.score * 100)}%</span></button>`).join('')}</div>` : ''}
+           <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
+             <input class="input-sm weapon-name-input" list="weapon-dl" placeholder="ブキ名で探す（例: スプラ）" size="22" autocomplete="off">
+             <select class="input-sm weapon-type-select" style="display:none">${[...WEAPON_TYPES, UNCLASSIFIED].map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select>
+             <span class="weapon-type-auto muted" style="font-size:var(--fs-xs)"></span>
+             <button class="btn btn-sm weapon-name-save" type="button" disabled>名前を付ける</button>
+           </div>
+         </div>
+       </div>`; }).join('')}</div>${unknownGroups.length > 30 ? '<p class="muted" style="font-size:var(--fs-xs)">多い順に 30 種類まで出しています。名前を付けると次が出ます。</p>' : ''}</div>`;
 
   const WEAPON_KIND_LABEL = {
     main: 'メイン',
@@ -2956,18 +2965,21 @@ PAGES.trend = async () => {
 
   // D65: 未登録のブキアイコンの絵を描き、名前を付けたら見本に登録して描き直す
   page.querySelectorAll('.weapon-icon-canvas').forEach(cv => {
-    // D85: 保存してあるのは 56x34 のグレー。そのままだと白っぽく潰れて見えるので、明るさの幅（2〜98%）を引き伸ばし、なめらかに拡大して見せる
-    const g = b64bytes(cv.dataset.icon), ctx = cv.getContext('2d'), im = ctx.createImageData(56, 34), sorted = Array.from(g.subarray(0, 56 * 34)).sort((a, b) => a - b);
-    const lo = sorted[Math.floor(sorted.length * 0.02)], hi = sorted[Math.floor(sorted.length * 0.98)], span = Math.max(24, hi - lo);
-    for (let i = 0; i < 56 * 34; i++) { const v = Math.max(0, Math.min(255, Math.round((g[i] - lo) * 255 / span))); im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
+    // D85・D94: 色つき版があれば、それを描く。無ければ（保存してあるのは 56x34 のグレー）、明るさの幅を引き伸ばして、なめらかに拡大する
+    const ctx = cv.getContext('2d'), im = ctx.createImageData(56, 34), col = colorOf.get(cv.dataset.icon);
+    if (col) { const c = b64bytes(col); for (let i = 0; i < 56 * 34; i++) { im.data[i * 4] = c[i * 3]; im.data[i * 4 + 1] = c[i * 3 + 1]; im.data[i * 4 + 2] = c[i * 3 + 2]; im.data[i * 4 + 3] = 255; } }
+    else { const g = b64bytes(cv.dataset.icon), sorted = Array.from(g.subarray(0, 56 * 34)).sort((a, b) => a - b), lo = sorted[Math.floor(sorted.length * 0.02)], hi = sorted[Math.floor(sorted.length * 0.98)], span = Math.max(24, hi - lo);
+      for (let i = 0; i < 56 * 34; i++) { const v = Math.max(0, Math.min(255, Math.round((g[i] - lo) * 255 / span))); im.data[i * 4] = im.data[i * 4 + 1] = im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; } }
     const tmp = document.createElement('canvas'); tmp.width = 56; tmp.height = 34; tmp.getContext('2d').putImageData(im, 0, 0);
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(tmp, 0, 0, cv.width, cv.height);
   });
   page.querySelectorAll('.weapon-naming-row').forEach(row => {
-    const sel = $('.weapon-name-select', row), custom = $('.weapon-custom', row), inp = $('.weapon-name-input', row), tsel = $('.weapon-type-select', row), auto = $('.weapon-type-auto', row), btn = $('.weapon-name-save', row);
-    const current = () => (sel.value === '__custom__' ? { name: inp.value.trim(), type: tsel.value } : { name: sel.value, type: sel.value ? typeOfWeapon(sel.value, userTypeMap) : '' });
-    const refresh = () => { const isC = sel.value === '__custom__'; custom.style.display = isC ? 'inline-flex' : 'none'; const c = current(); auto.textContent = !isC && c.name ? `種類: ${c.type}` : ''; btn.disabled = !c.name; };
-    sel.onchange = refresh; inp.oninput = refresh; tsel.onchange = refresh;
+    const inp = $('.weapon-name-input', row), tsel = $('.weapon-type-select', row), auto = $('.weapon-type-auto', row), btn = $('.weapon-name-save', row);
+    const known = name => weaponNameSet.has(name);
+    const current = () => { const name = inp.value.trim(); return known(name) ? { name, type: typeOfWeapon(name, userTypeMap) } : { name, type: tsel.value }; };
+    const refresh = () => { const c = current(), isKnown = known(c.name); tsel.style.display = c.name && !isKnown ? '' : 'none'; auto.textContent = c.name ? (isKnown ? `種類: ${c.type}` : '一覧にないブキ: 種類を選んでください') : ''; btn.disabled = !c.name; };
+    inp.oninput = refresh; inp.onchange = refresh; tsel.onchange = refresh;
+    row.querySelectorAll('.weapon-near-btn').forEach(b => { b.onclick = () => { inp.value = b.dataset.name; refresh(); btn.focus(); }; });
     btn.onclick = () => { const c = current(); if (!c.name) return; const g = unknownGroups[+row.dataset.i]; WL.addNamed(c.name, [g.rep], c.type !== UNCLASSIFIED ? c.type : null); PAGES.trend(); };
   });
 
