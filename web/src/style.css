@@ -2295,18 +2295,24 @@ tr.added td {
   .detail-body.has-rec .rv-scroll { display: contents; }
 }
 
-/* D90: 画面領域を広く。サイドメニューは、左端の細い帯にマウスを乗せたときだけ開く（内容の上に重ねる。キーボードで移動したときも開く）。
-   狭い画面（820px 以下）は、これまでどおり上の帯 */
+/* D90: 画面領域を広く。サイドメニューは、普段は左端の細い帯にアイコンだけを並べ、マウスを乗せたときだけ広がる（内容の上に重ねる。キーボードで移動したときも広がる）。
+   狭い画面（820px 以下）は、これまでどおり上の帯（文字のみ） */
+:root { --rail-w: 52px; }
+.nav-ico { flex: none; }
 @media (min-width: 821px) {
-  .app { display: block; padding-left: 14px; }
+  .app { display: block; padding-left: var(--rail-w); }
   .sidenav {
-    position: fixed; left: 0; top: 0; height: 100vh; width: var(--nav-w); z-index: 60;
-    transform: translateX(calc(-100% + 14px)); transition: transform .14s ease-out; box-shadow: none;
-    border-right: 3px solid var(--accent-soft);
+    position: fixed; left: 0; top: 0; height: 100vh; width: var(--rail-w); z-index: 60; padding: var(--sp-3) 6px; gap: var(--sp-4);
+    transition: width .14s ease-out; overflow: hidden;
   }
-  .sidenav:hover, .sidenav:focus-within { transform: none; box-shadow: 6px 0 24px rgba(0, 0, 0, .45); border-right-width: 1px; }
+  .sidenav .brand { padding: var(--sp-2) 0 var(--sp-2) 17px; }
+  .sidenav a { padding: var(--sp-2) 0 var(--sp-2) 11px; }
+  .sidenav .brand-name, .sidenav .nav-label { transition: opacity .12s; white-space: nowrap; }
+  .sidenav:not(:hover):not(:focus-within) .brand-name, .sidenav:not(:hover):not(:focus-within) .nav-label { opacity: 0; }
+  .sidenav:hover, .sidenav:focus-within { width: var(--nav-w); box-shadow: 6px 0 24px rgba(0, 0, 0, .45); }
   .main { max-width: none; padding: var(--sp-4) var(--sp-5); }
 }
+@media (max-width: 820px) { .nav-ico { display: none; } }
 
 /* 詳細画面のヘッダーをコンパクトに（1 行にまとめ、数字の箱を小さく）。幅の上限もなくす */
 .main:has(.detail-header-card) { max-width: none; padding: var(--sp-3) var(--sp-4); }
