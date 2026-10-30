@@ -221,6 +221,23 @@ export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
   merged.push(cur);
   return merged.filter(([a, b]) => (b - a) >= minlen);
 }
+// D71: 「やられた」が短く途切れるデス（直後にマップを開く・試合終了で画面が隠れる）を拾う。medfilt と最短 1.5 秒で消えていた。
+// 強い信号（sy>=th）のコマを gap 秒以内でまとめた塊が、(a) 既存のデスの直前 pre 秒以内なら、そのデスの開始を塊の頭まで前倒しし
+// （スペシャルの「デスで失った」判定が窓 b+1.0 に入る）、(b) 既存のデスから attach 秒以上離れていて min コマ以上あれば、新しいデスにする。
+// デスの間隔は最短でも復帰（約 8 秒）以上あり、実データでは (b) に当たった塊が見逃しと一致した。L は in place で直し、足した分を返す
+export const BURST = { th: 0.8, gap: 5.0, min: 2, pre: 2.5, attach: 5.0 };
+export function burstDeaths(t, sy, L, B = BURST) {
+  const cl = [];
+  for (let i = 0; i < t.length; i++) { if (!(sy[i] >= B.th)) continue; const c = cl[cl.length - 1]; if (c && t[i] - c.end < B.gap) { c.end = t[i]; c.n++; } else cl.push({ start: t[i], end: t[i], n: 1 }); }
+  const added = [];
+  for (const c of cl) {
+    if (c.n < B.min) continue;
+    const near = L.concat(added).find(e => c.start <= e.end + B.attach && e.start - B.attach <= c.end);
+    if (near) { if (c.start < near.start && near.start - c.end <= B.pre) near.start = r1(c.start); continue; }
+    added.push({ start: r1(c.start), end: r1(c.end), src: 'signal_burst' });
+  }
+  return added;
+}
 export function killEventsFromSlots(t, F) {
   if (!t || !t.length || !F || !F.length) return [];
   let maxSlots = 0;
@@ -256,8 +273,9 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   const sigOn = f => (f.sy !== undefined ? f.sy > P.sig_th : f.sig); // sy が無い旧フレームは従来の真偽値（sig_th=0.5 の既定は sig と同じ）
   const sig = medfilt(F.map(sigOn), 5); const sr = mergeDeathRuns(t, sig, ok, mp);
   let own = sr.map(([a, b]) => ({ start: r1(a), end: r1(b), src: 'signal' }));
+  own = own.concat(burstDeaths(t, F.map(f => f.sy ?? (f.sig ? 1 : 0)), own));
   const hudL0 = ev.L0; // 信号が拾えた試合では採用しない HUD 分類器の自分デス候補（補正の候補にだけ使う）
-  if (!sr.length) own = own.concat(ev.L0); ev.L0 = own.sort((x, y) => x.start - y.start);
+  if (!own.length) own = own.concat(ev.L0); ev.L0 = own.sort((x, y) => x.start - y.start);
   // --- D52/D53: デスの確信度（複数信号の合議、fusion.js）、採用しなかった候補、結果画面の数に合わせた補正 ---
   const inWin = (a, b) => F.filter(f => f.t >= a - 1e-6 && f.t <= b + 1e-6);
   const kscan = m.kscan || [];
