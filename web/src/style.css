@@ -2263,3 +2263,34 @@ tr.added td {
   svg { max-width: 100%; height: auto; }
   #learn-panel, #tune-panel, #retention-panel { display: none; } /* 自己学習・自動調整は記録する PC の機能 */
 }
+
+/* D89: 録画があるときの詳細画面。上段＝録画（約600px）｜出来事（｜レビューモードでは確認パネル）、下段＝タイムライン（全幅）。
+   出来事と確認パネルは、上段（録画の高さ）の中でスクロールする */
+.rv-scroll, .evt-scroll { display: contents; }
+.detail-body.has-rec {
+  align-items: stretch;
+  grid-template-columns: minmax(0, 640px) minmax(0, 1fr);
+  grid-template-areas: "rec evt" "tl tl";
+}
+.detail-body.has-rec.review-on {
+  grid-template-columns: minmax(0, 640px) minmax(0, 1fr) 360px;
+  grid-template-areas: "rec evt rv" "tl tl tl";
+}
+.detail-body.has-rec #rec-top-card { grid-area: rec; }
+.detail-body.has-rec > .detail-timeline-card:not(#rec-top-card) { grid-area: tl; }
+.detail-body.has-rec .detail-events-card { grid-area: evt; position: relative; overflow: hidden; min-height: 0; padding: 0; }
+.detail-body.has-rec .evt-scroll { display: block; position: absolute; inset: 0; overflow: auto; padding: var(--sp-4); }
+.detail-body.has-rec .review-panel { grid-area: rv; position: relative; top: auto; width: auto; min-height: 0; overflow: hidden; }
+.detail-body.has-rec .rv-scroll { display: flex; flex-direction: column; gap: var(--sp-4); position: absolute; inset: 0; overflow: auto; }
+/* 幅が足りないときのレビューモード（1181〜1599px）: 確認パネルはタイムラインの下に回す（3 列だと出来事が細くなりすぎる） */
+@media (min-width: 1181px) and (max-width: 1599px) {
+  .detail-body.has-rec.review-on { grid-template-columns: minmax(0, 600px) minmax(0, 1fr); grid-template-areas: "rec evt" "tl tl" "rv rv"; }
+  .detail-body.has-rec.review-on .review-panel { overflow: visible; }
+  .detail-body.has-rec.review-on .rv-scroll { display: grid; position: static; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+}
+@media (max-width: 1180px) {
+  .detail-body.has-rec, .detail-body.has-rec.review-on { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rec" "evt" "tl" "rv"; }
+  .detail-body.has-rec .detail-events-card { height: 340px; }
+  .detail-body.has-rec .review-panel { overflow: visible; }
+  .detail-body.has-rec .rv-scroll { display: contents; }
+}
