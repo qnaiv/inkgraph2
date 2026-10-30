@@ -85,7 +85,7 @@ try {
   check('Live: video element is playing (paused === false)', initialPaused === false);
 
   // 1. 試合一覧へ遷移
-  await page.click('nav [data-page="list"]');
+  await page.mouse.move(4, 300); await page.waitForTimeout(300); await page.click('nav [data-page="list"]'); // D90: サイドメニューは、左端にマウスを乗せると開く
   await page.waitForTimeout(500);
 
   // ライブの <video id="v"> が document 内に残っていること(isConnected)
@@ -117,7 +117,7 @@ try {
   check('List page: stats.frames continues to advance while in list page', listFramesAfter > listFramesBefore, `before=${listFramesBefore}, after=${listFramesAfter}`);
 
   // 2. 傾向ページへ遷移
-  await page.click('nav [data-page="trend"]');
+  await page.mouse.move(4, 300); await page.waitForTimeout(300); await page.click('nav [data-page="trend"]'); // D90: サイドメニューは、左端にマウスを乗せると開く
   await page.waitForTimeout(500);
   const trendFramesBefore = await page.evaluate(() => window.inkgraph.getSession()?.stats?.frames);
   const trendPaused = await page.evaluate(() => document.getElementById('v')?.paused);
@@ -141,7 +141,7 @@ try {
   check('Match detail page: stats.frames continues to advance while in match page', matchFramesAfter > matchFramesBefore, `before=${matchFramesBefore}, after=${matchFramesAfter}`);
 
   // 4. ライブ画面へ戻る
-  await page.click('nav [data-page="live"]');
+  await page.mouse.move(4, 300); await page.waitForTimeout(300); await page.click('nav [data-page="live"]'); // D90: サイドメニューは、左端にマウスを乗せると開く
   await page.waitForTimeout(500);
 
   const returnLiveStatus = await page.evaluate(() => {
