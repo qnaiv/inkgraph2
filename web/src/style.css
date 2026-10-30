@@ -2294,3 +2294,42 @@ tr.added td {
   .detail-body.has-rec .review-panel { overflow: visible; }
   .detail-body.has-rec .rv-scroll { display: contents; }
 }
+
+/* D90: 画面領域を広く。サイドメニューは、普段は左端の細い帯にアイコンだけを並べ、マウスを乗せたときだけ広がる（内容の上に重ねる。キーボードで移動したときも広がる）。
+   狭い画面（820px 以下）は、これまでどおり上の帯（文字のみ） */
+:root { --rail-w: 52px; }
+.nav-ico { flex: none; }
+@media (min-width: 821px) {
+  .app { display: block; padding-left: var(--rail-w); }
+  .sidenav {
+    position: fixed; left: 0; top: 0; height: 100vh; width: var(--rail-w); z-index: 60; padding: var(--sp-3) 6px; gap: var(--sp-4);
+    transition: width .14s ease-out; overflow: hidden;
+  }
+  .sidenav .brand { padding: var(--sp-2) 0 var(--sp-2) 17px; }
+  .sidenav a { padding: var(--sp-2) 0 var(--sp-2) 11px; }
+  .sidenav .brand-name, .sidenav .nav-label { transition: opacity .12s; white-space: nowrap; }
+  .sidenav:not(:hover):not(:focus-within) .brand-name, .sidenav:not(:hover):not(:focus-within) .nav-label { opacity: 0; }
+  .sidenav:hover, .sidenav:focus-within { width: var(--nav-w); box-shadow: 6px 0 24px rgba(0, 0, 0, .45); }
+  .main { max-width: none; padding: var(--sp-4) var(--sp-5); }
+}
+@media (max-width: 820px) { .nav-ico { display: none; } }
+
+/* 詳細画面のヘッダーをコンパクトに（1 行にまとめ、数字の箱を小さく）。幅の上限もなくす */
+.main:has(.detail-header-card) { max-width: none; padding: var(--sp-3) var(--sp-4); }
+.main:has(.detail-header-card) > .page-header { margin-bottom: var(--sp-2); gap: var(--sp-3); }
+.main:has(.detail-header-card) > .page-header .page-title { font-size: var(--fs-md); margin: 0; }
+.detail-header-card { padding: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-3); gap: var(--sp-3); }
+.detail-header-card .result-hero { font-size: var(--fs-lg); padding: var(--sp-1) var(--sp-3); }
+.detail-header-card .detail-header-left { gap: var(--sp-3); }
+.detail-header-card .detail-stage-info { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px var(--sp-4); }
+.detail-header-card .detail-stage-title { font-size: var(--fs-md); }
+.detail-header-card .match-type-line, .detail-header-card .detail-count-line { font-size: var(--fs-xs); }
+.detail-header-card #stills-info, .detail-header-card .stills-info { display: none; }
+.detail-header-stats { gap: var(--sp-2); }
+.detail-header-stats .stat { min-width: 0; padding: var(--sp-1) var(--sp-3); display: flex; align-items: baseline; gap: var(--sp-2); }
+.detail-header-stats .stat-label { font-size: var(--fs-xs); }
+.detail-header-stats .stat-value { font-size: var(--fs-lg); line-height: 1.1; }
+.detail-header-stats .stat .muted { display: none; }
+.detail-body { gap: var(--sp-3); }
+.detail-body > .card, .detail-body .review-panel .card { padding: var(--sp-3) var(--sp-4); }
+.detail-body .card-title { margin-bottom: var(--sp-2); }
