@@ -230,6 +230,12 @@ app.whenReady().then(async () => {
     await js(`(() => { const s = document.querySelector('select[data-stage-sel]'); s.value = 'ナメロウ金属'; s.dispatchEvent(new Event('change')); })()`); await sleep(900);
     const sg1 = await js(`window.inkgraph.db.getMatch('stg#1').then(m => ({ fix: m.review.fix.stage, mark: m.review.rmarks.stage, lib: JSON.parse(localStorage.getItem('inkgraph.stageLib') || 'null'), note: document.querySelector('#rtab').textContent }))`);
     check(sg0.sel && sg0.n > 20 && sg1.fix === 'ナメロウ金属' && sg1.mark === 'wrong' && sg1.lib && sg1.lib.items.length === 1 && sg1.lib.items[0].name === 'ナメロウ金属' && sg1.lib.items[0].feat === 'QUJDRA==' && /見本に登録しました/.test(sg1.note), '(51) ステージが読めなかった試合: レビューでステージを選ぶと、訂正が記録され、その特徴が見本に登録される', JSON.stringify({ sg0, fix: sg1.fix, lib: sg1.lib && sg1.lib.items.length, note: sg1.note.slice(-60) }));
+    // D93: 教えたブキ・ステージの見本が、AI 用の書き出し（teaching/）に入る（試合が 0 件でも）
+    await js(`localStorage.setItem('inkgraph.weaponLib', JSON.stringify({ v: 1, items: [{ name: 'テストブキ', type: 'シューター', icon: 'QUJD', at: '2026-10-30T00:00:00Z' }] }))`);
+    const tz = await js(`(async () => { const r = await window.inkgraph.buildFixPack([]); const b = new Uint8Array(await r.blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768)); return btoa(s); })()`);
+    { const { unzipSync: uz2, strFromU8: sf2 } = require('../../web/node_modules/fflate'), z2 = uz2(new Uint8Array(Buffer.from(tz, 'base64'))), w = JSON.parse(sf2(z2['teaching/weapons.json'])), g = JSON.parse(sf2(z2['teaching/stages.json'])), idx = JSON.parse(sf2(z2['INDEX.json'])), rd = sf2(z2['README.md']);
+      check(w.items.length === 1 && w.items[0].name === 'テストブキ' && w.items[0].icon === 'QUJD' && w.items[0].type === 'シューター' && g.items.length === 1 && g.items[0].name === 'ナメロウ金属' && g.items[0].feat === 'QUJDRA==' && idx.teaching.weapons === 1 && idx.teaching.stages === 1 && /teaching\//.test(rd) && /lib\.stage/.test(rd), '(52) 教えたブキ（名前・種類・絵）とステージ（名前・特徴）が、teaching/ に入り、README に取り込み方が書かれる', JSON.stringify(idx.teaching)); }
+    await js(`localStorage.removeItem('inkgraph.weaponLib')`);
     await js(`window.inkgraph.nav('match', 'cand#1')`); await sleep(2000);
     // 要修正の 3 状態: 確認不要 → 要修正 → 修正済み（詳細のボタン）。一覧の「修正済み」フィルター
     const fxs = await js(`(async () => { const q = s => document.querySelector(s), id = 'cand#1', get = () => window.inkgraph.db.getMatch(id), wait = ms => new Promise(r => setTimeout(r, ms)), out = {};

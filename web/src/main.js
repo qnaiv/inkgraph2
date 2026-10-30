@@ -1347,10 +1347,16 @@ async function buildFixPack(matches, { whole = false, video = false, onProgress 
     files[dir + 'software.json'] = strToU8(JSON.stringify(m));
     index.push({ id: m.id, dir, counts: { false_positives: d.false_positives.length, misses: d.misses.length, result_fixes: d.result_fixes.length, unreviewed: d.unreviewed }, frame_source: source, frames: frames.length, reasons: (m.needs_fix?.reasons || []).map(k => FP.FIX_REASONS[k] || k) });
   }
+  // D93: 人が教えた見本（ブキの名前・ステージ名）。試合には紐づかない端末の見本全体。ソフトの同梱の見本に取り込む材料にする
+  const wl = WL.loadUserLib().items, sl = StageLib.loadLib().items, teaching = wl.length || sl.length ? { weapons: wl.length, stages: sl.length } : null;
+  if (teaching) {
+    files['teaching/weapons.json'] = strToU8(JSON.stringify({ format: 1, note: 'icon＝結果画面ボードの 56x34 のグレー画像（base64）。同梱の見本に足す材料', items: wl.map(x => ({ name: x.name, type: x.type ?? null, icon: x.icon, at: x.at ?? null })) }, null, 1));
+    files['teaching/stages.json'] = strToU8(JSON.stringify({ format: 1, note: 'feat＝ステージ名の文字の 120x32 の画像（base64）。同梱の見本（assets の lib.stage）に足す材料', items: sl }, null, 1));
+  }
   const params = null; // D84: 検出の自動調整は廃止（常に既定値）
-  files['INDEX.json'] = strToU8(JSON.stringify({ app: 'InkGraph', kind: 'fix-pack', format: 1, exported: now.toISOString(), matches: index }, null, 1));
+  files['INDEX.json'] = strToU8(JSON.stringify({ app: 'InkGraph', kind: 'fix-pack', format: 1, exported: now.toISOString(), ...(teaching ? { teaching } : {}), matches: index }, null, 1));
   files['detect_params.json'] = strToU8(JSON.stringify(params, null, 1));
-  files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording'), withVideo: videos.length > 0 }));
+  files['README.md'] = strToU8(FP.fixReadme({ count: matches.length, exported: now.toISOString(), withFrames: index.some(x => x.frame_source === 'recording'), withVideo: videos.length > 0, teaching }));
   if (video) return { files, videos, filename: FP.fixPackFilename(now), index };
   return { blob: new Blob([zipSync(files, { level: 0 })], { type: 'application/zip' }), filename: FP.fixPackFilename(now), index };
 }
@@ -1365,7 +1371,7 @@ async function exportFixPack(sel, onProgress = () => {}) {
 
 async function showFixExportDialog() {
   document.querySelector('.fix-dialog-overlay')?.remove();
-  const all = (await db.allMatches()).filter(m => m.needs_fix), doneAll = all.filter(m => FP.fixState(m) === 'done');
+  const all = (await db.allMatches()).filter(m => m.needs_fix), doneAll = all.filter(m => FP.fixState(m) === 'done'), teachN = WL.loadUserLib().items.length + StageLib.loadLib().items.length;
   const ov = document.createElement('div'); ov.className = 'fix-dialog-overlay'; ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
   const rows = all.map(m => { const d = FP.diffOf(m), r = resultOf(m); return `<label style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" class="fixsel" value="${esc(m.id)}" ${FP.fixState(m) === 'done' ? 'checked' : 'disabled'}> <span>${esc((m.created || '').slice(0, 16).replace('T', ' '))} ${esc(r.mode || 'ルール不明')}・${esc(r.stage || 'ステージ不明')} <span class="muted">誤検出 ${d.false_positives.length}・見逃し ${d.misses.length}・読み違い ${d.result_fixes.length}${d.unreviewed ? `・未確認 ${d.unreviewed}` : ''}${m.recording ? '・録画あり' : ''}</span>${FP.fixState(m) === 'done' ? '' : ' <span class="muted" style="font-size:var(--fs-xs)">未修正（先にレビューで正解を付けて、「修正完了」にしてください）</span>'}</span></label>`; }).join('');
   ov.innerHTML = `<div class="card" style="max-width:720px;width:92vw;max-height:84vh;overflow:auto;padding:var(--sp-4)"><h3>修正済みの試合を AI 用に書き出す</h3>
@@ -1373,16 +1379,16 @@ async function showFixExportDialog() {
     <div>${rows || '<p class="muted">要修正の試合がありません</p>'}</div>${all.length && !doneAll.length ? '<p class="muted">修正済みの試合がありません。試合の詳細で、レビューモードで直してから「修正完了」にしてください。</p>' : ''}
     <p id="fix-size" class="muted" style="font-size:var(--fs-xs);margin-top:8px"></p>
     <p id="fix-progress" class="muted" style="min-height:1.4em;font-size:var(--fs-xs)"></p>
-    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${doneAll.length ? '' : 'disabled'}>書き出す</button></div></div>`;
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" id="fix-cancel" type="button">閉じる</button><button class="btn btn-primary" id="fix-go" type="button" ${doneAll.length || teachN ? '' : 'disabled'}>書き出す</button></div></div>`;
   document.body.appendChild(ov);
   $('#fix-cancel', ov).onclick = () => ov.remove();
   const D = window.inkgraphDesktop, canDisk = !!(D && D.packWrite);
   const selected = () => all.filter(m => [...ov.querySelectorAll('.fixsel:checked')].some(x => x.value === m.id));
   const sizeNote = () => { const v = selected().filter(m => m.recording && m.recording.path); const mb = v.reduce((n, m) => n + (m.recording.bytes || 0), 0) / 1048576;
-    $('#fix-size', ov).textContent = canDisk && v.length ? `録画 ${v.length} 本をそのまま（無加工で）入れます。約 ${mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb < 1 ? '1MB 未満' : Math.round(mb) + 'MB'}。保存先は、書き出すときに選びます。` : '録画がない試合は、保存してある静止画・場面クリップを入れます。'; };
+    $('#fix-size', ov).textContent = canDisk && v.length ? `録画 ${v.length} 本をそのまま（無加工で）入れます。約 ${mb >= 1024 ? (mb / 1024).toFixed(1) + 'GB' : mb < 1 ? '1MB 未満' : Math.round(mb) + 'MB'}。保存先は、書き出すときに選びます。` : '録画がない試合は、保存してある静止画・場面クリップを入れます。'; if (teachN) $('#fix-size', ov).textContent += ` 教えたブキ・ステージの見本（${teachN} 件）も、teaching/ に入れます。`; };
   ov.addEventListener('change', sizeNote); sizeNote();
   $('#fix-go', ov).onclick = async () => {
-    const ids = [...ov.querySelectorAll('.fixsel:checked')].map(x => x.value), sel = all.filter(m => ids.includes(m.id)); if (!sel.length) return;
+    const ids = [...ov.querySelectorAll('.fixsel:checked')].map(x => x.value), sel = all.filter(m => ids.includes(m.id)); if (!sel.length && !teachN) return;
     const go = $('#fix-go', ov); go.disabled = true; const prog = $('#fix-progress', ov);
     try {
       if (canDisk && sel.some(m => m.recording && m.recording.path)) {

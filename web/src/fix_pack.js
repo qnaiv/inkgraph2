@@ -67,7 +67,7 @@ export function matchSummary(m) {
   };
 }
 
-export function fixReadme({ count, exported, withFrames, withVideo = false }) {
+export function fixReadme({ count, exported, withFrames, withVideo = false, teaching = null }) {
   return [
     'InkGraph 要修正パック（ソフトの分析が間違っていた試合と、人の修正）',
     '',
@@ -88,6 +88,13 @@ export function fixReadme({ count, exported, withFrames, withVideo = false }) {
       '    （-ss は -i の前に置くと速い。取り出したコマは Read で見られる）'
     ] : ['- frames/ … 差分の前後のコマ（録画から切り出し）。ファイル名は 解析時刻。diff.json の frames に対応表あり']),
     '',
+    ...(teaching ? [
+      '- teaching/ … 人が教えた見本（試合に紐づかない。端末の見本全体）。ソフトの同梱の見本に取り込んで、次から読めるようにするための材料',
+      `    weapons.json（${teaching.weapons} 枚）: 結果画面ボードのブキの絵（icon＝56x34 のグレー画像を base64 にしたもの）と、人が付けた名前（name）・種類（type）。同梱の見本は web/public/templates/enemy_icon_lib.json（または assets の enemy_icon）。同じ絵・名前を重ねない形で足す`,
+      `    stages.json（${teaching.stages} 枚）: ステージ名の特徴（feat＝120x32 の文字の画像を base64 にしたもの）と、名前（name）。同梱の見本は web/public/assets/inkgraph_assets.json の lib.stage（キーは 'ステージ名__識別子'、値は feat と同じ形式）。web/src/stage_lib.js の mergeIntoAssets が、同じ形で足している`,
+      '    取り込むとき: 名前の表記ゆれ・重複・明らかな誤りが無いかを見てから足す（人が選んだものなので、基本は正しいが、念のため）',
+      ''
+    ] : []),
     '【Claude Code での使い方】',
     'このフォルダで Claude Code を開き、次のように頼む:',
     withVideo ? '  「diff.json の誤検出と見逃しについて、video_pos の前後のコマを ffmpeg で取り出して見て、なぜソフトが間違えたか原因を調べて。' : '  「diff.json の誤検出と見逃しについて、frames のコマを見て、なぜソフトが間違えたか原因を調べて。',
