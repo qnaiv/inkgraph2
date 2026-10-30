@@ -1884,9 +1884,9 @@ PAGES.match = async () => {
       <video id="rec-video" controls preload="metadata" src="rec://local/${encodeURIComponent(rcd.path)}" style="width:100%;background:#000;border-radius:6px"></video>
       <div class="rec-controls" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
         <button class="btn btn-sm rec-step" data-d="-5" type="button">−5秒</button><button class="btn btn-sm rec-step" data-d="-1" type="button">−1秒</button>
-        <button class="btn btn-sm rec-step" data-d="-0.0167" type="button" title="1コマ戻る（, キー）">◀ コマ</button><button class="btn btn-sm rec-step" data-d="0.0167" type="button" title="1コマ進む（. キー）">コマ ▶</button>
         <button class="btn btn-sm rec-step" data-d="1" type="button">+1秒</button><button class="btn btn-sm rec-step" data-d="5" type="button">+5秒</button>
         <select id="rec-speed" class="input-sm" title="再生速度"><option value="0.25">1/4</option><option value="0.5">1/2</option><option value="1" selected>等倍</option><option value="2">2倍</option></select>
+        <span class="rec-add-wrap" title="いま見ている時刻に追加（キー: K／D／S）"><button class="btn btn-sm rec-add" data-k="kill" type="button">＋ キル</button><button class="btn btn-sm rec-add" data-k="death" type="button">＋ デス</button><button class="btn btn-sm rec-add" data-k="special" type="button">＋ スペシャル</button></span>
       </div>
       <div id="rec-cap" class="muted" style="margin-top:6px;font-size:var(--fs-xs)"></div>
       <div class="muted" style="font-size:var(--fs-xs)">キー: Space 再生/停止・←→ 1秒・, . 1コマ・K キー／D デス／S スペシャルを、いま見ている時刻に追加（レビューモード中）</div>`;
@@ -1916,6 +1916,7 @@ PAGES.match = async () => {
     recVideo.ontimeupdate = () => { const t = rcd.t0 + recVideo.currentTime; lastSeekTime = t; cap.textContent = `${mss1(t)}（バトル開始から）`; if (tlEl && tlEl.setPlayhead) tlEl.setPlayhead(t); };
     recVideo.onloadedmetadata = () => { recSeekTo(Math.max(rcd.t0, m.battle[0]), false); };
     recVideo.onerror = () => { recVideo = null; $('#detail-body', page).classList.remove('has-rec'); { const rt = $('#rv-title', page); if (rt) rt.textContent = '確認用の映像'; } $('#rec-top-card', page).style.display = 'none'; setVideoMode(false); recBox.style.display = ''; recBox.innerHTML = '<div class="muted">録画ファイルを開けません（移動・削除された可能性があります）。静止画で確認します。</div>'; showStill(lastSeekTime, Infinity); };
+    page.querySelectorAll('.rec-add').forEach(b => { b.onclick = () => page.querySelector(`.review-panel .add[data-k="${b.dataset.k}"]`)?.click(); }); // D96: レビューモードで、録画の下から、いま見ている時刻にキル・デス・スペシャルを追加
     page.querySelectorAll('.rec-step').forEach(b => { b.onclick = () => { if (!recVideo) return; recVideo.pause(); recVideo.currentTime = Math.max(0, recVideo.currentTime + parseFloat(b.dataset.d)); }; });
     $('#rec-speed', page).onchange = e => { if (recVideo) recVideo.playbackRate = +e.target.value; };
     recKeyHandler = e => {

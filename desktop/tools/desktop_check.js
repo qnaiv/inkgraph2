@@ -145,6 +145,15 @@ app.whenReady().then(async () => {
     await js(`window.inkgraph.setReviewMode(true)`); await sleep(2200);
     const L2 = await layout(); if (process.env.SHOT_DIR) fs.writeFileSync(path.join(process.env.SHOT_DIR, 'layout_review.png'), (await w.webContents.capturePage()).toPNG());
     check(L2.hasRec && L2.evtBeside && L2.rpShown && L2.rpBeside && L2.tlBelow, '(48) レビューモード: 上段の右に確認パネルが並び、タイムラインは下段', JSON.stringify(L2));
+    // D96: 録画の下にコマ送りのボタンは無く、レビューモードのときだけ、右端に追加ボタン（キル・デス・スペシャル）が出る。押すと、いま見ている時刻に追加される
+    const openId = await js(`document.querySelector('#pick').value`);
+    const ra = await js(`(() => { const w = document.querySelector('.rec-add-wrap'), r = document.querySelector('#rec-box .rec-controls').getBoundingClientRect(), wr = w.getBoundingClientRect(); return { shown: getComputedStyle(w).display !== 'none', n: w.querySelectorAll('.rec-add').length, steps: document.querySelectorAll('.rec-step[data-d="0.0167"], .rec-step[data-d="-0.0167"]').length, right: Math.abs(r.right - wr.right) < 4 }; })()`);
+    const addBefore = await js(`window.inkgraph.db.getMatch(${JSON.stringify(openId)}).then(m => (m.review.added || []).length)`);
+    await js(`new Promise(r => { const v = document.querySelector('#rec-video'); v.pause(); v.addEventListener('seeked', () => setTimeout(r, 300), { once: true }); v.currentTime = 37; })`); // 既存の追加と重ならない時刻へ
+    await js(`document.querySelector('.rec-add[data-k="death"]').click()`); await sleep(1800);
+    const addAfter = await js(`window.inkgraph.db.getMatch(${JSON.stringify(openId)}).then(m => ({ n: (m.review.added || []).length, last: (m.review.added || []).at(-1) }))`);
+    check(ra.shown && ra.n === 3 && ra.steps === 0 && ra.right && addAfter.n === addBefore + 1 && addAfter.last.kind === 'death', '(53) レビューモード: 録画の下の右端に追加ボタンが 3 つ。コマ送りのボタンは無い。押すと、デスが追加される', JSON.stringify({ ra, addBefore, addAfter }));
+    await js(`window.inkgraph.db.getMatch(${JSON.stringify(openId)}).then(m => { m.review.added = m.review.added.slice(0, ${addBefore}); return window.inkgraph.db.putMatch(m); })`);
     w.setContentSize(1280, 800); await sleep(800);
     await js(`window.inkgraph.setReviewMode(false)`);
     // 要修正パック: 一覧に印・フィルター・書き出しボタンが出る。書き出した zip に、差分と、録画から切り出したコマが入る
