@@ -807,11 +807,11 @@ button, input, select {
 
 .match-row {
   display: grid;
-  grid-template-columns: 120px 1fr 260px 180px 32px;
+  grid-template-columns: 150px 1fr 260px 180px 32px;
   align-items: center;
   gap: var(--sp-4);
-  height: 72px;
-  padding: 0 var(--sp-5);
+  min-height: 72px; /* D95: 中身（要修正の印・リザルトとの食い違いの注記）が増えても、行がはみ出さない */
+  padding: var(--sp-2) var(--sp-5);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
