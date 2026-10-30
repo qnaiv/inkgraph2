@@ -1563,7 +1563,7 @@ PAGES.match = async () => {
       </div>
     </div>
 
-    <div class="card detail-header-card">
+    <div class="card detail-header-card ${reviewMode ? 'review-on' : ''}">
       <div class="detail-header-left">
         <span class="${badgeCls(r.result)} result-hero">${resJa(r.result)}</span>
         <div class="detail-stage-info">
@@ -1583,15 +1583,18 @@ PAGES.match = async () => {
         <div class="stat">
           <div class="stat-label">キル</div>
           <div class="stat-value num" id="hdr-k">${kCount}</div>
+          <div class="hdr-res" id="hdr-res-k"></div>
           <div class="muted" id="hdr-ka" style="font-size:11px" title="${esc(ASSIST_NOTE)}">${esc(assistText(assistEstimate(r.ka, kCount)))}</div>
         </div>
         <div class="stat">
           <div class="stat-label">デス</div>
           <div class="stat-value num" id="hdr-d">${dCount}</div>
+          <div class="hdr-res" id="hdr-res-d"></div>
         </div>
         <div class="stat">
           <div class="stat-label">スペシャル発動</div>
           <div class="stat-value num" id="hdr-sp">${spCount}</div>
+          <div class="hdr-res" id="hdr-res-sp"></div>
         </div>
       </div>
 
@@ -1678,7 +1681,7 @@ PAGES.match = async () => {
   }
   if ($('#review-toggle', page)) $('#review-toggle', page).onchange = e => {
     reviewMode = e.target.checked;
-    $('#detail-body', page).classList.toggle('review-on', reviewMode);
+    $('#detail-body', page).classList.toggle('review-on', reviewMode); $('.detail-header-card', page)?.classList.toggle('review-on', reviewMode);
     placeRec();
     if (!reviewMode && tlEl) tlEl.closePopover();
     candOnTL = reviewMode; { const ct = $('#cand-tl', page); if (ct) ct.checked = candOnTL; }
@@ -2073,6 +2076,14 @@ PAGES.match = async () => {
     });
   };
 
+  // D91: レビューモードでは、ヘッダーの数字の下に、結果画面の読み取り値を並べる（見比べながら足していく）。キルは K+A なので、検出が K+A を超えたときだけ赤。デス・スペシャルは、違えば赤・同じなら緑
+  const hdrRes = (effList = effective(m)) => {
+    const r = resultOf(m), cnt = k => effList.filter(e => e.kind === k).length;
+    const set = (id, val, label, bad, tip) => { const el = $(id, page); if (!el) return; if (!Number.isInteger(val)) { el.textContent = ''; el.hidden = true; return; } el.hidden = false; el.textContent = label.replace('{v}', val); el.title = tip; el.classList.toggle('res-bad', bad); el.classList.toggle('res-ok', !bad); };
+    set('#hdr-res-k', r.ka, 'リザルト K+A {v}', cnt('kill') > r.ka, 'リザルト画面の K+A（キル＋アシスト）。検出したキルが、これを超えていたら赤');
+    set('#hdr-res-d', r.deaths, 'リザルト {v}', cnt('death') !== r.deaths, 'リザルト画面のデス数');
+    set('#hdr-res-sp', r.specials, 'リザルト {v}', cnt('special') !== r.specials, 'リザルト画面のスペシャル発動数');
+  };
   const etab = () => {
     const det = detected(m);
     const add = (m.review.added || []).map((a, i) => ({ ...a, addedIdx: i }));
@@ -2084,6 +2095,7 @@ PAGES.match = async () => {
     { const ka = $('#hdr-ka', page); if (ka) ka.textContent = assistText(assistEstimate(resultOf(m).ka, effList.filter(e => e.kind === 'kill').length)); }
     $('#hdr-d', page).textContent = effList.filter(e => e.kind === 'death').length;
     $('#hdr-sp', page).textContent = effList.filter(e => e.kind === 'special').length;
+    hdrRes(effList);
 
     const allRows = [
       ...det.map(e => ({ ...e, isAdded: false })),

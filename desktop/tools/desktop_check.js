@@ -213,6 +213,14 @@ app.whenReady().then(async () => {
     await js(`(() => { const c = document.querySelector('#cand-tl'); c.checked = true; c.dispatchEvent(new Event('change')); })()`); await sleep(500);
     const tg2 = await js(`document.querySelectorAll('.cand-mark').length`);
     check(tg0.box && tg0.on && tg0.marks === 5 && tg1.marks === 0 && !tg1.on && tg2 === 5, '(45) タイムラインの「補正候補を表示」で、候補の印をオン・オフできる（レビューモードでは最初オン）', JSON.stringify({ tg0, tg1, tg2 }));
+    // D91: レビューモードでは、ヘッダーの数字の下に、結果画面の読み取り値が並ぶ（通常モードでは出ない）
+    const hr = () => js(`(() => { const g = id => { const e = document.querySelector(id); return { text: e.textContent, shown: getComputedStyle(e).display !== 'none', bad: e.classList.contains('res-bad'), ok: e.classList.contains('res-ok') }; }; return { k: g('#hdr-res-k'), d: g('#hdr-res-d'), sp: g('#hdr-res-sp') }; })()`);
+    const h1 = await hr();
+    check(h1.k.shown && h1.k.text === 'リザルト K+A 3' && h1.k.ok && h1.d.shown && h1.d.text === 'リザルト 3' && h1.d.bad && h1.sp.text === 'リザルト 0' && h1.sp.ok, '(49) レビューモード: ヘッダーの数字の下に、リザルトの読み取り値（K+A 3・デス 3・SP 0）。デスは検出 1 と違うので赤', JSON.stringify(h1));
+    await js(`window.inkgraph.setReviewMode(false)`); await sleep(1500);
+    const h2 = await hr();
+    await js(`window.inkgraph.setReviewMode(true)`); await sleep(2000);
+    check(!h2.k.shown && !h2.d.shown && !h2.sp.shown, '(50) 通常モードでは、リザルトの読み取り値は出ない', JSON.stringify(h2));
     // 要修正の 3 状態: 確認不要 → 要修正 → 修正済み（詳細のボタン）。一覧の「修正済み」フィルター
     const fxs = await js(`(async () => { const q = s => document.querySelector(s), id = 'cand#1', get = () => window.inkgraph.db.getMatch(id), wait = ms => new Promise(r => setTimeout(r, ms)), out = {};
       out.none = { flag: !!(await get()).needs_fix, done: getComputedStyle(q('#fix-done')).display };
