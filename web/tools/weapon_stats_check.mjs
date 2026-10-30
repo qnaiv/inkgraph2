@@ -57,13 +57,12 @@ try {
 
   // 一覧から選ぶ：種類が自動で入る。選ぶまでボタンは押せない
   check(await page.$eval('.weapon-naming-row:first-child .weapon-name-save', b => b.disabled), '(10a) 何も選んでいない間は「名前を付ける」が押せない');
-  await page.evaluate(() => document.querySelector('#weapon-naming').scrollIntoView()); await page.selectOption('.weapon-naming-row:first-child .weapon-name-select', 'スプラシューター'); await page.waitForTimeout(200);
+  await page.evaluate(() => document.querySelector('#weapon-naming').scrollIntoView()); await page.fill('.weapon-naming-row:first-child .weapon-name-input', 'スプラシューター'); await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(SH, '01_naming.png'), fullPage: false });
-  await page.selectOption('.weapon-naming-row:first-child .weapon-name-select', 'わかばシューター');
-  check((await page.textContent('.weapon-naming-row:first-child .weapon-type-auto')).includes('シューター') && !(await page.$eval('.weapon-naming-row:first-child .weapon-name-save', b => b.disabled)), '(10b) ブキを選ぶと、種類（シューター）が自動で入り、ボタンが押せる');
+  await page.fill('.weapon-naming-row:first-child .weapon-name-input', 'わかばシューター');
+  check((await page.textContent('.weapon-naming-row:first-child .weapon-type-auto')).includes('シューター') && !(await page.$eval('.weapon-naming-row:first-child .weapon-name-save', b => b.disabled)), '(10b) ブキ名を入れる（一覧の名前）と、種類（シューター）が自動で入り、ボタンが押せる');
   await page.click('.weapon-naming-row:first-child .weapon-name-save'); await page.waitForTimeout(800);
   // 一覧に無いブキ：名前と種類を入れる
-  await page.selectOption('.weapon-naming-row:first-child .weapon-name-select', '__custom__');
   await page.fill('.weapon-naming-row:first-child .weapon-name-input', 'テスト用ブキ'); await page.selectOption('.weapon-naming-row:first-child .weapon-type-select', 'ローラー');
   await page.click('.weapon-naming-row:first-child .weapon-name-save'); await page.waitForTimeout(800);
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('inkgraph.weaponLib')));
@@ -75,6 +74,20 @@ try {
   check(allNames.includes('わかばシューター') && tables.length === 3, '(11) 登録した名前が、いた敵ブキ／味方ブキの表に出る（過去の試合にも反映）。表は 敵・味方・自分 の 3 つ', JSON.stringify(tables.map(t => t.title)));
   check((typeOf('わかばシューター') || [])[1] === 'シューター' && (typeOf('テスト用ブキ') || [])[1] === 'ローラー', '(11b) 表の「種類」の列に、選んだブキの種類が入る（シューター・ローラー）', JSON.stringify([typeOf('わかばシューター'), typeOf('テスト用ブキ')]));
   await page.screenshot({ path: path.join(SH, '02_tables.png'), fullPage: false });
+  // D94: 色つき版があれば色つきで描く。近いブキの候補（ボタン）を押すと、入力欄に入る
+  await page.evaluate(async () => {
+    const g = new Uint8Array(56 * 34); for (let y = 0; y < 34; y++) for (let x = 0; x < 56; x++) g[y * 56 + x] = ((x >> 2) + (y >> 2)) % 2 ? 230 : 30;
+    let gs = ''; for (const v of g) gs += String.fromCharCode(v); const col = new Uint8Array(56 * 34 * 3); for (let i = 0; i < 56 * 34; i++) { col[i * 3] = 250; col[i * 3 + 1] = 20; col[i * 3 + 2] = 20; }
+    let cs = ''; for (const v of col) cs += String.fromCharCode(v);
+    await window.inkgraph.db.putMatch({ id: 'color#1', match: 1, created: new Date().toISOString(), battle: [0, 100], squid_down: {}, own_deaths: [], own_kills: [], special: [], stills: { count: 0, bytes: 0 }, video: { kind: 'none' }, result_screen: { result: 'WIN', mode: 'ガチエリア', stage: 'テスト', own: { ka: 0, deaths: 0, specials: 0 } },
+      enemy_icons: [{ slot: 'bot0', icon: btoa(gs) }], ally_icons: [], icon_colors: { bot0: btoa(cs) }, review: { marks: {}, added: [], fix: {}, rmarks: {} } });
+  });
+  await page.goto(`http://127.0.0.1:${PORT}/#list`); await page.goto(`http://127.0.0.1:${PORT}/#trend`); await page.reload(); await page.waitForSelector('#weapon-naming', { state: 'visible' }); await page.waitForTimeout(800);
+  const px = await page.evaluate(() => { const g = new Uint8Array(56 * 34); for (let y = 0; y < 34; y++) for (let x = 0; x < 56; x++) g[y * 56 + x] = ((x >> 2) + (y >> 2)) % 2 ? 230 : 30; let gs = ''; for (const v of g) gs += String.fromCharCode(v); const cv = [...document.querySelectorAll('.weapon-icon-canvas')].find(c => c.dataset.icon === btoa(gs)); if (!cv) return null; const d = cv.getContext('2d').getImageData(80, 50, 1, 1).data; return [d[0], d[1], d[2]]; });
+  check(px && px[0] > 200 && px[1] < 80 && px[2] < 80, '(13) 色つき版があるブキの絵は、色つき（赤）で描かれる（グレーではない）', JSON.stringify(px));
+  const nb = await page.$$eval('.weapon-near-btn', bs => bs.map(b => b.dataset.name));
+  if (nb.length) { await page.click('.weapon-near-btn'); const v = await page.$eval('.weapon-naming-row:has(.weapon-near-btn) .weapon-name-input', i => i.value); check(v === nb[0] && !(await page.$eval('.weapon-naming-row:has(.weapon-near-btn) .weapon-name-save', b => b.disabled)), '(14) 「近いブキ」のボタンを押すと、その名前が入力欄に入り、「名前を付ける」が押せる', v); }
+  else check(true, '(14) （このデータには、近いブキの候補が無い）', '候補ボタン 0');
   check(errs.length === 0, '(12) ページエラーなし', errs.join('|'));
 } finally { await browser.close(); srv.kill(); }
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS'); process.exit(fails ? 1 : 0);

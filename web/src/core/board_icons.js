@@ -25,6 +25,12 @@ export function iconDetail(g) {
 }
 export const iconHasDetail = g => iconDetail(g) >= ICON_DETAIL_MIN;
 
+/** D94: ブキの絵の色つき版（56x34 の RGB を base64 にしたもの）。名前付けの画面で、色つきで見せる（照合には使わない） */
+export function boardIconColor(fr, dx, dy, group, idx) {
+  const x0 = BI.x0 + dx, y0 = ROW_Y[group][idx] + dy, w = BI.w, h = BI.h, o = new Uint8Array(w * h * 3), c = crop(fr, x0, y0, x0 + w, y0 + h), ox = Math.max(0, -x0), oy = Math.max(0, -y0);
+  for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) { const i = y * c.w + x, t = ((y + oy) * w + x + ox) * 3; o[t] = c.r[i]; o[t + 1] = c.g[i]; o[t + 2] = c.b[i]; }
+  let s = ''; for (let i = 0; i < o.length; i++) s += String.fromCharCode(o[i]); return btoa(s);
+}
 export function encodeIcon(g) { let s = ''; for (let i = 0; i < g.length; i++) s += String.fromCharCode(g[i]); return btoa(s); }
 export function decodeIcon(s) { return b64bytes(s); }
 
@@ -222,6 +228,13 @@ export function iconSimSym(a, b) {
 const matchMemo = new WeakMap();
 
 /** 見本 lib=[{name, g}] と照合。1 種類ならその名前、2 種類以上 or AMBIG を含むなら name:null・ambiguous:[...名前]、無ければ name:null */
+/** D94: 見本の中で、この絵に近い名前を、近い順に n 個（同じ名前は最良の 1 つ）。名前付けの候補に使う。戻り値: [{ name, score }] */
+export function nearestNames(lib, g, n = 3) {
+  const items = Array.isArray(lib) ? lib : (lib && lib.lib ? lib.lib : []); if (!items.length) return [];
+  const pg = prepIcon(g), best = new Map();
+  for (const item of items) { if (!item.prep) item.prep = prepIcon(item.g); const sc = iconSimSym(item.prep, pg); if (!best.has(item.name) || sc > best.get(item.name)) best.set(item.name, sc); }
+  return [...best.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, score]) => ({ name, score: +score.toFixed(3) }));
+}
 export function matchIcon(lib, g) {
   const items = Array.isArray(lib) ? lib : (lib && lib.lib ? lib.lib : null);
   if (!items || !items.length) return { name: null, score: 0, ambiguous: null };
