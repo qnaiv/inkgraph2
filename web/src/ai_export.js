@@ -2,6 +2,7 @@
 import { effective, resultOf, matchOwner, specialStats } from './analysis.js';
 import { fixState } from './fix_pack.js';
 import { aggregate } from './ai_summary.js';
+import { matchTags } from './match_tags.js';
 
 const r1 = v => Math.round(v * 10) / 10;
 const norm = s => (typeof s === 'string' ? (/WIN/i.test(s) ? 'WIN' : /LOSE/i.test(s) ? 'LOSE' : null) : null);
@@ -16,14 +17,18 @@ export function toRecord(m) {
   const death_ctx = deathEv.map(e => ({ t: rel(e.t), alive: e.alive, man: e.man, phase: e.phase || null, tags: e.tags || [] }));
   const kills = eff.filter(e => e.kind === 'kill').map(e => rel(e.t)).sort((a, b) => a - b);
   const sp = specialStats(m);
+  const battle_sec = m.battle ? Math.round(m.battle[1] - m.battle[0]) : null;
+  const series = (m.tower_series || []).map(s => ({ t: rel(s.t), own: s.own, enemy: s.enemy }));
+  const tags = matchTags({ rule: r.mode, result: norm(r.result), battle_sec, ka: typeof r.ka === 'number' ? r.ka : null, deaths: typeof r.deaths === 'number' ? r.deaths : null, series });
   return {
     id: m.id, created: m.created || null, owner: matchOwner(m), fix: fixState(m), match_type: r.match_type || null,
     rule: r.mode || null, stage: r.stage || null, result: norm(r.result),
-    battle_sec: m.battle ? Math.round(m.battle[1] - m.battle[0]) : null,
+    battle_sec,
     ka: typeof r.ka === 'number' ? r.ka : null, deaths_result: typeof r.deaths === 'number' ? r.deaths : null,
     deaths, death_ctx, kills,
     special: { ready: sp.readyCount, lost: sp.lost, activated: sp.activated },
-    first_death: deaths.length ? deaths[0] : null
+    first_death: deaths.length ? deaths[0] : null,
+    tags
   };
 }
 
