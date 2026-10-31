@@ -2105,7 +2105,7 @@ PAGES.match = async () => {
               <button class="mk ${mk === 'wrong' ? 'on-wrong' : ''}" data-f="${k}" data-v="wrong" type="button">✗</button>
             </td>
             <td>
-              ${k === 'stage' && (mk === 'wrong' || !det.stage) && !stageOther && !(m.review.fix.stage && !STAGES.includes(m.review.fix.stage)) ? `<select class="input-sm" data-stage-sel title="正しいステージを選ぶと、この端末の見本に登録して、次の解析から読めるようになります"><option value="">ステージを選ぶ…</option>${STAGES.map(n => `<option value="${esc(n)}" ${m.review.fix.stage === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}<option value="__other__">その他（入力）…</option></select>${stageNote ? `<div class="muted" style="font-size:11px;margin-top:2px;max-width:220px">${esc(stageNote)}</div>` : ''}` : mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
+              ${k === 'stage' && (mk === 'wrong' || !det.stage) && !stageOther && !(m.review.fix.stage && !STAGES.includes(m.review.fix.stage)) ? `<select class="input-sm" data-stage-sel title="正しいステージを選ぶと、この端末の見本に登録して、次の解析から読めるようになります"><option value="">ステージを選ぶ…</option>${STAGES.map(n => `<option value="${esc(n)}" ${m.review.fix.stage === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}<option value="__other__">その他（入力）…</option></select>${stageNote ? `<div class="muted" style="font-size:11px;margin-top:2px;max-width:220px">${esc(stageNote)}</div>` : ''}` : k === 'mode' && (mk === 'wrong' || !det.mode) && !(m.review.fix.mode && !AN.RULE_NAMES.includes(m.review.fix.mode)) ? `<select class="input-sm" data-mode-sel title="正しいルールを選ぶと、一覧・集計・AI 用の記録に、直した値が使われます"><option value="">ルールを選ぶ…</option>${AN.RULE_NAMES.map(n => `<option value="${esc(n)}" ${m.review.fix.mode === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -2133,6 +2133,14 @@ PAGES.match = async () => {
         if (['ka', 'deaths', 'specials'].includes(f)) { rtab(); refresh(); }
       };
     });
+
+    const modeSel = $('#rtab', page).querySelector('select[data-mode-sel]');
+    if (modeSel) modeSel.onchange = async () => {
+      const v = modeSel.value; if (!v) return;
+      m.review.rmarks.mode = 'wrong'; m.review.fix.mode = v;
+      stageNote = ''; // ルールが決まると、ステージを見本にできるようになる（先にステージを選んでいた場合も、選び直せる）
+      await save(); rtab(); refresh();
+    };
 
     const ss = $('#rtab', page).querySelector('select[data-stage-sel]');
     if (ss) ss.onchange = async () => {
