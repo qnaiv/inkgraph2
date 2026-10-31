@@ -1,0 +1,48 @@
+{
+ "events": [
+  {
+   "kind": "kill",
+   "t": 856.7
+  },
+  {
+   "kind": "death",
+   "t": 904.3
+  },
+  {
+   "kind": "death",
+   "t": 923.6
+  },
+  {
+   "kind": "special",
+   "t": 951.6
+  },
+  {
+   "kind": "kill",
+   "t": 952.6
+  },
+  {
+   "kind": "kill",
+   "t": 1001
+  },
+  {
+   "kind": "special",
+   "t": 1007.2
+  },
+  {
+   "kind": "death",
+   "t": 1013.7
+  },
+  {
+   "kind": "death",
+   "t": 1057.6
+  },
+  {
+   "kind": "death",
+   "t": 1074.1
+  },
+  {
+   "kind": "kill",
+   "t": 1089.3
+  }
+ ]
+}
