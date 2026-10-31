@@ -29,7 +29,7 @@ const mk = (i, o = {}) => ({
   check(r.id === 'm1' && r.result === 'LOSE' && r.rule === 'ガチヤグラ' && r.stage === 'チョウザメ造船' && r.battle_sec === 180, '(4) record: 勝敗・ルール・ステージ・長さ', JSON.stringify(r));
   check(JSON.stringify(r.deaths) === '[19.3,50]' && r.first_death === 19.3 && r.owner === 'self' && r.fix === 'none', '(5) record: デスは開始からの秒、最初のデス、自分の試合、要修正なし');
   check(r.special.ready === 1 && r.special.activated === 1 && r.special.lost === 0, '(6) record: スペシャル', JSON.stringify(r.special));
-  const bad = Object.keys(r).filter(k => !['id', 'created', 'owner', 'fix', 'match_type', 'rule', 'stage', 'result', 'battle_sec', 'ka', 'deaths_result', 'deaths', 'kills', 'special', 'first_death'].includes(k));
+  const bad = Object.keys(r).filter(k => !['id', 'created', 'owner', 'fix', 'match_type', 'rule', 'stage', 'result', 'battle_sec', 'ka', 'deaths_result', 'deaths', 'death_ctx', 'kills', 'special', 'first_death'].includes(k));
   check(bad.length === 0, '(7) record は決まった項目だけ（画像・信号・録画などは入らない）', bad.join(',')); }
 
 // 3. 人の修正が効く（✗ は除く／追加は入る）、他人の試合・要修正
