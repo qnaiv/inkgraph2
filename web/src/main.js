@@ -5,6 +5,7 @@ import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf,
 import { b64bytes } from './core/img.js';
 import { prepEnemyIconLib, nearestNames } from './core/board_icons.js';
 import * as AN from './analysis.js';
+import { suspectList } from './suspect.js';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import * as VR from './video_rec.js';
 import * as FP from './fix_pack.js';
@@ -2193,7 +2194,9 @@ PAGES.match = async () => {
       </tr>`;
     })() : '';
 
+    const suspects = suspectList(m), suspectMap = new Map(suspects.map(x => [x.key, x]));
     $('#etab', page).innerHTML = `
+      ${suspects.length ? `<caption class="suspect-bar"><span>❗ 確認してほしい検出 ${suspects.length} 件（確信度が低い・弱い信号だけで採用したもの）</span> <button type="button" class="btn-sm" data-suspect="-1">前の❗</button> <button type="button" class="btn-sm" data-suspect="1">次の❗</button></caption>` : ''}
       <thead>
         <tr>
           <th>時刻</th>
@@ -2212,6 +2215,7 @@ PAGES.match = async () => {
           if (e.isAdded) rowClasses.push('added');
           else if (e.mark) rowClasses.push(e.mark);
           if (dInfo.big) rowClasses.push('row-big-swing');
+          const sus = !e.isAdded ? suspectMap.get(e.key) : null; if (sus) rowClasses.push('suspect');
 
           const kindIcon = e.kind === 'kill'
             ? '<b style="color:var(--kill)">★</b> '
@@ -2232,6 +2236,7 @@ PAGES.match = async () => {
                 `<button class="mk ${e.mark === v ? 'on-' + v : ''}" data-key="${e.key}" data-v="${v}" data-t="${e.t}" type="button">${{ ok: '✓', wrong: '✗', deleted: '削除' }[v]}</button>`
               ).join('');
 
+          if (sus) extraBadge += ` <span class="badge suspect-badge" title="${esc(sus.reasons.join('／'))}" style="margin-left:4px;font-size:11px">❗ 確認して</span>`;
           return `<tr class="${rowClasses.join(' ')}" data-t="${e.t}">
             <td class="num">${mss(e.t - t0)}</td>
             <td>${kindIcon}${esc(kindText)}${extraBadge}</td>
@@ -2247,6 +2252,14 @@ PAGES.match = async () => {
     $('#etab', page).querySelectorAll('tr.click').forEach(tr => {
       tr.onclick = ev => {
         if (ev.target.tagName !== 'BUTTON') seek(+tr.dataset.t);
+      };
+    });
+
+    $('#etab', page).querySelectorAll('button[data-suspect]').forEach(b => {
+      b.onclick = () => {
+        const rows = [...$('#etab', page).querySelectorAll('tr.suspect')]; if (!rows.length) return;
+        const d = +b.dataset.suspect, cur = rows.findIndex(r => r.classList.contains('suspect-cur')), i = cur < 0 ? (d > 0 ? -1 : 0) : cur, tr = rows[(i + d + rows.length) % rows.length];
+        rows.forEach(r => r.classList.remove('suspect-cur')); tr.classList.add('suspect-cur'); tr.scrollIntoView({ block: 'center' }); seek(+tr.dataset.t);
       };
     });
 
