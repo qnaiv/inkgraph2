@@ -10,7 +10,10 @@ const norm = s => (typeof s === 'string' ? (/WIN/i.test(s) ? 'WIN' : /LOSE/i.tes
 export function toRecord(m) {
   const r = resultOf(m), eff = effective(m), b0 = m.battle ? m.battle[0] : 0;
   const rel = t => r1(t - b0);
-  const deaths = eff.filter(e => e.kind === 'death').map(e => rel(e.t)).sort((a, b) => a - b);
+  const deathEv = eff.filter(e => e.kind === 'death').sort((a, b) => a.t - b.t);
+  const deaths = deathEv.map(e => rel(e.t));
+  // デスごとの状況: 直前の生存人数（自チームは自分を含む）と人数差、局面（カウントを読めたヤグラだけ）
+  const death_ctx = deathEv.map(e => ({ t: rel(e.t), alive: e.alive, man: e.man, phase: e.phase || null }));
   const kills = eff.filter(e => e.kind === 'kill').map(e => rel(e.t)).sort((a, b) => a - b);
   const sp = specialStats(m);
   return {
@@ -18,7 +21,7 @@ export function toRecord(m) {
     rule: r.mode || null, stage: r.stage || null, result: norm(r.result),
     battle_sec: m.battle ? Math.round(m.battle[1] - m.battle[0]) : null,
     ka: typeof r.ka === 'number' ? r.ka : null, deaths_result: typeof r.deaths === 'number' ? r.deaths : null,
-    deaths, kills,
+    deaths, death_ctx, kills,
     special: { ready: sp.readyCount, lost: sp.lost, activated: sp.activated },
     first_death: deaths.length ? deaths[0] : null
   };

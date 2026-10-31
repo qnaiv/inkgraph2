@@ -41,8 +41,12 @@ export const SP_LABEL = { activated: '発動', lost_on_death: '未使用のま�
 export const key = (kind, t) => `${kind}@${(+t).toFixed(1)}`;
 export function series(m) { return (m.tower_series || []).map(s => ({ t: s.t, count_own: s.own, count_enemy: s.enemy, diff: s.own - s.enemy, owner: s.owner })); }
 export function wpAt(m, S, t) { return T.wp(S.length ? T.at(S, t) : null, t, m.battle[1], aliveAt(m, t)); }
+/** 人数差の区分（b15）。a＝自チームの生存数（自分を含む）、b＝敵チームの生存数。up＝有利、even＝同数、down＝不利 */
+export const manState = (a, b) => (a > b ? 'up' : a < b ? 'down' : 'even');
 function ctx(m, S, kind, t) { const s = S.length ? T.at(S, t - 0.5) : null; const o = { phase: T.phase(s), count: s ? `${s.count_own}-${s.count_enemy}` : null, count_diff: s ? s.diff : null };
-  if (kind !== 'special') { const b = wpAt(m, S, t - 1), a = wpAt(m, S, t + 1.5); o.wp_before = b; o.wp_after = a; o.wp_delta = a - b; } return o; }
+  if (kind !== 'special') { const b = wpAt(m, S, t - 1), a = wpAt(m, S, t + 1.5); o.wp_before = b; o.wp_after = a; o.wp_delta = a - b; }
+  if (kind !== 'special') { const [a, b] = aliveAt(m, t - (kind === 'kill' ? 1.0 : 0.5)); o.alive = `${a}v${b}`; o.man = manState(a, b); } // デス・キルの直前の生存人数（解析時の alive_before と同じ時刻）
+  return o; }
 /** pure interval view of m.special: [{ready, end, outcome, activated_at}] */
 export function specialIntervals(m) {
   return (m.special || []).map(e => ({

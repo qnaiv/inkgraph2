@@ -4,6 +4,7 @@
 // record（試合 1 件の、数値と時刻だけの形。ai_export.js の toRecord が作る）:
 //   { id, created(ISO), owner:'self'|'other', fix:'none'|'todo'|'done', match_type, rule, stage,
 //     result:'WIN'|'LOSE'|null, battle_sec, ka, deaths_result, deaths:[開始からの秒], kills:[開始からの秒],
+//     death_ctx:[{ t, alive:'3v4'(直前の生存人数。自チームは自分を含む), man:'up'|'even'|'down'(人数差), phase:'抑え'|'打開'|'互角'|null(ヤグラでカウントを読めたときだけ) }]（古い書き出しには無い）,
 //     special:{ ready, lost, activated }, first_death:秒|null }
 export const FORMAT = 1;
 export const SESSION_GAP_MIN = 60;   // 今日の連戦: 試合の間隔がこれ以上空いたら区切る（案）
@@ -73,6 +74,9 @@ export function stats(rows) {
   const wl = a => ({ n: a.length, wins: a.filter(r => r.result === 'WIN').length, losses: a.filter(r => r.result === 'LOSE').length });
   const spReady = rows.reduce((s, r) => s + (r.special ? r.special.ready || 0 : 0), 0), spLost = rows.reduce((s, r) => s + (r.special ? r.special.lost || 0 : 0), 0);
   const created = rows.map(ms).filter(Boolean);
+  const ctxs = rows.flatMap(r => (Array.isArray(r.death_ctx) ? r.death_ctx : []));
+  const manN = k => ctxs.filter(c => c.man === k).length, withMan = ctxs.filter(c => c.man === 'up' || c.man === 'even' || c.man === 'down').length;
+  const withPhase = ctxs.filter(c => c.phase).length, phN = k => ctxs.filter(c => c.phase === k).length;
   return {
     n: rows.length, enough: rows.length >= MIN_RELIABLE,
     range: created.length ? { from: new Date(Math.min(...created)).toISOString(), to: new Date(Math.max(...created)).toISOString() } : null,
@@ -83,6 +87,13 @@ export function stats(rows) {
     ka_total: rows.reduce((s, r) => s + (typeof r.ka === 'number' ? r.ka : 0), 0),
     first_death: { edge_sec: FIRST_DEATH_EDGE, matches_with_death: withFirst.length, median_sec: median(withFirst.map(r => r.first_death)), within_edge: wl(early), after_edge: wl(late) },
     special: { ready: spReady, lost_on_death: spLost, lost_share_of_deaths: deathCount ? r3(spLost / deathCount) : null, matches_with_lost: rows.filter(r => r.special && r.special.lost > 0).length },
+    // デスの状況（直前の生存人数による人数差と、局面）。古い書き出しで death_ctx が無い試合の分は、n に含まれない
+    death_situation: {
+      n: withMan, of_deaths: deathCount,
+      by_man: { up: manN('up'), even: manN('even'), down: manN('down') },
+      down_share: wilson(manN('down'), withMan),
+      by_phase: { n: withPhase, osae: phN('抑え'), dakai: phN('打開'), gokaku: phN('互角') }
+    },
     by_rule: tally(rows, r => r.rule), by_stage: tally(rows, r => r.stage),
     match_ids: rows.map(r => r.id)
   };
@@ -113,7 +124,7 @@ export function aggregate(records, { now = Date.now(), window = null, rule = nul
     quality: {
       total_records: Array.isArray(records) ? records.length : 0, eligible: list.length, matching_filter: filtered.length,
       excluded, min_reliable: MIN_RELIABLE,
-      notes: ['デス数は人が直した後の検出（effective）で数えている', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
+      notes: ['デス数は人が直した後の検出（effective）で数えている', 'デスの状況（death_situation）は、直前の生存人数による人数差。敵の人数は検出に左右される。人数不利の時間が長いほど不利で死ぬ割合は高くなるので、割合だけでは良し悪しを言えない。前線か後ろかは分からない', '局面（by_phase）はヤグラでカウントを読めた試合だけ', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
     }
   };
 }
