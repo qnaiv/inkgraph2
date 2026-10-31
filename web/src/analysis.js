@@ -231,6 +231,9 @@ const RULE_VALUE_TO_MODE = {
   nawabari: 'ナワバリバトル'
 };
 
+/** ルール名（結果の mode の値）。確認画面で、ルールを選んで訂正するときの選択肢 */
+export const RULE_NAMES = ['ガチエリア', 'ガチヤグラ', 'ガチホコバトル', 'ガチアサリ', 'ナワバリバトル'];
+
 export function parseTrendFilter(text) {
   let s = text || '';
   const qIdx = s.indexOf('?');
