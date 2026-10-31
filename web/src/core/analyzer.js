@@ -3,6 +3,7 @@
 import * as C from './cues.js';
 import * as R from './result.js';
 import * as T from './tower.js';
+import { areaRow, areaSeries } from './area_count.js';
 import { runs, medfilt, median, r1 } from './img.js';
 import { readKiller, decideKiller, KP } from './killer.js';
 import { LiveSpecialTracker } from './live_special.js';
@@ -74,7 +75,7 @@ export class DeathLatch {
 
 export class Analyzer {
   constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); this.liveSp = new LiveSpecialTracker(); }
-  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, kc: new LiveKillCounter(), lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, kc: new LiveKillCounter(), lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], area: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
     this.lastT = t; const tp = C.timerPresent(this.A, fr);
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
@@ -101,7 +102,7 @@ export class Analyzer {
     if (!m.th) { if (tp && m.hueN < 60) { C.hueHist(crops, 0, m.hist[0]); C.hueHist(crops, 1, m.hist[1]); m.hueN++; }
       m.pend.push([f, crops, mp ? fr : null]);
       if (m.hueN >= 60) this.fixHue(); } else this.iconStep(f, crops, mp ? fr : null);
-    if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); }
+    if (tp && m.th) { let grid = false; if (t >= this.towerNext) { this.towerNext = t + 1.0 - 1e-6; grid = true; } const row = T.towerRow(A, fr, m.th, t); row.grid = grid; m.tower.push(row); if (grid) m.area.push(areaRow(fr, t)); } // D104: ガチエリアの「のこり」。ルールは試合の最後に分かるので、毎秒読んでおき、ルールが合うときだけ使う
     if (m.spPrev <= 0.2 && gw > 0.2) this.onEvent({ type: 'special_ready', t });
     if (m.spPrev > 0.2 && gw <= 0.2) this.onEvent({ type: 'special_end', t });
     m.spPrev = gw;
@@ -161,9 +162,13 @@ export class Analyzer {
     // D65: 味方 4 人（自分を含む）のブキのアイコンも同じ形で保存する。自分の行には own:true を付ける（自分のブキの集計用）
     rec.ally_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === ownRow.group).map(b => (b.own ? { slot: `${b.group}${b.idx}`, icon: b.icon, own: true } : { slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
     if (isTowerRule(rs.mode) && m.tower.length) tagEvents(rec, T.series(m.tower));
+    else if (isAreaRule(rs.mode) && m.area && m.area.length) tagEvents(rec, areaSeries(m.area));
     if (isTowerRule(rs.mode)) {
       rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
       rec.tower_raw = m.tower.length;
+    } else if (isAreaRule(rs.mode)) {
+      rec.tower_rows = (m.area || []).map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: 1, o: null }));
+      rec.tower_raw = (m.area || []).length;
     } else {
       rec.tower_rows = [];
       rec.tower_raw = 0;
@@ -181,6 +186,8 @@ export function attachKillers(deaths, kscan) {
   for (const [e, reads] of byDeath) if (!e.killed_by) e.killed_by = decideKiller(reads);
 }
 export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
+/** D104: ガチエリア。のこりを読めたのはここまで（ホコは「のこり」が 1 つだけ、アサリは未確認） */
+export function isAreaRule(mode) { return mode === 'ガチエリア'; }
 export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
 export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
