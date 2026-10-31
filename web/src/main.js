@@ -1,7 +1,7 @@
 import * as db from './db.js';
 import { Session, listDevices } from './session.js';
 import { renderTimeline, LEGEND } from './timeline.js';
-import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows, unknownIconGroups } from './analysis.js';
+import { assistEstimate, assistText, ASSIST_NOTE, detected, effective, resultOf, accuracy, KINDS, RESULT_FIELDS, SP_LABEL, DEATH_TAGS, countBucket, BUCKETS, mss, pct, resultStatus, resultSourceLabel, frameStepForState, specialIntervals, specialStats, isVerificationMatch, ownMatches, MATCH_TYPE_LABEL, POWER_STATUS_LABEL, MATCH_TYPE_OPTIONS, RULE_OPTIONS, parseTrendFilter, trendFilterToQuery, filterTrendMatches, sampleTier, powerBreakdown, stageRuleRows, sortStageRows, candidateShortage, enemyWeaponRows, enemyPresenceRows, unknownIconGroups } from './analysis.js';
 import { b64bytes } from './core/img.js';
 import { prepEnemyIconLib, nearestNames } from './core/board_icons.js';
 import * as AN from './analysis.js';
@@ -2218,7 +2218,7 @@ PAGES.match = async () => {
             : e.kind === 'death'
               ? '<b style="color:var(--death)">×</b> '
               : '<b style="color:var(--special)">◆</b> ';
-          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '') + (e.src && e.src.auto ? (e.src.auto === 'fused' ? '（自動採用）' : '（自動補正）') : '');
+          const kindText = KINDS[e.kind] + (e.kind !== 'special' && e.outcome ? `（${SP_LABEL[e.outcome]}）` : '') + (e.isAdded ? '（見逃し追加）' : '') + (e.src && e.src.auto ? (e.src.auto === 'fused' ? '（自動採用）' : '（自動補正）') : '') + (e.tags && e.tags.length ? ` [${e.tags.map(k => DEATH_TAGS[k]).join('・')}]` : '');
           let extraBadge = '';
           if (e.src && typeof e.src.conf === 'number' && e.src.conf < 0.45 && e.src.auto !== 'added') extraBadge += ' <span class="badge" title="検出の確信度が低いです（複数の信号が一致していません）" style="margin-left:4px;font-size:11px">確信度 低</span>';
           if (e.kind === 'death') {

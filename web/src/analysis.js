@@ -81,7 +81,29 @@ export function detected(m) { const r = m.review || { marks: {} }; const out = [
 /** effective (corrected) events: detected minus ✗/deleted plus added; with phase & win-prob context */
 export function effective(m) { const S = series(m), r = m.review || { added: [] };
   const ev = detected(m).filter(e => e.mark !== 'wrong' && e.mark !== 'deleted').concat((r.added || []).map(a => ({ kind: a.kind, t: a.t, end: a.t + (a.kind === 'death' ? 5 : 0.5), outcome: a.outcome || (a.kind === 'special' ? 'activated' : undefined), added: true, key: key('add-' + a.kind, a.t) })));
-  ev.forEach(e => Object.assign(e, ctx(m, S, e.kind, e.t))); return ev.sort((a, b) => a.t - b.t); }
+  ev.forEach(e => Object.assign(e, ctx(m, S, e.kind, e.t))); ev.sort((a, b) => a.t - b.t); tagDeaths(m, ev); return ev; }
+/** デスのタグ（b03）。閾値は案 */
+export const TAG_EDGE_SEC = 30;      // 開始／終了から何秒以内を「序盤・終盤」とみなすか
+export const TAG_REDEATH_SEC = 15;   // 直前のデスの開始からこの秒数以内を「連続デス」とみなす（リスポーン約 8〜10 秒＋少し）
+export const TAG_TRADE_SEC = 2;      // この秒数以内にキルがあれば「相打ち・直前キル」とみなす
+export const DEATH_TAGS = { sp_lost: 'スペシャルを溜めたまま', early: '開始30秒以内', late: '残り30秒以内', redeath: '連続デス', trade: '相打ち・直前にキル', down: '人数不利', up: '人数有利なのに', osae: '抑え中', dakai: '打開中' };
+export const DEATH_TAG_ORDER = Object.keys(DEATH_TAGS);
+const PHASE_TAG = { '抑え': 'osae', '打開': 'dakai' };
+/** 効いている（人が直した後の）イベント ev から、デス e のタグを付ける。順序は DEATH_TAG_ORDER */
+function tagDeaths(m, ev) {
+  const sp = specialIntervals(m).filter(i => i.outcome === 'lost_on_death'), kills = ev.filter(e => e.kind === 'kill'), b = m.battle || null;
+  let prev = null;
+  for (const e of ev) { if (e.kind !== 'death') continue;
+    const t = new Set();
+    if (sp.some(i => e.t >= i.ready && e.t <= i.end + 2)) t.add('sp_lost');
+    if (b && e.t - b[0] <= TAG_EDGE_SEC) t.add('early');
+    if (b && b[1] - e.t <= TAG_EDGE_SEC) t.add('late');
+    if (prev !== null && e.t - prev <= TAG_REDEATH_SEC) t.add('redeath');
+    if (kills.some(k => Math.abs(k.t - e.t) <= TAG_TRADE_SEC)) t.add('trade');
+    if (e.man === 'down') t.add('down'); else if (e.man === 'up') t.add('up');
+    if (PHASE_TAG[e.phase]) t.add(PHASE_TAG[e.phase]);
+    e.tags = DEATH_TAG_ORDER.filter(k => t.has(k)); prev = e.t; }
+}
 export const RESULT_STATUS_LABEL = { read: '読み取り済み', partial: '一部未取得', missing: '未取得（試合中データのみ）' };
 export function resultStatus(m) {
   const rs = m ? m.result_screen : null;
