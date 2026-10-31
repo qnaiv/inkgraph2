@@ -1,0 +1,72 @@
+{
+ "events": [
+  {
+   "kind": "death",
+   "t": 1706.3
+  },
+  {
+   "kind": "special",
+   "t": 1723.7
+  },
+  {
+   "kind": "kill",
+   "t": 1724.7
+  },
+  {
+   "kind": "kill",
+   "t": 1726.9
+  },
+  {
+   "kind": "special",
+   "t": 1750
+  },
+  {
+   "kind": "kill",
+   "t": 1751.9
+  },
+  {
+   "kind": "death",
+   "t": 1763.9
+  },
+  {
+   "kind": "special",
+   "t": 1812.4
+  },
+  {
+   "kind": "kill",
+   "t": 1817.9
+  },
+  {
+   "kind": "death",
+   "t": 1825.1
+  },
+  {
+   "kind": "kill",
+   "t": 1851
+  },
+  {
+   "kind": "kill",
+   "t": 1869
+  },
+  {
+   "kind": "special",
+   "t": 1886.6
+  },
+  {
+   "kind": "death",
+   "t": 1888.7
+  },
+  {
+   "kind": "special",
+   "t": 1940.6
+  },
+  {
+   "kind": "death",
+   "t": 1947
+  },
+  {
+   "kind": "death",
+   "t": 1970.9
+  }
+ ]
+}
