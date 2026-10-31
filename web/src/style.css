@@ -2344,3 +2344,9 @@ tr.added td {
 /* D96: 録画の下の追加ボタンは、レビューモードのときだけ。右端に寄せる */
 .rec-add-wrap { display: none; margin-left: auto; gap: 6px; }
 .detail-body.review-on .rec-add-wrap { display: inline-flex; }
+
+/* b04: 怪しい検出の印とジャンプ */
+.suspect-bar { caption-side: top; text-align: left; padding: 6px 0; font-size: var(--fs-xs); color: var(--text); }
+.suspect-bar span { margin-right: 8px; }
+tr.suspect td:first-child { box-shadow: inset 3px 0 0 var(--warn, #f59e0b); }
+tr.suspect-cur { outline: 2px solid var(--warn, #f59e0b); outline-offset: -2px; }
