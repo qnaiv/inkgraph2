@@ -4,9 +4,9 @@
 // record（試合 1 件の、数値と時刻だけの形。ai_export.js の toRecord が作る）:
 //   { id, created(ISO), owner:'self'|'other', fix:'none'|'todo'|'done', match_type, rule, stage,
 //     result:'WIN'|'LOSE'|null, battle_sec, ka, deaths_result, deaths:[開始からの秒], kills:[開始からの秒],
-//     death_ctx:[{ t, alive:'3v4'(直前の生存人数。自チームは自分を含む), man:'up'|'even'|'down'(人数差), phase:'抑え'|'打開'|'互角'|null(カウントを読めたとき=ヤグラ・エリアだけ), tags:['sp_lost'|'early'|'late'|'redeath'|'trade'|'down'|'up'|'osae'|'dakai'](b03。無い・空の場合あり) }]（古い書き出しには無い）,
+//     death_ctx:[{ t, alive:'3v4'(直前の生存人数。自チームは自分を含む), man:'up'|'even'|'down'(人数差), phase:'抑え'|'打開'|'互角'|null(カウントを読めたとき=ヤグラ・エリア・ホコだけ), tags:['sp_lost'|'early'|'late'|'redeath'|'trade'|'down'|'up'|'osae'|'dakai'](b03。無い・空の場合あり) }]（古い書き出しには無い）,
 //     special:{ ready, lost, activated }, first_death:秒|null,
-//     tags:{ length:'short'|'normal'|'long'|null, performance:'good|mid|poor'+'_win|_lose'|null, count:{ first_lead, lead_changes, max_lead, max_behind, endgame_delta, flow }|null(カウントを読めた試合（ヤグラ・エリア）だけ) }（古い書き出しには無い） }
+//     tags:{ length:'short'|'normal'|'long'|null, performance:'good|mid|poor'+'_win|_lose'|null, count:{ first_lead, lead_changes, max_lead, max_behind, endgame_delta, flow }|null(カウントを読めた試合（ヤグラ・エリア・ホコ）だけ) }（古い書き出しには無い） }
 export const FORMAT = 1;
 export const SESSION_GAP_MIN = 60;   // 今日の連戦: 試合の間隔がこれ以上空いたら区切る（案）
 export const LAST_N = 20;            // 直近 N 試合（案）
@@ -144,7 +144,7 @@ export function aggregate(records, { now = Date.now(), window = null, rule = nul
     quality: {
       total_records: Array.isArray(records) ? records.length : 0, eligible: list.length, matching_filter: filtered.length,
       excluded, min_reliable: MIN_RELIABLE,
-      notes: ['デス数は人が直した後の検出（effective）で数えている', 'デスの状況（death_situation）は、直前の生存人数による人数差。敵の人数は検出に左右される。人数不利の時間が長いほど不利で死ぬ割合は高くなるので、割合だけでは良し悪しを言えない。前線か後ろかは分からない。タグ（by_tag）は 1 つのデスに複数付き、閾値は案（開始・終了 30 秒、連続デス 15 秒、相打ち 2 秒）。位置・敵ブキ別は取れていない。連続デスは前のデスから 15 秒以内で、リスポーン直後に限らない', '局面（by_phase）はカウントを読めた試合（ヤグラ・エリア）だけ', '試合のタグ（match_tags）のしきい値は案。length は短時間決着(short)／延長寄り(long)でナワバリには付けない。performance は K+A−デスの差（アシスト込み）。count 系（先行・逆転・ストレート）はカウントを読めた試合（ヤグラ・エリア）だけで、他のルールでは付かない', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
+      notes: ['デス数は人が直した後の検出（effective）で数えている', 'デスの状況（death_situation）は、直前の生存人数による人数差。敵の人数は検出に左右される。人数不利の時間が長いほど不利で死ぬ割合は高くなるので、割合だけでは良し悪しを言えない。前線か後ろかは分からない。タグ（by_tag）は 1 つのデスに複数付き、閾値は案（開始・終了 30 秒、連続デス 15 秒、相打ち 2 秒）。位置・敵ブキ別は取れていない。連続デスは前のデスから 15 秒以内で、リスポーン直後に限らない', '局面（by_phase）はカウントを読めた試合（ヤグラ・エリア・ホコ）だけ', '試合のタグ（match_tags）のしきい値は案。length は短時間決着(short)／延長寄り(long)でナワバリには付けない。performance は K+A−デスの差（アシスト込み）。count 系（先行・逆転・ストレート）はカウントを読めた試合（ヤグラ・エリア・ホコ）だけで、他のルールでは付かない', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
     }
   };
 }
