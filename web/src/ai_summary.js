@@ -5,7 +5,8 @@
 //   { id, created(ISO), owner:'self'|'other', fix:'none'|'todo'|'done', match_type, rule, stage,
 //     result:'WIN'|'LOSE'|null, battle_sec, ka, deaths_result, deaths:[開始からの秒], kills:[開始からの秒],
 //     death_ctx:[{ t, alive:'3v4'(直前の生存人数。自チームは自分を含む), man:'up'|'even'|'down'(人数差), phase:'抑え'|'打開'|'互角'|null(ヤグラでカウントを読めたときだけ), tags:['sp_lost'|'early'|'late'|'redeath'|'trade'|'down'|'up'|'osae'|'dakai'](b03。無い・空の場合あり) }]（古い書き出しには無い）,
-//     special:{ ready, lost, activated }, first_death:秒|null }
+//     special:{ ready, lost, activated }, first_death:秒|null,
+//     tags:{ length:'short'|'normal'|'long'|null, performance:'good|mid|poor'+'_win|_lose'|null, count:{ first_lead, lead_changes, max_lead, max_behind, endgame_delta, flow }|null(ヤグラでカウントを読めた試合だけ) }（古い書き出しには無い） }
 export const FORMAT = 1;
 export const SESSION_GAP_MIN = 60;   // 今日の連戦: 試合の間隔がこれ以上空いたら区切る（案）
 export const LAST_N = 20;            // 直近 N 試合（案）
@@ -65,6 +66,20 @@ const tally = (rows, keyOf) => {
   return [...m.values()].sort((a, b) => b.n - a.n || (a.name < b.name ? -1 : 1));
 };
 
+/** 試合のタグ別に、勝敗の内訳を数える。tags が無い古い書き出しの試合は数えない */
+function matchTagStats(rows) {
+  const wl = a => ({ n: a.length, wins: a.filter(r => r.result === 'WIN').length, losses: a.filter(r => r.result === 'LOSE').length });
+  const by = (list, keyOf) => { const o = {}; for (const r of list) { const k = keyOf(r); if (k) (o[k] = o[k] || []).push(r); } return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, wl(v)])); };
+  const tagged = rows.filter(r => r.tags), counted = tagged.filter(r => r.tags.count);
+  return {
+    n: tagged.length,
+    length: by(tagged, r => r.tags.length),
+    performance: by(tagged, r => r.tags.performance),
+    count: { n: counted.length, first_lead: by(counted, r => r.tags.count.first_lead), flow: by(counted, r => r.tags.count.flow),
+      lead_changes_median: median(counted.map(r => r.tags.count.lead_changes)), max_lead_median: median(counted.map(r => r.tags.count.max_lead)), max_behind_median: median(counted.map(r => r.tags.count.max_behind)) }
+  };
+}
+
 /** 1 つの窓の統計 */
 export function stats(rows) {
   const wins = rows.filter(r => r.result === 'WIN').length, losses = rows.filter(r => r.result === 'LOSE').length;
@@ -98,6 +113,7 @@ export function stats(rows) {
       // タグ別の回数（1 つのデスに複数付く）。n_tagged＝タグ付きの記録がある（death_ctx に tags 配列が有る）デスの数。割合は n_tagged に対する
       by_tag: Object.fromEntries(TAG_KEYS.map(k => [k, { count: tagged.filter(c => c.tags.includes(k)).length, share: wilson(tagged.filter(c => c.tags.includes(k)).length, tagged.length) }])), n_tagged: tagged.length
     },
+    match_tags: matchTagStats(rows),
     by_rule: tally(rows, r => r.rule), by_stage: tally(rows, r => r.stage),
     match_ids: rows.map(r => r.id)
   };
@@ -128,7 +144,7 @@ export function aggregate(records, { now = Date.now(), window = null, rule = nul
     quality: {
       total_records: Array.isArray(records) ? records.length : 0, eligible: list.length, matching_filter: filtered.length,
       excluded, min_reliable: MIN_RELIABLE,
-      notes: ['デス数は人が直した後の検出（effective）で数えている', 'デスの状況（death_situation）は、直前の生存人数による人数差。敵の人数は検出に左右される。人数不利の時間が長いほど不利で死ぬ割合は高くなるので、割合だけでは良し悪しを言えない。前線か後ろかは分からない。タグ（by_tag）は 1 つのデスに複数付き、閾値は案（開始・終了 30 秒、連続デス 15 秒、相打ち 2 秒）。位置・敵ブキ別は取れていない。連続デスは前のデスから 15 秒以内で、リスポーン直後に限らない', '局面（by_phase）はヤグラでカウントを読めた試合だけ', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
+      notes: ['デス数は人が直した後の検出（effective）で数えている', 'デスの状況（death_situation）は、直前の生存人数による人数差。敵の人数は検出に左右される。人数不利の時間が長いほど不利で死ぬ割合は高くなるので、割合だけでは良し悪しを言えない。前線か後ろかは分からない。タグ（by_tag）は 1 つのデスに複数付き、閾値は案（開始・終了 30 秒、連続デス 15 秒、相打ち 2 秒）。位置・敵ブキ別は取れていない。連続デスは前のデスから 15 秒以内で、リスポーン直後に限らない', '局面（by_phase）はヤグラでカウントを読めた試合だけ', '試合のタグ（match_tags）のしきい値は案。length は短時間決着(short)／延長寄り(long)でナワバリには付けない。performance は K+A−デスの差（アシスト込み）。count 系（先行・逆転・ストレート）はヤグラでカウントを読めた試合だけで、他のルールでは付かない', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
     }
   };
 }
