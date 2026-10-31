@@ -18,6 +18,7 @@ import { getCapBytes, formatCapacityLabel, TARGET_RATIO, MANUAL_TARGET_RATIO, pl
 import { CLIP, CLIP_KIND_JA, clipAt } from './clips.js';
 import { recountDiff } from './core/live_counts.js';
 import * as Cloud from './cloud/index.js';
+import * as AIX from './ai_export_sync.js';
 import * as WL from './weapon_lib.js';
 import * as StageLib from './stage_lib.js';
 import { STAGES } from './stage_lib.js';
@@ -1147,6 +1148,7 @@ PAGES.settings = async () => {
   page.innerHTML = `
     <div class="page-header"><h1 class="page-title">設定</h1></div>
     <section id="cloud-panel" class="card learn-panel"></section>
+    ${AIX.available() ? '<section id="ai-panel" class="card learn-panel"></section>' : ''}
     <section id="reset-panel" class="card learn-panel"></section>`;
   mountPage(page, false);
   // D58: クラウド同期パネル（アカウントに紐付けて、数値と時刻だけを同期する。画像・クリップ・信号は端末に残す）
@@ -1196,6 +1198,53 @@ PAGES.settings = async () => {
     const au = $('#cloud-auto', el); if (au) au.onchange = e => Cloud.setAuto(e.target.checked);
   };
   await updateCloudPanel();
+
+  // AI 連携（デスクトップ版だけ）: 試合の要約を決まったフォルダへ書き出し、Claude や Gemini CLI から MCP で読めるようにする
+  let aiMsg = '';
+  const updateAiPanel = async () => {
+    const el = $('#ai-panel', page); if (!el) return;
+    const info = await window.inkgraphDesktop.exportInfo().catch(() => null);
+    if (!info) { el.innerHTML = '<div class="learn-panel-body"><p class="muted">書き出し先を取得できませんでした。</p></div>'; return; }
+    const when = t => (t ? new Date(t).toLocaleString('ja-JP') : 'まだ書き出していません');
+    const env = { INKGRAPH_AI_EXPORT_DIR: info.dir };
+    const claudeCfg = JSON.stringify({ mcpServers: { inkgraph: { command: 'node', args: [info.mcpPath], env } } }, null, 2);
+    const noNodeCfg = JSON.stringify({ mcpServers: { inkgraph: { command: info.execPath, args: [info.mcpPath], env: { ...env, ELECTRON_RUN_AS_NODE: '1' } } } }, null, 2);
+    el.innerHTML = `
+      <div class="learn-panel-header"><div class="learn-panel-title-wrap"><h2 class="learn-panel-title">AI 連携（Claude・Gemini CLI で振り返る）</h2></div></div>
+      <div class="learn-panel-body">
+        <p class="muted">試合の<strong>数値と時刻だけ</strong>（勝敗・ルール・ステージ・デス/キルの時刻など）を、この PC のフォルダへ書き出します。画像・録画・検出用の信号は含みません。Claude Desktop や Gemini CLI に下の設定を登録すると、「直近の試合を振り返って」と頼むだけで AI がこのデータを読みます。対象は自分の試合だけで、要修正のままの試合は除きます。</p>
+        <table class="table"><tbody>
+          <tr><th>書き出し先</th><td><code>${esc(info.dir)}</code></td></tr>
+          <tr><th>最後の書き出し</th><td class="num" id="ai-when">${esc(when(info.at))}${info.count != null ? `（${info.count} 件）` : ''}</td></tr>
+        </tbody></table>
+        <div class="learn-actions-row">
+          <button class="btn btn-primary" id="ai-now" type="button">今すぐ書き出す</button>
+          <button class="btn" id="ai-open" type="button">フォルダを開く</button>
+        </div>
+        <details style="margin-top:var(--sp-3)"><summary>Claude Desktop に登録（claude_desktop_config.json）</summary>
+          <p class="muted" style="font-size:12px">Node.js が入っている PC 用。ファイルの <code>mcpServers</code> に追記して、Claude Desktop を再起動します。</p>
+          <pre class="muted" id="ai-cfg-claude" style="white-space:pre-wrap;user-select:all">${esc(claudeCfg)}</pre>
+          <button class="btn" id="ai-copy-claude" type="button">コピー</button>
+        </details>
+        <details style="margin-top:var(--sp-2)"><summary>Gemini CLI に登録（~/.gemini/settings.json）</summary>
+          <p class="muted" style="font-size:12px">同じ内容を <code>~/.gemini/settings.json</code> の <code>mcpServers</code> に書き、<code>/mcp</code> で接続を確かめます。</p>
+          <pre class="muted" id="ai-cfg-gemini" style="white-space:pre-wrap;user-select:all">${esc(claudeCfg)}</pre>
+          <button class="btn" id="ai-copy-gemini" type="button">コピー</button>
+        </details>
+        <details style="margin-top:var(--sp-2)"><summary>Node.js が無い PC の場合（未検証）</summary>
+          <p class="muted" style="font-size:12px">InkGraph 本体を Node として使う設定。動作は未検証です。</p>
+          <pre class="muted" style="white-space:pre-wrap;user-select:all">${esc(noNodeCfg)}</pre>
+        </details>
+        <p class="muted" id="ai-msg" style="font-size:12px">${esc(aiMsg)}</p>
+      </div>`;
+    const msg = t => { aiMsg = t; const m = $('#ai-msg', el); if (m) m.textContent = t; };
+    const copy = async (id, label) => { try { await navigator.clipboard.writeText($(id, el).textContent); msg(`${label}の設定をコピーしました。`); } catch { msg('コピーできませんでした。文字を選んでコピーしてください。'); } };
+    $('#ai-copy-claude', el).onclick = () => copy('#ai-cfg-claude', 'Claude Desktop');
+    $('#ai-copy-gemini', el).onclick = () => copy('#ai-cfg-gemini', 'Gemini CLI');
+    $('#ai-open', el).onclick = () => window.inkgraphDesktop.exportOpenDir();
+    $('#ai-now', el).onclick = async () => { const r = await AIX.exportNow(); msg(r && r.ok ? `書き出しました（${r.count} 件）。` : `書き出せませんでした：${(r && r.reason) || '不明'}`); updateAiPanel(); };
+  };
+  await updateAiPanel();
 
   const updateResetPanel = () => {
     const el = $('#reset-panel', page); if (!el) return;
@@ -3003,5 +3052,6 @@ if (p0 === 'trend' && q0) {
 const narrow = isNarrow();
 nav(PAGES[p0] ? (p0 === 'trend' && q0 ? `trend?${q0}` : (narrow && p0 === 'live' ? 'list' : p0)) : (narrow ? 'list' : 'live'));
 Cloud.startAutoSync();
+AIX.startAutoExport();
 Cloud.onChange(r => { if (currentPage === 'list' && r && r.ok && (r.pulled || r.deleted)) PAGES.list(); });
 

@@ -995,3 +995,12 @@
 - 録画プレーヤーの下の「◀ コマ」「コマ ▶」を削除（キーボードの , と . でのコマ送りは残す）。
 - レビューモードのときだけ、同じ行の**右端**に「＋ キル」「＋ デス」「＋ スペシャル」を出す。押すと、いま見ている時刻に追加される（右の確認パネルの追加ボタンと同じ動き。キー K／D／S も従来どおり）。
 - テスト：`desktop_check.js` (53)。
+
+## D97 (2026-10-31) AI 連携: 試合の要約を書き出し、MCP サーバーで Claude・Gemini CLI から読む（デスクトップ版だけ）
+- 方針：Web 版・スマホ向けは考えず、Windows デスクトップ版（Electron）だけを対象にする。AI への助言の依頼は、定額プランの Claude（Desktop / Code）や Gemini CLI から MCP 経由で行う。外部 LLM の API は呼ばない（D1 と矛盾しない）。
+- 書き出し：画面側が試合を保存・修正するたび（`inkgraph:dirty`、2 秒まとめ）に、`window.inkgraphDesktop.exportWrite` で `userData/ai-export/` の `records.json`（試合ごとの record）と `summary.json`（既定の窓の要約）を書く。record は数値と時刻だけ（画像・録画・検出用の信号は入らない）。自分の試合だけ・要修正のままは集計から除く。
+- 対象期間は窓を 3 つ並べる（今日の連戦＝間が 60 分空いたら区切る／直近 20 試合／直近 30 日。いずれも案）。割合には Wilson の信頼区間、回数/分には近似の幅を付け、10 試合未満の窓は `enough:false`。絞り込みで足りなければ窓を広げ、`widened_from` に書く。
+- MCP サーバー：`desktop/mcp/server.mjs`（依存ゼロの stdio）。ツールは `get_summary`・`list_matches`・`get_match`。集計は `web/src/ai_summary.js`（import なしの純粋関数）を共有する。読み取り専用。
+- 設定画面に「AI 連携」欄（書き出し先・今すぐ書き出す・フォルダを開く・Claude Desktop／Gemini CLI の登録設定のコピー）。
+- テスト：`web/tools/ai_export_check.mjs`（24 件。集計・record・MCP サーバーとのつながり）、`desktop/mcp/server_check.mjs`（15 件）。ブラウザで、desktop の口を差し替えて設定欄と自動書き出しを確認。
+- **未検証**：実際の Claude Desktop・Gemini CLI への登録とツール呼び出し、Electron の実機での `export:write`、electron-builder の同梱（`extraResources`）、Node 無し（`ELECTRON_RUN_AS_NODE=1`）での起動。窓の大きさ（20 試合・30 日・60 分）と 10 試合の閾値は案で、実データで決める。

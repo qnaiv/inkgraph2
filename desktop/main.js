@@ -99,6 +99,28 @@ ipcMain.handle('pack:write', async (e, { filename, entries }) => {
   try { const r = await writeZip(out, list, { onProgress: p => { try { e.sender.send('pack:progress', p); } catch { /* ignore */ } } }); return { ok: true, ...r }; }
   catch (err) { return { ok: false, reason: String(err && err.message || err) }; }
 });
+// AI 連携: 試合の要約（数値と時刻だけ）を userData/ai-export/ に書く。MCP サーバー（desktop/mcp/server.mjs）がここを読む。
+// 書くのは records.json（試合ごとの record）と summary.json（既定の窓の要約）。画像・録画・検出用の信号は渡らない（record がそもそも持たない）。
+const aiDir = () => process.env.INKGRAPH_AI_EXPORT_DIR || path.join(app.getPath('userData'), 'ai-export');
+const mcpServerPath = () => (app.isPackaged ? path.join(process.resourcesPath, 'mcp', 'server.mjs') : path.join(__dirname, 'mcp', 'server.mjs'));
+const writeAtomic = (file, text) => { const tmp = file + '.tmp'; fs.writeFileSync(tmp, text); fs.renameSync(tmp, file); };
+ipcMain.handle('export:write', (_e, payload) => {
+  try {
+    const { records, summary } = payload || {};
+    if (!Array.isArray(records) || !summary || typeof summary !== 'object') return { ok: false, reason: 'bad-payload' };
+    const dir = aiDir(); fs.mkdirSync(dir, { recursive: true });
+    writeAtomic(path.join(dir, 'records.json'), JSON.stringify(records));
+    writeAtomic(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 1));
+    return { ok: true, dir, at: new Date().toISOString(), count: records.length };
+  } catch (err) { return { ok: false, reason: String(err && err.message || err) }; }
+});
+ipcMain.handle('export:info', () => {
+  const dir = aiDir(); let at = null, count = null;
+  try { at = fs.statSync(path.join(dir, 'summary.json')).mtime.toISOString(); } catch { /* まだ書かれていない */ }
+  try { count = JSON.parse(fs.readFileSync(path.join(dir, 'records.json'), 'utf8')).length; } catch { /* ignore */ }
+  return { dir, at, count, mcpPath: mcpServerPath(), execPath: process.execPath };
+});
+ipcMain.handle('export:open-dir', () => { const d = aiDir(); fs.mkdirSync(d, { recursive: true }); return require('electron').shell.openPath(d); });
 ipcMain.handle('desktop:window', (_e, cmd) => { if (!win) return null; if (cmd === 'hide') win.hide(); else if (cmd === 'minimize') win.minimize(); else if (cmd === 'show') win.show(); else if (cmd === 'restore') win.restore(); return { visible: win.isVisible(), minimized: win.isMinimized() }; });
 
 function createWindow() {

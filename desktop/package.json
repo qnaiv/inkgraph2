@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node tools/zip_store_check.js && xvfb-run -a electron --no-sandbox tools/desktop_check.js",
+    "check": "node mcp/server_check.mjs && node tools/zip_store_check.js &&xvfb-run -a electron --no-sandbox tools/desktop_check.js",
     "web": "cd ../web && npm ci && npm run build",
     "dist": "npm run web && electron-builder --win --publish never"
   },
@@ -30,6 +30,14 @@
       {
         "from": "../web/dist",
         "to": "web"
+      },
+      {
+        "from": "mcp/server.mjs",
+        "to": "mcp/server.mjs"
+      },
+      {
+        "from": "../web/src/ai_summary.js",
+        "to": "mcp/ai_summary.js"
       }
     ],
     "win": {
