@@ -9,6 +9,11 @@ export const MATCH_TYPE_LABEL = {
   x: 'Xマッチ',
   bankara_open: 'バンカラ・オープン',
   bankara_challenge: 'バンカラ・チャレンジ',
+  fest_challenge: 'フェスマッチ（チャレンジ）',
+  fest_open: 'フェスマッチ（オープン）',
+  fest_tricolor: 'トリカラマッチ',
+  regular: 'レギュラーマッチ',
+  private: 'プライベートマッチ',
   other: 'その他'
 };
 
@@ -153,7 +158,7 @@ export function assistText(est) {
 }
 export const ASSIST_NOTE = 'キル通知にアシストは出ないので、検出したキルは K+A より少なくなります。推定アシスト＝K+A−検出キルで、キルの見逃しがあるとその分もアシストに数えられます。';
 export function finalCount(m) { const s = m.tower_series; if (!s || !s.length) return null; const l = s[s.length - 1]; return `${l.own}-${l.enemy}`; }
-export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', stage: 'ステージ', ka: 'キル+アシスト', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
+export const RESULT_FIELDS = { result: '勝敗', mode: 'ルール', match_type: 'マッチタイプ', stage: 'ステージ', ka: 'キル+アシスト', deaths: 'デス数', specials: 'スペシャル数', count: '最終カウント' };
 /** accuracy from review marks. per kind: tp=✓, fp=✗, fn=added. result fields: rmarks ok/wrong */
 export function accuracy(ms) { const A = {}; for (const k of Object.keys(KINDS)) A[k] = { tp: 0, fp: 0, fn: 0, unreviewed: 0 };
   const RF = {}; for (const k of Object.keys(RESULT_FIELDS)) RF[k] = { ok: 0, wrong: 0 };
@@ -237,6 +242,11 @@ export const MATCH_TYPE_OPTIONS = [
   { value: 'x', label: 'Xマッチ' },
   { value: 'bankara_open', label: 'バンカラ・オープン' },
   { value: 'bankara_challenge', label: 'バンカラ・チャレンジ' },
+  { value: 'fest_challenge', label: 'フェス（チャレンジ）' },
+  { value: 'fest_open', label: 'フェス（オープン）' },
+  { value: 'fest_tricolor', label: 'トリカラ' },
+  { value: 'regular', label: 'レギュラー' },
+  { value: 'private', label: 'プライベート' },
   { value: 'other', label: 'その他' }
 ];
 

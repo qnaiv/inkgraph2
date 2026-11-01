@@ -181,7 +181,7 @@ export function powerForMatchType(matchType) {
   if (matchType === 'x') {
     return { value: null, status: 'not_shown', confidence: 0 };
   }
-  if (matchType === 'bankara_open' || matchType === 'bankara_challenge' || matchType === 'other') {
+  if (['bankara_open', 'bankara_challenge', 'fest_challenge', 'fest_open', 'fest_tricolor', 'regular', 'private', 'other'].includes(matchType)) {
     return { value: null, status: 'not_applicable', confidence: 0 };
   }
   return { value: null, status: 'unknown_type', confidence: 0 };
