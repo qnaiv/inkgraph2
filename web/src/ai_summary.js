@@ -114,7 +114,7 @@ export function stats(rows) {
       by_tag: Object.fromEntries(TAG_KEYS.map(k => [k, { count: tagged.filter(c => c.tags.includes(k)).length, share: wilson(tagged.filter(c => c.tags.includes(k)).length, tagged.length) }])), n_tagged: tagged.length
     },
     match_tags: matchTagStats(rows),
-    by_rule: tally(rows, r => r.rule), by_stage: tally(rows, r => r.stage),
+    by_rule: tally(rows, r => r.rule), by_stage: tally(rows, r => r.stage), by_match_type: tally(rows, r => r.match_type),
     match_ids: rows.map(r => r.id)
   };
 }
@@ -144,7 +144,7 @@ export function aggregate(records, { now = Date.now(), window = null, rule = nul
     quality: {
       total_records: Array.isArray(records) ? records.length : 0, eligible: list.length, matching_filter: filtered.length,
       excluded, min_reliable: MIN_RELIABLE,
-      notes: ['デス数は人が直した後の検出（effective）で数えている', 'デスの状況（death_situation）は、直前の生存人数による人数差。敵の人数は検出に左右される。人数不利の時間が長いほど不利で死ぬ割合は高くなるので、割合だけでは良し悪しを言えない。前線か後ろかは分からない。タグ（by_tag）は 1 つのデスに複数付き、閾値は案（開始・終了 30 秒、連続デス 15 秒、相打ち 2 秒）。位置・敵ブキ別は取れていない。連続デスは前のデスから 15 秒以内で、リスポーン直後に限らない', '局面（by_phase）はカウントを読めた試合（ヤグラ・エリア・ホコ）だけ', '試合のタグ（match_tags）のしきい値は案。length は短時間決着(short)／延長寄り(long)でナワバリには付けない。performance は K+A−デスの差（アシスト込み）。count 系（先行・逆転・ストレート）はカウントを読めた試合（ヤグラ・エリア・ホコ）だけで、他のルールでは付かない', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
+      notes: ['デス数は人が直した後の検出（effective）で数えている', 'マッチタイプ（by_match_type）は、バンカラ・X・フェス（チャレンジ/オープン/トリカラ）・レギュラー・プライベートなどの別。読めない試合は null（不明）で、確認画面で選んで直せる。ナワバリ・フェスにはカウントが無いので局面・カウント系のタグは付かず、塗りポイント・塗り割合は読んでいない。フェスはチームの色が毎回違い、トリカラ（3 チーム）の人数・検出は実録画で確かめていない','デスの状況（death_situation）は、直前の生存人数による人数差。敵の人数は検出に左右される。人数不利の時間が長いほど不利で死ぬ割合は高くなるので、割合だけでは良し悪しを言えない。前線か後ろかは分からない。タグ（by_tag）は 1 つのデスに複数付き、閾値は案（開始・終了 30 秒、連続デス 15 秒、相打ち 2 秒）。位置・敵ブキ別は取れていない。連続デスは前のデスから 15 秒以内で、リスポーン直後に限らない', '局面（by_phase）はカウントを読めた試合（ヤグラ・エリア・ホコ）だけ', '試合のタグ（match_tags）のしきい値は案。length は短時間決着(short)／延長寄り(long)でナワバリには付けない。performance は K+A−デスの差（アシスト込み）。count 系（先行・逆転・ストレート）はカウントを読めた試合（ヤグラ・エリア・ホコ）だけで、他のルールでは付かない', 'K+A はアシストを含む。キルだけの数は取れていない', 'スペシャルの内訳は人が全件確認したものではない']
     }
   };
 }

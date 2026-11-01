@@ -2086,6 +2086,7 @@ PAGES.match = async () => {
     const det = {
       result: rs.result,
       mode: rs.mode,
+      match_type: m.match_type ?? rs.match_type ?? null,
       stage: rs.stage,
       ka: own.ka,
       deaths: own.deaths,
@@ -2097,7 +2098,7 @@ PAGES.match = async () => {
       <tbody>
         ${Object.entries(RESULT_FIELDS).map(([k, lab]) => {
           const mk = m.review.rmarks[k];
-          const valStr = det[k] === 'WIN' ? '勝ち' : det[k] === 'LOSE' ? '負け' : k === 'count' ? fmtCount(det[k]) : (det[k] ?? '読めず');
+          const valStr = det[k] === 'WIN' ? '勝ち' : det[k] === 'LOSE' ? '負け' : k === 'count' ? fmtCount(det[k]) : k === 'match_type' ? ((det[k] && MATCH_TYPE_LABEL[det[k]]) || '読めず') : (det[k] ?? '読めず');
           return `<tr>
             <td>${esc(lab)}</td>
             <td class="num">${esc(valStr)}</td>
@@ -2106,7 +2107,8 @@ PAGES.match = async () => {
               <button class="mk ${mk === 'wrong' ? 'on-wrong' : ''}" data-f="${k}" data-v="wrong" type="button">✗</button>
             </td>
             <td>
-              ${k === 'stage' && (mk === 'wrong' || !det.stage) && !stageOther && !(m.review.fix.stage && !STAGES.includes(m.review.fix.stage)) ? `<select class="input-sm" data-stage-sel title="正しいステージを選ぶと、この端末の見本に登録して、次の解析から読めるようになります"><option value="">ステージを選ぶ…</option>${STAGES.map(n => `<option value="${esc(n)}" ${m.review.fix.stage === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}<option value="__other__">その他（入力）…</option></select>${stageNote ? `<div class="muted" style="font-size:11px;margin-top:2px;max-width:220px">${esc(stageNote)}</div>` : ''}` : k === 'mode' && (mk === 'wrong' || !det.mode) && !(m.review.fix.mode && !AN.RULE_NAMES.includes(m.review.fix.mode)) ? `<select class="input-sm" data-mode-sel title="正しいルールを選ぶと、一覧・集計・AI 用の記録に、直した値が使われます"><option value="">ルールを選ぶ…</option>${AN.RULE_NAMES.map(n => `<option value="${esc(n)}" ${m.review.fix.mode === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : mk === 'wrong' ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
+              ${k === 'match_type' ? ((mk === 'wrong' || !det.match_type) ? `<select class="input-sm" data-mt-sel title="フェス・レギュラー・プライベートなどを選ぶと、一覧・集計・AI 用の記録に、直した値が使われます"><option value="">マッチタイプを選ぶ…</option>${Object.entries(MATCH_TYPE_LABEL).map(([v, l]) => `<option value="${esc(v)}" ${m.review.fix.match_type === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>` : '') : ''}
+              ${k === 'stage' && (mk === 'wrong' || !det.stage) && !stageOther && !(m.review.fix.stage && !STAGES.includes(m.review.fix.stage)) ? `<select class="input-sm" data-stage-sel title="正しいステージを選ぶと、この端末の見本に登録して、次の解析から読めるようになります"><option value="">ステージを選ぶ…</option>${STAGES.map(n => `<option value="${esc(n)}" ${m.review.fix.stage === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}<option value="__other__">その他（入力）…</option></select>${stageNote ? `<div class="muted" style="font-size:11px;margin-top:2px;max-width:220px">${esc(stageNote)}</div>` : ''}` : k === 'mode' && (mk === 'wrong' || !det.mode) && !(m.review.fix.mode && !AN.RULE_NAMES.includes(m.review.fix.mode)) ? `<select class="input-sm" data-mode-sel title="正しいルールを選ぶと、一覧・集計・AI 用の記録に、直した値が使われます"><option value="">ルールを選ぶ…</option>${AN.RULE_NAMES.map(n => `<option value="${esc(n)}" ${m.review.fix.mode === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>` : (mk === 'wrong' && k !== 'match_type') ? `<input class="input-sm" size="8" data-fix="${k}" ${k === 'mode' ? 'list="rule-names"' : ''} value="${esc(m.review.fix[k] ?? '')}" placeholder="${k === 'result' ? 'WIN/LOSE' : '正しい値'}">${k === 'mode' ? '<datalist id="rule-names"><option value="ガチエリア"><option value="ガチヤグラ"><option value="ガチホコバトル"><option value="ガチアサリ"></datalist>' : ''}` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -2134,6 +2136,13 @@ PAGES.match = async () => {
         if (['ka', 'deaths', 'specials'].includes(f)) { rtab(); refresh(); }
       };
     });
+
+    const mtSel = $('#rtab', page).querySelector('select[data-mt-sel]');
+    if (mtSel) mtSel.onchange = async () => {
+      const v = mtSel.value; if (!v) return;
+      m.review.rmarks.match_type = 'wrong'; m.review.fix.match_type = v;
+      await save(); rtab(); refresh();
+    };
 
     const modeSel = $('#rtab', page).querySelector('select[data-mode-sel]');
     if (modeSel) modeSel.onchange = async () => {
