@@ -76,12 +76,12 @@ export class DeathLatch {
 
 export class Analyzer {
   constructor(A, opts = {}) { this.A = A; this.srcH = opts.srcH || 1080; this.onMatch = opts.onMatch || (() => {}); this.onEvent = opts.onEvent || (() => {}); this.matchNo = opts.matchNo || 1; this.learnThresholds = opts.learnThresholds || null; this.state = 'idle'; this.cur = null; this.lastT = 0; this.towerNext = 0; this.deathLatch = new DeathLatch(1.0); this.liveSp = new LiveSpecialTracker(); }
-  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, kc: new LiveKillCounter(), lastTp: t, F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], area: [], hoko: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
+  newBattle(t) { this.deathLatch.reset(); this.liveSp.reset(); this.cur = { a: t, kc: new LiveKillCounter(), lastTp: t, tl: [0, 0], F: [], hist: [new Uint32Array(180), new Uint32Array(180)], hueN: 0, th: null, kscan: [], pend: [], tower: [], area: [], hoko: [], RS: { celebration: [], personal: [], board: [] }, lastRes: null, snaps: [], spPrev: 1 }; this.state = 'battle'; this.towerNext = t; this.onEvent({ type: 'battle_start', t }); }
   frame(fr, t) {
-    this.lastT = t; const tp = C.timerPresent(this.A, fr);
+    this.lastT = t; const tb = C.timerBox(this.A, fr), tp = tb >= 0;
     if (this.state !== 'battle' && tp) { if (this.state === 'result') this.finish(); this.newBattle(t); }
     if (this.state === 'battle') {
-      const m = this.cur; if (tp) m.lastTp = t;
+      const m = this.cur; if (tp) { m.lastTp = t; m.tl[tb]++; }
       if (t - m.lastTp > P.battle_gap) { // battle over
         m.F = m.F.filter(f => f.t <= m.lastTp + 1e-6); m.b = m.lastTp;
         if (m.b - m.a < P.battle_min) { this.liveSp.reset(); this.cur = null; this.state = 'idle'; this.onEvent({ type: 'battle_discard', t }); }
@@ -195,7 +195,8 @@ export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 export function isAreaRule(mode) { return mode === 'ガチエリア'; }
 /** D105: ガチホコバトル。トラックの下のバッジ 2 つの「のこり」（hoko_count.js）。アサリは未確認 */
 export function isHokoRule(mode) { return mode === 'ガチホコバトル'; }
-export function aliveAt(m, t) { const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
+export function aliveAt(m, t) { if (m.hud_layout === 'tricolor') return [4, 4]; // 3チームの HUD は人数の枠の位置が違う（D107）。人数は読めないので、中立の 4v4 を返す
+  const dead = k => (m.squid_down[k] || []).some(e => e.start <= t && t <= Math.max(e.end, e.start + 5.0));
   let a = 4, b = 4; for (let i = 0; i < 4; i++) { if (dead('L' + i)) a--; if (dead('R' + i)) b--; } return [a, b]; }
 export function mergeDeathRuns(t, sig, ok, mp, minlen = 1.5) {
   const raw = runs(t, sig, 0, 0);
@@ -353,11 +354,11 @@ export function buildMatch(m, no, srcH, ctx = {}) {
   };
   const rr = x => x.map(([a, b]) => [r1(a), r1(b)]); const dur = n ? t[n - 1] - t[0] : 0;
   const rec = { match: no, battle: [r1(m.a), r1(m.b)], squid_down: ev, own_deaths: ev.L0, special: sp, own_kills: kills, cands, hud_hidden: rr(hidden), map_open: rr(maps),
-    stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th };
-  for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
+    stats: { duration: r1(dur), map_open_s: r1(maps.reduce((s, [a, b]) => s + b - a, 0)), hud_hidden_s: r1(hidden.reduce((s, [a, b]) => s + b - a, 0)) }, team_hue: m.th, ...(m.tl && m.tl[1] > m.tl[0] ? { hud_layout: 'tricolor' } : {}) };
+  if (rec.hud_layout !== 'tricolor') for (const e of rec.own_deaths) { const [a, b] = aliveAt(rec, e.start - 0.5); e.alive_before = `${a}v${b}`; }
   attachKillers(rec.own_deaths, m.kscan || []);
-  for (const e of rec.special) { const [a, b] = aliveAt(rec, e.ready); e.alive_at_ready = `${a}v${b}`; }
-  for (const e of rec.own_kills) { const [a, b] = aliveAt(rec, e.start - 1.0); e.alive_before = `${a}v${b}`; }
+  if (rec.hud_layout !== 'tricolor') for (const e of rec.special) { const [a, b] = aliveAt(rec, e.ready); e.alive_at_ready = `${a}v${b}`; }
+  if (rec.hud_layout !== 'tricolor') for (const e of rec.own_kills) { const [a, b] = aliveAt(rec, e.start - 1.0); e.alive_before = `${a}v${b}`; }
   return rec;
 }
 export function tagEvents(m, S) {

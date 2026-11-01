@@ -50,7 +50,7 @@ export function wpAt(m, S, t) { return T.wp(S.length ? T.at(S, t) : null, t, m.b
 export const manState = (a, b) => (a > b ? 'up' : a < b ? 'down' : 'even');
 function ctx(m, S, kind, t) { const s = S.length ? T.at(S, t - 0.5) : null; const o = { phase: T.phase(s), count: s ? `${s.count_own}-${s.count_enemy}` : null, count_diff: s ? s.diff : null };
   if (kind !== 'special') { const b = wpAt(m, S, t - 1), a = wpAt(m, S, t + 1.5); o.wp_before = b; o.wp_after = a; o.wp_delta = a - b; }
-  if (kind !== 'special') { const [a, b] = aliveAt(m, t - (kind === 'kill' ? 1.0 : 0.5)); o.alive = `${a}v${b}`; o.man = manState(a, b); } // デス・キルの直前の生存人数（解析時の alive_before と同じ時刻）
+  if (kind !== 'special' && m.hud_layout !== 'tricolor') { const [a, b] = aliveAt(m, t - (kind === 'kill' ? 1.0 : 0.5)); o.alive = `${a}v${b}`; o.man = manState(a, b); } // デス・キルの直前の生存人数（解析時の alive_before と同じ時刻）
   return o; }
 /** pure interval view of m.special: [{ready, end, outcome, activated_at}] */
 export function specialIntervals(m) {
@@ -143,8 +143,9 @@ export function frameStepForState(state, base = 0.2) {
   return state === 'result' ? RESULT_FRAME_STEP : base;
 }
 export function resultOf(m) { const rs = (m && m.result_screen) || {}, f = ((m && m.review) || {}).fix || {}; const own = rs.own || {};
-  const match_type = f.match_type ?? (m && m.match_type) ?? rs.match_type ?? null;
-  return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode, stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m), result_source: resultSourceLabel(m), match_type, power: powerOf(m) }; }
+  const tri = !!(m && m.hud_layout === 'tricolor'); // D107: タイマーの位置でトリカラと分かる
+  const match_type = f.match_type ?? (m && m.match_type) ?? rs.match_type ?? (tri ? 'fest_tricolor' : null);
+  return { result: f.result ?? rs.result, mode: f.mode ?? rs.mode ?? (tri ? 'ナワバリバトル' : undefined), stage: f.stage ?? rs.stage, ka: f.ka ?? own.ka, deaths: f.deaths ?? own.deaths, specials: f.specials ?? own.specials, count: f.count ?? finalCount(m), result_source: resultSourceLabel(m), match_type, power: powerOf(m) }; }
 /** D57: 結果画面の K+A（キル＋アシスト）と、検出したキル（アシストは画面に出ないので含まない）から、アシストの推定を出す。
  *  ka が読めていなければ null。キルの見逃しがあると、その分もアシストに数えられる（推定は「K+A − 検出したキル」の上限側）。 */
 export function assistEstimate(ka, kills) {

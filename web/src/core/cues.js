@@ -1,7 +1,11 @@
 // Per-frame cues (port of src/inkgraph/cues.py). fr = {w:1280,h:720,data:RGBA}
 import { crop, sub, gray, bin, hsv, hueDist, nccBin, resizeCropArea, resizeArea, median } from './img.js';
 const regBin = (fr, x0, y0, x1, y1, th) => { const c = crop(fr, x0, y0, x1, y1); return { c, b: bin(gray(c), th) }; };
-export function timerPresent(A, fr) { const { c, b } = regBin(fr, 614, 28, 648, 72, 180); return nccBin(b, c.w, c.h, A.tpl.tpl_colon, 0.6).score > 0.6; }
+// タイマー（コロン）の位置。通常のバトルは画面上部の中央、トリカラバトルは左上にある（D107: 実録画で確認）
+export const TIMER_BOXES = [[614, 28, 648, 72], [233, 16, 267, 60]];
+/** タイマーが見つかった位置の番号（0=通常・1=トリカラ）。見つからなければ -1 */
+export function timerBox(A, fr) { return TIMER_BOXES.findIndex(([x0, y0, x1, y1]) => { const { c, b } = regBin(fr, x0, y0, x1, y1, 180); return nccBin(b, c.w, c.h, A.tpl.tpl_colon, 0.6).score > 0.6; }); }
+export function timerPresent(A, fr) { return timerBox(A, fr) >= 0; }
 export function mapOpen(A, fr) { const { c, b } = regBin(fr, 15, 10, 130, 125, 200); return nccBin(b, c.w, c.h, A.tpl.tpl_mapx, 0.6).score > 0.6; }
 // soft: 「やられた」らしさ（y が弱くても「カモン」より強ければ y、それ以外は 0）。採用の判定（dead）は従来どおり y>0.5、soft は自動補正の候補探し用（D52）
 export function ownDeadSignal(A, fr) { const { c, b } = regBin(fr, 15, 590, 100, 624, 215);
