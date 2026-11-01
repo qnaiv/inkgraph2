@@ -64,6 +64,20 @@ export function voteReads(reads) {
   return o.type || o.rule || o.stage ? o : null;
 }
 
+// D108: ナワバリ（フェス含む）の試合時間は 180 秒＋開始・終了の検出の誤差。手元のフェス 10 試合は 181〜183 秒。ガチの試合は延長を含めて 300 秒前後、早く終わっても 80〜170 秒台（手元の記録で 171 秒が最短級）
+export const TURF_SEC = [175, 192];
+// 試合中に「のこり」（ヤグラ・エリア・ホコ）が読めた毎秒の行の割合の下限。手元の本物のホコは 17〜39%、エリアは 96%、フェスは 3 種とも 0%
+export const MIN_COUNT_SHARE = 0.05, MIN_COUNT_ROWS = 60;
+const COUNT_RULES = ['ガチホコバトル', 'ガチヤグラ', 'ガチエリア'];
+/** YOLO が「のこり」を使うガチのルールと読んだのに、その試合では 3 種の「のこり」が一つも読めず、時間もナワバリと同じか。ガチアサリは「のこり」を読んでいないので対象外 */
+export function turfByEvidence(rec, rule) {
+  if (!COUNT_RULES.includes(rule)) return false;
+  const ev = rec && rec.count_evidence, b = rec && rec.battle; if (!ev || !Array.isArray(b)) return false;
+  const rows = Math.max(...['tower', 'area', 'hoko'].map(k => (ev[k] && ev[k].n) || 0)); if (rows < MIN_COUNT_ROWS) return false;
+  if (['tower', 'area', 'hoko'].some(k => ev[k] && ev[k].share >= MIN_COUNT_SHARE)) return false;
+  const dur = b[1] - b[0]; return dur >= TURF_SEC[0] && dur <= TURF_SEC[1];
+}
+
 /**
  * YOLO の読み取りを試合に反映する（in place）。方針：テンプレートで読めなかった項目だけ埋める（読めていて食い違うものは直さずに記録だけ）。
  * 戻り値: 埋めた項目名の配列。powerFor は match_type から power を作る関数（result.js の powerForMatchType）。
@@ -72,6 +86,16 @@ export function mergeYoloHeader(rec, reads, powerFor) {
   const v = voteReads(reads); if (!v) return [];
   const rs = rec.result_screen || (rec.result_screen = {}), filled = [], dis = {};
   rs.yolo = { type: v.type, rule: v.rule, stage: v.stage, frames: v.frames };
+  if (!rs.mode && turfByEvidence(rec, v.rule)) {
+    // D108: フェスの結果画面の見出しは、YOLO が「ガチホコ」などと読み違える（学習に無い並び）。試合中にそのルールの「のこり」が一度も読めず、時間もナワバリと同じなら、ナワバリに直す。
+    // マッチタイプも、見出しの読みが当てにならないので（ここでは x や bankara_*）、決めずに空けて人が選ぶ。ステージは読み取りのまま使う。
+    rs.mode = 'ナワバリバトル'; rs.mode_source = 'count_evidence'; rs.mode_unknown = undefined; rs.mode_guess = undefined; filled.push('mode');
+    dis.mode = { template: null, yolo: v.rule, reason: 'count_evidence' };
+    if (rec.match_type && !String(rec.match_type).startsWith('fest_')) { dis.match_type = { template: rec.match_type, yolo: v.type, reason: 'count_evidence' }; rec.match_type = null; rec.match_type_source = null; if (powerFor) rec.power = powerFor(null); }
+    if (v.stage && !rs.stage) { rs.stage = v.stage; rs.stage_source = 'yolo'; filled.push('stage'); }
+    rs.yolo_disagree = dis;
+    return filled;
+  }
   if (v.rule) { if (!rs.mode) { rs.mode = v.rule; rs.mode_source = 'yolo'; rs.mode_unknown = undefined; rs.mode_guess = undefined; filled.push('mode'); } else if (rs.mode !== v.rule) dis.mode = { template: rs.mode, yolo: v.rule }; }
   if (v.stage) { if (!rs.stage) { rs.stage = v.stage; rs.stage_source = 'yolo'; filled.push('stage'); } else if (rs.stage !== v.stage) dis.stage = { template: rs.stage, yolo: v.stage }; }
   if (v.type) { if (!rec.match_type) { rec.match_type = v.type; rec.match_type_source = 'yolo'; if (powerFor) rec.power = powerFor(v.type); filled.push('match_type'); } else if (rec.match_type !== v.type) dis.match_type = { template: rec.match_type, yolo: v.type }; }

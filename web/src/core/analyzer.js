@@ -156,6 +156,7 @@ export class Analyzer {
     rec.match_type = rs.match_type ?? null;
     rec.power = R.powerForMatchType(rec.match_type);
     rec.confidence = { ...rs.confidence, celebration_frames: m.RS.celebration.length, personal_frames: m.RS.personal.length, board_frames: m.RS.board.length, ...(m.boardRejected ? { board_rejected: m.boardRejected } : {}) };
+    rec.count_evidence = countEvidence(m); // D108: 試合中に「のこり」が読めた割合（ルールごと）。結果画面の見出しの読み違い（フェスをホコと読む等）を見破る材料
     rec.count_check = countCheck(rec); // D77: 検出した数と結果画面の数の突き合わせ（補正はしない）
     const ownRow = rs.board ? rs.board.find(b => b.own) : null;
     if (rs.board) { const ic = Object.fromEntries(rs.board.filter(b => b.iconc).map(b => [`${b.group}${b.idx}`, b.iconc])); if (Object.keys(ic).length) rec.icon_colors = ic; } // D94: ブキの絵の色つき版（名前付けの画面用。端末内のみ）
@@ -189,6 +190,11 @@ export function attachKillers(deaths, kscan) {
     for (const e of deaths) { const d = k.t0 < e.start ? e.start - k.t0 : (k.t0 <= e.end ? 0 : k.t0 - e.end); if (d < bd) { bd = d; best = e; } }
     if (!best || bd > 3) continue; if (!byDeath.has(best)) byDeath.set(best, []); byDeath.get(best).push(...k.reads); }
   for (const [e, reads] of byDeath) if (!e.killed_by) e.killed_by = decideKiller(reads);
+}
+/** 試合中に読めた「のこり」（両チーム）の割合。毎秒の行（grid）だけ数える。ルールは試合の最後に分かるので、ヤグラ・エリア・ホコの 3 つとも出す */
+export function countEvidence(m) {
+  const frac = rows => { const ok = rows.filter(r => r.own != null && r.enemy != null).length; return { n: rows.length, ok, share: rows.length ? Math.round(ok / rows.length * 100) / 100 : 0 }; };
+  return { tower: frac((m.tower || []).filter(r => r.grid)), area: frac(m.area || []), hoko: frac(m.hoko || []) };
 }
 export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 /** D104: ガチエリア（画面上部中央の左右のパネルの「のこり」） */
