@@ -1,5 +1,5 @@
 // server_check.mjs: AI 連携の MCP サーバー（desktop/mcp/server.mjs）を子プロセスで起動し、JSON-RPC で確かめる。
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,7 +47,7 @@ try {
 
   const list = await s.call('tools/list');
   const names = (list.result.tools || []).map(t => t.name).sort().join(',');
-  check(names === 'get_match,get_summary,list_matches' && list.result.tools.every(t => t.inputSchema && t.inputSchema.type === 'object' && t.description.length > 20), '(4) tools/list: 3 つ・説明と入力スキーマ付き', names);
+  check(names === 'get_analysis,get_corrections,get_frames,get_match,get_summary,get_video,list_matches' && list.result.tools.every(t => t.inputSchema && t.inputSchema.type === 'object' && t.description.length > 20), '(4) tools/list: 7 つ・説明と入力スキーマ付き', names);
 
   const sum = await s.call('tools/call', { name: 'get_summary', arguments: {} });
   const sj = jsonOf(toolText(sum));
@@ -83,6 +83,68 @@ try {
   check(!r2.result.isError && jsonOf(toolText(r2)).count === 3, '(15) 呼び出しのたびに読み直す（あとから書き出されても拾う）');
 } catch (e) { check(false, '(例外2) ' + e.message, s2.stderr()); }
 finally { s2.stop(); }
+
+
+// ---- b22: 録画・コマ・検出の根拠・訂正 ----
+const ffmpegOk = (() => { try { return spawnSync(process.env.INKGRAPH_FFMPEG || 'ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0; } catch { return false; } })();
+const vdir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkgraph-vid-'));
+const vfile = path.join(vdir, 'test.mp4');
+let haveVideo = false;
+if (ffmpegOk) haveVideo = spawnSync(process.env.INKGRAPH_FFMPEG || 'ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=10:duration=12', '-pix_fmt', 'yuv420p', vfile]).status === 0 && fs.existsSync(vfile);
+const REC2 = [
+  ...RECORDS,
+  rec('v1', iso(50), { video: { path: vfile, file: 'test.mp4', t0: 100, battle_start_pos: 3, bytes: 1 }, diag: { hud_layout: null, rule_software: 'ガチホコバトル', rule_source: 'yolo', mode_guess: null, yolo_disagree: { mode: { template: null, yolo: 'ガチホコバトル', reason: 'count_evidence' } }, match_type_software: null, count_evidence: { tower: { n: 100, ok: 0, share: 0 }, area: { n: 100, ok: 1, share: 0.01 }, hoko: { n: 100, ok: 2, share: 0.02 } }, count_check: null, confidence: null }, count_series: [[0, 100, 100], [5, 90, 100], [9, 80, 70]], corrections: { fields: [{ field: 'mode', software: 'ガチホコバトル', human: 'ナワバリバトル' }, { field: 'match_type', software: null, human: 'fest_open' }], false_positives: [{ kind: 'death', rel: 40 }], misses: [{ kind: 'kill', rel: 61.5, from_candidate: false }], reviewed: true } }),
+  rec('v2', iso(40), { video: { path: path.join(vdir, 'gone.mp4'), file: 'gone.mp4', t0: 5, battle_start_pos: 1, bytes: 1 }, diag: {}, count_series: [], corrections: { fields: [], false_positives: [], misses: [], reviewed: false } })
+];
+const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'inkgraph-ai3-'));
+fs.writeFileSync(path.join(dir3, 'records.json'), JSON.stringify(REC2));
+const s3 = start(dir3);
+try {
+  await s3.call('initialize', { protocolVersion: '2025-06-18' });
+  const gv = await s3.call('tools/call', { name: 'get_video', arguments: { id: 'v1' } });
+  const gvj = jsonOf(toolText(gv));
+  check(!gv.result.isError && gvj.exists === haveVideo && gvj.battle_start_pos_sec === 3 && gvj.path === vfile, '(16) get_video: パス・存在・バトル開始の位置', toolText(gv).slice(0, 120));
+  const gv2 = await s3.call('tools/call', { name: 'get_video', arguments: { id: 'v2' } });
+  check(jsonOf(toolText(gv2)).exists === false && toolText(gv2).includes('見つかりません'), '(17) get_video: 録画ファイルが無いときは exists:false と理由');
+  const gv3 = await s3.call('tools/call', { name: 'get_video', arguments: { id: 'm1' } });
+  check(gv3.result.isError === true && toolText(gv3).includes('録画と結びついていません'), '(18) get_video: 録画の無い試合は分かりやすいエラー');
+  const gf0 = await s3.call('tools/call', { name: 'get_frames', arguments: { id: 'v2', times: [1] } });
+  check(gf0.result.isError === true && toolText(gf0).includes('録画のある PC'), '(19) get_frames: 録画ファイルが無い PC では「録画のある PC 上でだけ」と返す', toolText(gf0).slice(0, 100));
+  const gf1 = await s3.call('tools/call', { name: 'get_frames', arguments: { id: 'v1', times: [] } });
+  check(gf1.result.isError === true, '(20) get_frames: times が空はエラー');
+  const gf2 = await s3.call('tools/call', { name: 'get_frames', arguments: { id: 'v1', times: [1, 2, 3, 4, 5, 6, 7, 8, 9] } });
+  check(gf2.result.isError === true && toolText(gf2).includes('8 枚'), '(21) get_frames: 9 枚は上限でエラー');
+  if (haveVideo) {
+    const gf = await s3.call('tools/call', { name: 'get_frames', arguments: { id: 'v1', times: [0, 2.5], width: 320 } });
+    const imgs = (gf.result.content || []).filter(c => c.type === 'image');
+    const jpg = imgs[0] && Buffer.from(imgs[0].data, 'base64');
+    check(!gf.result.isError && imgs.length === 2 && imgs.every(i => i.mimeType === 'image/jpeg') && jpg[0] === 0xFF && jpg[1] === 0xD8 && jpg.length < 350 * 1024, '(22) get_frames: バトル開始からの秒で JPEG が 2 枚返る（容量上限内）', `${imgs.length} 枚, ${jpg ? jpg.length : 0} B`);
+    const t0 = (gf.result.content || [])[0];
+    check(t0 && t0.type === 'text' && t0.text.includes('録画内 3.0 秒'), '(23) get_frames: バトル開始の位置 3 秒を足して録画内の位置にする', t0 && t0.text);
+    const gfv = await s3.call('tools/call', { name: 'get_frames', arguments: { id: 'v1', times: [1], base: 'video' } });
+    check(!gfv.result.isError && gfv.result.content[0].text.includes('録画内 1.0 秒'), '(24) get_frames: base:"video" は録画の先頭からの秒');
+    const gfe = await s3.call('tools/call', { name: 'get_frames', arguments: { id: 'v1', times: [1, 500] } });
+    check(!gfe.result.isError && gfe.result.content.filter(c => c.type === 'image').length === 1 && gfe.result.content.some(c => c.type === 'text' && c.text.includes('取れなかった')), '(25) get_frames: 録画の長さを超えた秒は取れなかったコマとして報告し、取れたコマは返す');
+    const gfn = await s3.call('tools/call', { name: 'get_frames', arguments: { id: 'v1', times: [-5] } });
+    check(gfn.result.isError === true && toolText(gfn).includes('開始より前'), '(26) get_frames: 録画の開始より前の秒はエラー');
+  } else console.log('SKIP (22)-(26) get_frames の実コマ: ffmpeg が使えないので飛ばす');
+
+  const ga = await s3.call('tools/call', { name: 'get_analysis', arguments: { id: 'v1', from: 4, to: 100 } });
+  const gaj = jsonOf(toolText(ga));
+  check(gaj.diag.rule_software === 'ガチホコバトル' && gaj.diag.yolo_disagree.mode.reason === 'count_evidence' && gaj.diag.count_evidence.hoko.share === 0.02, '(27) get_analysis: ルール判定の根拠（yolo_disagree・count_evidence）', JSON.stringify(gaj.diag).slice(0, 100));
+  check(JSON.stringify(gaj.count_series) === '[[5,90,100],[9,80,70]]' && gaj.deaths.length === 2 && gaj.deaths[0].t === 40, '(28) get_analysis: from〜to で、カウントの推移とデスを絞る', JSON.stringify(gaj.count_series));
+  const ga2 = await s3.call('tools/call', { name: 'get_analysis', arguments: { id: 'm1' } });
+  check(ga2.result.isError === true && toolText(ga2).includes('古い書き出し'), '(29) get_analysis: 古い書き出し（diag 無し）は分かりやすいエラー');
+
+  const gc = jsonOf(toolText(await s3.call('tools/call', { name: 'get_corrections', arguments: {} })));
+  check(gc.count === 1 && gc.matches[0].id === 'v1' && gc.matches[0].corrections.fields[0].software === 'ガチホコバトル' && gc.matches[0].corrections.fields[0].human === 'ナワバリバトル' && gc.matches[0].corrections.misses[0].rel === 61.5, '(30) get_corrections: 訂正のある試合だけ、訂正前→後と見逃しの時刻', JSON.stringify(gc).slice(0, 120));
+  const gc1 = jsonOf(toolText(await s3.call('tools/call', { name: 'get_corrections', arguments: { id: 'v2' } })));
+  check(gc1.id === 'v2' && gc1.corrections.fields.length === 0, '(31) get_corrections: id 指定なら訂正が無くても返す');
+  const gc2 = await s3.call('tools/call', { name: 'get_corrections', arguments: { id: 'nope' } });
+  check(gc2.result.isError === true, '(32) get_corrections: 無い id は isError');
+  check(s3.lines.every(l => { try { JSON.parse(l); return true; } catch { return false; } }), '(33) 画像を返しても stdout は JSON-RPC だけ');
+} catch (e) { check(false, '(例外3) ' + e.message, s3.stderr()); }
+finally { s3.stop(); fs.rmSync(dir3, { recursive: true, force: true }); fs.rmSync(vdir, { recursive: true, force: true }); }
 
 fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(empty, { recursive: true, force: true });
 if (fails) { console.log(`\n${fails} check(s) FAILED`); process.exit(1); }
