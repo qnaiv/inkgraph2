@@ -113,6 +113,7 @@ ipcMain.handle('export:write', (_e, payload) => {
     const dir = aiDir(); fs.mkdirSync(dir, { recursive: true });
     writeAtomic(path.join(dir, 'records.json'), JSON.stringify(records));
     writeAtomic(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 1));
+    writeAtomic(path.join(dir, 'config.json'), JSON.stringify({ ffmpeg: ffmpegPath(), app_version: app.getVersion() })); // MCP の get_frames が、同梱の ffmpeg を見つけるため
     return { ok: true, dir, at: new Date().toISOString(), count: records.length };
   } catch (err) { return { ok: false, reason: String(err && err.message || err) }; }
 });

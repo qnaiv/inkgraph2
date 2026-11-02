@@ -29,8 +29,21 @@ const mk = (i, o = {}) => ({
   check(r.id === 'm1' && r.result === 'LOSE' && r.rule === 'ガチヤグラ' && r.stage === 'チョウザメ造船' && r.battle_sec === 180, '(4) record: 勝敗・ルール・ステージ・長さ', JSON.stringify(r));
   check(JSON.stringify(r.deaths) === '[19.3,50]' && r.first_death === 19.3 && r.owner === 'self' && r.fix === 'none', '(5) record: デスは開始からの秒、最初のデス、自分の試合、要修正なし');
   check(r.special.ready === 1 && r.special.activated === 1 && r.special.lost === 0, '(6) record: スペシャル', JSON.stringify(r.special));
-  const bad = Object.keys(r).filter(k => !['id', 'created', 'owner', 'fix', 'match_type', 'rule', 'stage', 'result', 'battle_sec', 'ka', 'deaths_result', 'deaths', 'death_ctx', 'kills', 'special', 'first_death', 'tags'].includes(k));
-  check(bad.length === 0, '(7) record は決まった項目だけ（画像・信号・録画などは入らない）', bad.join(',')); }
+  const bad = Object.keys(r).filter(k => !['id', 'created', 'owner', 'fix', 'match_type', 'rule', 'stage', 'result', 'battle_sec', 'ka', 'deaths_result', 'deaths', 'death_ctx', 'kills', 'special', 'first_death', 'tags', 'video', 'diag', 'count_series', 'corrections'].includes(k));
+  check(bad.length === 0, '(7) record は決まった項目だけ（画像・検出用の信号・録画の中身は入らない）', bad.join(',')); }
+
+// 2b. b22: 録画の位置・検出の根拠・人の訂正（訂正前/後）
+{ const r = toRecord(mk(6, { deaths: [20, 80], extra: {
+    recording: { path: 'X:\\rec\\sample.mp4', file: 'sample.mp4', t0: 990, bytes: 123 }, hud_layout: 'tricolor', count_evidence: { tower: { n: 100, ok: 0, share: 0 }, area: { n: 100, ok: 1, share: 0.01 }, hoko: { n: 100, ok: 2, share: 0.02 } },
+    tower_series: [{ t: 1000, own: 100, enemy: 100 }, { t: 1100, own: 80, enemy: 60 }],
+    result_screen: { result: 'WIN', mode: 'ガチホコバトル', mode_source: 'yolo', yolo_disagree: { mode: { template: null, yolo: 'ガチホコバトル', reason: 'count_evidence' } }, stage: 'チョウザメ造船', own: { ka: 5, deaths: 2, specials: 1 } },
+    review: { marks: { 'death@1020.0': 'wrong' }, added: [{ kind: 'kill', t: 1150 }], fix: { mode: 'ナワバリバトル', match_type: 'fest_open' }, rmarks: { mode: 'wrong' } } } }));
+  check(r.video && r.video.path === 'X:\\rec\\sample.mp4' && r.video.t0 === 990 && r.video.battle_start_pos === 10, '(11b) record: 録画のパスと、バトル開始の録画内の位置（1000−990）', JSON.stringify(r.video));
+  check(r.diag.hud_layout === 'tricolor' && r.diag.rule_software === 'ガチホコバトル' && r.diag.rule_source === 'yolo' && r.diag.yolo_disagree.mode.reason === 'count_evidence' && r.diag.count_evidence.hoko.share === 0.02, '(11c) record: ルール判定の根拠（ソフトの読み・出どころ・YOLO との食い違い・のこりの割合・タイマーの位置）', JSON.stringify(r.diag).slice(0, 120));
+  check(JSON.stringify(r.count_series) === '[[0,100,100],[100,80,60]]', '(11d) record: カウントの推移は開始からの秒', JSON.stringify(r.count_series));
+  const f = Object.fromEntries(r.corrections.fields.map(x => [x.field, x]));
+  check(f.mode.software === 'ガチホコバトル' && f.mode.human === 'ナワバリバトル' && f.match_type.software === 'bankara_challenge' && f.match_type.human === 'fest_open' && r.corrections.false_positives[0].rel === 20 && r.corrections.misses[0].rel === 150 && r.corrections.reviewed === true, '(11e) record: 訂正前（ソフトの読み）→ 訂正後（人の値）、誤検出と見逃しの時刻', JSON.stringify(r.corrections));
+  const plain = toRecord(mk(7)); check(plain.video === null && plain.corrections.fields.length === 0 && plain.corrections.reviewed === false, '(11f) 録画も訂正も無い試合は video:null・訂正なし'); }
 
 // 3. 人の修正が効く（✗ は除く／追加は入る）、他人の試合・要修正
 { const m = mk(2, { deaths: [20, 80], extra: { review: { marks: { 'death@1020.0': 'wrong' }, added: [{ kind: 'death', t: 1100 }] } } });

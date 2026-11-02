@@ -24,6 +24,21 @@ Web 版（`../web`）を Electron で包んだものです。解析・保存・�
 2. 設定・試合の記録・AI 連携のファイルは、`%APPDATA%\inkgraph-desktop` にあり、portable 版と同じ場所なので、そのまま引き継がれます（アプリ名が同じため。実際に入れ替えた通しでは未確認）。
 3. 以後は、アプリが新しい版を見つけて更新します。古い portable の exe は消して構いません。
 
+## AI 連携の MCP: 録画のコマ・検出の根拠・訂正（b22）
+
+`desktop/mcp/server.mjs`（設定画面の「AI 連携」に、Claude Desktop 用の設定が出ます）は、集計（`get_summary` / `list_matches` / `get_match`）に加えて、次のツールを持ちます。AI 用 ZIP を書き出さなくても、MCP だけで検出の誤りを調べられます。
+
+| ツール | 返すもの |
+| --- | --- |
+| `get_video` | 録画のパス・存在・サイズ・バトル開始の録画内の位置 |
+| `get_frames` | 指定した秒のコマ（JPEG。最大 8 枚、1 枚 350KB 以内）。`times` は `get_match` のデス/キルと同じ「バトル開始からの秒」。`base:"video"` で録画の先頭からの秒 |
+| `get_analysis` | ルール判定の根拠（`yolo_disagree`・`count_evidence`）、`hud_layout`、カウントの推移、デス/キル（`from`〜`to` で絞る） |
+| `get_corrections` | 人の訂正の「ソフトの読み → 人の値」、✗ にした検出、足した見逃し |
+
+- コマは**録画のある PC 上でだけ**取り出せます（ffmpeg で 1 枚ずつ。動画全体は渡しません）。録画が無い・移動した場合は、その理由が返ります。
+- ffmpeg は、同梱のものを自動で見つけます（アプリが書き出し先の `config.json` に場所を書きます）。見つからない場合は、環境変数 `INKGRAPH_FFMPEG` に ffmpeg.exe のパスを設定します。
+- 新しいツールを使うには、InkGraph を新しい版に更新して一度起動し（書き出しが更新されます）、Claude Desktop を再起動します。
+
 ## 開発
 ```
 cd web && npm ci && npm run build      # Web 版を dist に作る

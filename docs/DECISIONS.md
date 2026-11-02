@@ -1165,3 +1165,15 @@
 - 確かめたこと: `desktop/tools/updater_check.js`（13 件、偽の autoUpdater）。`web/tools/desktop_update_check.mjs`（7 件）。electron-builder で実際にインストーラーを作り、`latest.yml`（版・sha512・サイズ）が出ること。**実際の Electron** を起動し、ローカル HTTP から `latest.yml` を配って、署名なし・generic のまま、新しい版の検出 → ダウンロード（sha512 の検証つき）→ ready → 画面右下の通知 →「あとで」→ 設定画面の表示まで通ること（`desktop/tools/update_e2e.js`）。`userData` は `name`（`inkgraph-desktop`）で決まるので、インストーラー版でも portable 版と同じ場所（`%APPDATA%\inkgraph-desktop`）。
 - 未確認: GitHub のリダイレクト越しの取得（マージ後のリリースで確かめる）。**インストール済みの版が実際に入れ替わる通し**（`quitAndInstall` の後に新しい版で起動すること）。署名なしの更新時の SmartScreen の出方。録画中に実際に更新が止まること（偽の autoUpdater では確認済み）。
 - 注意: 動作確認で `autoInstallOnAppQuit` が有効のまま終了すると、本物のインストーラーが静かに走る（確認中に 0.1.6 がこの PC に入ってしまった）。確認用の起動では、`autoInstallOnAppQuit` を切ってある。
+
+## D111 (2026-11-03) MCP だけで検出の誤りを調べられるようにする（録画のコマ・検出の根拠・人の訂正）（b22）
+
+- 目的: AI 用 ZIP を書き出さなくても、MCP 経由で「どの時刻でどう外れたか」を、録画のコマと検出の根拠を見て調べ、直せるようにする。
+- 書き出し（records.json の record に項目を追加。`ai_export.js`）: `video`（録画のパス・ファイル名・t0・バトル開始の録画内の位置 `battle_start_pos`・サイズ）／`diag`（ルール判定の根拠: ソフトの読み・出どころ・`mode_guess`・`yolo_disagree`・`count_evidence`・`count_check`・`hud_layout`・マッチタイプの読み）／`count_series`（カウントの推移。バトル開始からの秒、300 行まで）／`corrections`（人の訂正の「ソフトの読み → 人の値」、✗ にした検出、足した見逃しの時刻）。画像・検出用の信号・録画の中身は今までどおり入れない（入るのは、この PC 上のパスだけ）。
+- 書き出し（`desktop/main.js` の `export:write`）: 同じ場所に `config.json`（同梱 ffmpeg の場所・アプリの版）も書く。MCP が ffmpeg を見つけるため。
+- MCP のツール（`desktop/mcp/server.mjs`、0.2.0）: `get_video`（録画のパス・存在・サイズ）、`get_frames`（バトル開始からの秒 → JPEG。最大 8 枚・1 枚 350KB 以内に縮小。`base:"video"` で録画の先頭からの秒）、`get_analysis`（検出の根拠・カウントの推移・デス/キル。`from`〜`to` で絞る）、`get_corrections`（訂正のある試合の、訂正前/後と、誤検出・見逃し）。
+- コマの取り出し: ffmpeg を 1 枚ずつ起動（`-ss` を入力の前に置く）。探す順は 環境変数 `INKGRAPH_FFMPEG` → `config.json` → 開発時の `ffmpeg-static` → インストール版の同梱 → PATH。動画全体は渡さない。
+- 録画が無い PC・移動/削除した録画では、`get_video` は `exists:false` と理由、`get_frames` は「録画のある PC 上でだけ取り出せる」と返す。録画と結びついていない試合・古い書き出し（`diag` が無い）にも、それぞれ理由つきのエラーを返す。
+- 確かめたこと: `desktop/mcp/server_check.mjs`（33 件。生成した動画でコマを実際に取り出し、JPEG・容量・位置・範囲外・録画なしを確認）、`web/tools/ai_export_check.mjs`（record の新項目）。実際の録画（OBS の mkv・約 190MB）で、MCP サーバーから 3 コマを約 1.7 秒で取り出せた（1 コマ 40〜55KB）。
+- 未確認: Claude Desktop 実機から画像が見えること（MCP の image content で返しているが、実機の表示は見ていない）。アプリを起動して書き出しを更新した後の、実データでの `video`・`corrections`（合成した試合と、ツールの単体で確認）。
+- 注意: 既存の書き出しには新項目が無い。アプリを新しい版にして一度起動（試合を保存・修正するか、起動時の書き出し）すると、records.json が更新される。
