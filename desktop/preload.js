@@ -2,6 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('inkgraphDesktop', {
   isDesktop: true, platform: process.platform,
+  getVersion: () => ipcRenderer.invoke('desktop:version'),
   getVideoDir: () => ipcRenderer.invoke('desktop:get-dir'),
   pickVideoDir: () => ipcRenderer.invoke('desktop:pick-dir'),
   openVideoDir: () => ipcRenderer.invoke('desktop:open-dir'),
