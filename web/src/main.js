@@ -25,6 +25,7 @@ import * as StageLib from './stage_lib.js';
 import { STAGES } from './stage_lib.js';
 import { WEAPON_TYPES, UNCLASSIFIED, typeOfWeapon, weaponOptions } from './core/weapons.js';
 import { currentVersion } from './version.js';
+import { describeUpdate, mountUpdateBanner } from './desktop_update.js';
 
 const app = document.getElementById('app');
 const liveSlot = document.createElement('div');
@@ -1161,7 +1162,13 @@ PAGES.settings = async () => {
       let dv = null; try { if (D && D.getVersion) dv = await D.getVersion(); } catch { /* 古いデスクトップ版には無い */ }
       const text = currentVersion(dv);
       el.innerHTML = `<h3>バージョン</h3><p class="muted" style="font-size:12px">いま起動しているもの。不具合の報告にも使えます。</p>
-        <button class="btn btn-sm" id="version-copy" type="button" title="押すとコピーします" style="user-select:all">${esc(text)}</button> <span class="muted" id="version-msg" style="font-size:12px"></span>`;
+        <button class="btn btn-sm" id="version-copy" type="button" title="押すとコピーします" style="user-select:all">${esc(text)}</button> <span class="muted" id="version-msg" style="font-size:12px"></span>
+        ${D && D.checkUpdate ? '<div style="margin-top:10px"><button class="btn btn-sm" id="update-check" type="button">更新を確認</button> <span class="muted" id="update-msg" style="font-size:12px"></span></div>' : ''}`;
+      if (D && D.checkUpdate) {
+        const um = $('#update-msg', el), say = st => { um.textContent = describeUpdate(st); };
+        D.getUpdateState().then(say).catch(() => {});
+        $('#update-check', el).onclick = async () => { um.textContent = '確認しています…'; const r = await D.checkUpdate().catch(() => null); if (r && r.ok === false) um.textContent = r.reason === 'recording' ? '録画中なので、録画が終わってから確認します。' : describeUpdate({ status: 'disabled' }); else say(await D.getUpdateState()); };
+      }
       $('#version-copy', el).onclick = async () => { try { await navigator.clipboard.writeText(text); $('#version-msg', el).textContent = 'コピーしました'; } catch { $('#version-msg', el).textContent = 'コピーできません。選択して手でコピーしてください'; } };
     };
     show();
@@ -3097,5 +3104,6 @@ const narrow = isNarrow();
 nav(PAGES[p0] ? (p0 === 'trend' && q0 ? `trend?${q0}` : (narrow && p0 === 'live' ? 'list' : p0)) : (narrow ? 'list' : 'live'));
 Cloud.startAutoSync();
 AIX.startAutoExport();
+mountUpdateBanner(window.inkgraphDesktop); // b21: デスクトップ版の自動アップデートの通知（ブラウザ版では何もしない）
 Cloud.onChange(r => { if (currentPage === 'list' && r && r.ok && (r.pulled || r.deleted)) PAGES.list(); });
 

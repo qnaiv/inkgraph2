@@ -16,5 +16,9 @@ contextBridge.exposeInMainWorld('inkgraphDesktop', {
   exportWrite: payload => ipcRenderer.invoke('export:write', payload),
   exportInfo: () => ipcRenderer.invoke('export:info'),
   exportOpenDir: () => ipcRenderer.invoke('export:open-dir'),
-  windowCmd: cmd => ipcRenderer.invoke('desktop:window', cmd)
+  windowCmd: cmd => ipcRenderer.invoke('desktop:window', cmd),
+  getUpdateState: () => ipcRenderer.invoke('update:state'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdate: fn => { const h = (_e, st) => fn(st); ipcRenderer.on('update:status', h); return () => ipcRenderer.removeListener('update:status', h); }
 });
