@@ -24,6 +24,7 @@ import * as WL from './weapon_lib.js';
 import * as StageLib from './stage_lib.js';
 import { STAGES } from './stage_lib.js';
 import { WEAPON_TYPES, UNCLASSIFIED, typeOfWeapon, weaponOptions } from './core/weapons.js';
+import { currentVersion } from './version.js';
 
 const app = document.getElementById('app');
 const liveSlot = document.createElement('div');
@@ -1150,8 +1151,21 @@ PAGES.settings = async () => {
     <div class="page-header"><h1 class="page-title">設定</h1></div>
     <section id="cloud-panel" class="card learn-panel"></section>
     ${AIX.available() ? '<section id="ai-panel" class="card learn-panel"></section>' : ''}
-    <section id="reset-panel" class="card learn-panel"></section>`;
+    <section id="reset-panel" class="card learn-panel"></section>
+    <section id="version-panel" class="card learn-panel"></section>`;
   mountPage(page, false);
+  // b20: 起動中のバージョン（ビルドに埋め込んだ値）。押すとコピーできる
+  {
+    const el = $('#version-panel', page), D = window.inkgraphDesktop;
+    const show = async () => {
+      let dv = null; try { if (D && D.getVersion) dv = await D.getVersion(); } catch { /* 古いデスクトップ版には無い */ }
+      const text = currentVersion(dv);
+      el.innerHTML = `<h3>バージョン</h3><p class="muted" style="font-size:12px">いま起動しているもの。不具合の報告にも使えます。</p>
+        <button class="btn btn-sm" id="version-copy" type="button" title="押すとコピーします" style="user-select:all">${esc(text)}</button> <span class="muted" id="version-msg" style="font-size:12px"></span>`;
+      $('#version-copy', el).onclick = async () => { try { await navigator.clipboard.writeText(text); $('#version-msg', el).textContent = 'コピーしました'; } catch { $('#version-msg', el).textContent = 'コピーできません。選択して手でコピーしてください'; } };
+    };
+    show();
+  }
   // D58: クラウド同期パネル（アカウントに紐付けて、数値と時刻だけを同期する。画像・クリップ・信号は端末に残す）
   let cloudMsg = '', cloudBusy = false;
   const updateCloudPanel = async () => {

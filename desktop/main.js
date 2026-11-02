@@ -76,6 +76,7 @@ ipcMain.handle('rec:repair', async (_e, file) => {
   fs.renameSync(out, f); return { ok: true, bytes: fs.statSync(f).size };
 });
 ipcMain.handle('rec:discard', async (_e, id) => { const r = recs.get(id); if (!r) return; recs.delete(id); await endStream(r); try { fs.unlinkSync(r.tmp); } catch { /* ignore */ } });
+ipcMain.handle('desktop:version', () => require('electron').app.getVersion());
 ipcMain.handle('desktop:get-dir', () => ({ dir: videoDir(), custom: !!readSettings().videoDir }));
 ipcMain.handle('desktop:pick-dir', async () => {
   const r = await dialog.showOpenDialog(win, { title: '録画の保存先フォルダ', defaultPath: videoDir(), properties: ['openDirectory', 'createDirectory'] });
