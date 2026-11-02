@@ -5,6 +5,7 @@ const { app, BrowserWindow, protocol, net, ipcMain, dialog, session, powerSaveBl
 const { spawn } = require('node:child_process');
 const path = require('node:path'), fs = require('node:fs'), { pathToFileURL } = require('node:url'), { Readable } = require('node:stream');
 const { writeZip } = require('./zip_store.js');
+const { createUpdater } = require('./updater.js');
 
 // バックグラウンドの間引きを切る（ウィンドウが隠れても setTimeout・映像の取り込みを止めない）
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -124,6 +125,29 @@ ipcMain.handle('export:info', () => {
 ipcMain.handle('export:open-dir', () => { const d = aiDir(); fs.mkdirSync(d, { recursive: true }); return require('electron').shell.openPath(d); });
 ipcMain.handle('desktop:window', (_e, cmd) => { if (!win) return null; if (cmd === 'hide') win.hide(); else if (cmd === 'minimize') win.minimize(); else if (cmd === 'show') win.show(); else if (cmd === 'restore') win.restore(); return { visible: win.isVisible(), minimized: win.isMinimized() }; });
 
+// ---- 自動アップデート（b21）。パッケージ版（インストーラー）だけ動く。録画中は確認・通知・再起動をしない ----
+// INKGRAPH_UPDATE_TEST_URL: 開発起動でも、この URL（latest.yml のある場所）を見に行く。動作確認用（INKGRAPH_UPDATE_TEST_VERSION: 今の版とみなす値）
+let updater = null;
+function setupUpdater() {
+  const testUrl = process.env.INKGRAPH_UPDATE_TEST_URL, enabled = app.isPackaged || !!testUrl;
+  let autoUpdater = null;
+  if (enabled) {
+    ({ autoUpdater } = require('electron-updater'));
+    if (testUrl) { autoUpdater.forceDevUpdateConfig = true; autoUpdater.setFeedURL({ provider: 'generic', url: testUrl }); if (process.env.INKGRAPH_UPDATE_TEST_VERSION) autoUpdater.currentVersion = process.env.INKGRAPH_UPDATE_TEST_VERSION; }
+  }
+  updater = createUpdater({
+    autoUpdater, enabled,
+    isRecording: () => recs.size > 0,
+    send: st => { if (win && !win.isDestroyed()) win.webContents.send('update:status', st); },
+    ...(process.env.INKGRAPH_UPDATE_FAST ? { firstMs: 500, everyMs: 3000, tickMs: 500 } : {})
+  });
+  if (testUrl && autoUpdater) autoUpdater.autoInstallOnAppQuit = false; // 動作確認では、終了時に本物のインストーラーを走らせない
+  updater.start();
+}
+ipcMain.handle('update:state', () => (updater ? updater.getState() : { status: 'disabled', recording: false }));
+ipcMain.handle('update:check', () => (updater ? updater.check(true) : { ok: false, reason: 'disabled' }));
+ipcMain.handle('update:install', () => (updater ? updater.install() : { ok: false, reason: 'disabled' }));
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1400, height: 900, title: 'InkGraph', backgroundColor: '#0f1020',
@@ -157,6 +181,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(['media', 'fullscreen'].includes(perm)));
   powerSaveBlocker.start('prevent-display-sleep'); // 解析・録画中に画面・システムがスリープしない
   createWindow();
+  setupUpdater();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

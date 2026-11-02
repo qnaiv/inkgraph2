@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node mcp/server_check.mjs && node tools/zip_store_check.js &&xvfb-run -a electron --no-sandbox tools/desktop_check.js",
+    "check": "node mcp/server_check.mjs && node tools/zip_store_check.js && node tools/updater_check.js &&xvfb-run -a electron --no-sandbox tools/desktop_check.js",
     "web": "cd ../web && npm ci && npm run build",
     "dist": "npm run web && electron-builder --win --publish never"
   },
@@ -24,6 +24,7 @@
       "main.js",
       "preload.js",
       "zip_store.js",
+      "updater.js",
       "package.json"
     ],
     "extraResources": [
@@ -42,8 +43,7 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ]
     },
     "nsis": {
@@ -58,9 +58,16 @@
       "ja",
       "en-US"
     ],
-    "compression": "maximum"
+    "compression": "maximum",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/qnaiv/inkgraph2/releases/download/desktop-latest/"
+      }
+    ]
   },
   "dependencies": {
+    "electron-updater": "^6.3.9",
     "ffmpeg-static": "^5.3.0"
   }
 }

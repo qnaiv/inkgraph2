@@ -1154,3 +1154,14 @@
 - 値の出どころ: ビルド時に `vite.config.js` が `web/package.json` の version と `git rev-parse` の結果を `define` で埋め込む。git が無い環境ではコミットが `unknown`。デスクトップ版は同じ web ビルドを包むので、web の値は二重管理にならない（デスクトップ自身の版番号だけ別）。
 - 確かめたこと: `vite build` の成果物に、実際のコミット（76be69c+）・版番号・ビルド日時が入っていること。dev 起動（Edge）で、設定画面に `v1.0.0 (dev, 76be69c+, 2026-11-02)` が出ること。テスト `web/tools/version_check.mjs`（6 件）。
 - 未確認: Electron 実機で `getVersion` が通ること（コードは足したが、デスクトップを起動しては確かめていない）。`web/package.json` の version は 1.0.0 のままで、上げる運用は決めていない（見分けにはコミットを使う）。
+
+## D110 (2026-11-02) デスクトップ版の自動アップデート（electron-updater + NSIS インストーラー）（b21）
+
+- 目的: 毎回 exe を入れ直さなくても、アプリが新しい版を見つけて更新できるようにする。方式は A（electron-updater + インストーラー）。
+- 配布: インストーラー（NSIS）だけにする。portable は廃止（インストーラーと同じファイル名で上書きし合い、リリースに載るのが portable だけになっていた）。
+- 版番号: Actions で `0.1.<実行番号>` を注入（`npm version --no-git-tag-version`）。ローカルビルドは 0.1.0 のまま。更新の新旧はこの番号の大小で決まる。
+- 配信: `build.publish` を generic（`…/releases/download/desktop-latest/`）にする。固定リリースを毎回作り直す方式で、タグが semver でないため、GitHub provider は使わない。リリースに exe・`latest.yml`・`.blockmap` を載せる。前の版の blockmap が置き場に無いので、差分ではなく全体をダウンロードする。
+- 動き（`desktop/updater.js`、Electron に依存しない）: 起動 20 秒後と 4 時間ごとに確認 → 新しければダウンロード → 準備ができたら右下に「再起動して更新」。押されたときだけ `quitAndInstall`。押されなければ、アプリを閉じたときに入れ替わる（`autoInstallOnAppQuit`）。**録画中（録画ファイルが開いている間）は、確認・ダウンロード・通知・再起動をしない**。録画が終わると、30 秒おきの見回りで続きを進める。開発起動（未パッケージ）では無効。設定画面の「バージョン」に「更新を確認」ボタン。
+- 確かめたこと: `desktop/tools/updater_check.js`（13 件、偽の autoUpdater）。`web/tools/desktop_update_check.mjs`（7 件）。electron-builder で実際にインストーラーを作り、`latest.yml`（版・sha512・サイズ）が出ること。**実際の Electron** を起動し、ローカル HTTP から `latest.yml` を配って、署名なし・generic のまま、新しい版の検出 → ダウンロード（sha512 の検証つき）→ ready → 画面右下の通知 →「あとで」→ 設定画面の表示まで通ること（`desktop/tools/update_e2e.js`）。`userData` は `name`（`inkgraph-desktop`）で決まるので、インストーラー版でも portable 版と同じ場所（`%APPDATA%\inkgraph-desktop`）。
+- 未確認: GitHub のリダイレクト越しの取得（マージ後のリリースで確かめる）。**インストール済みの版が実際に入れ替わる通し**（`quitAndInstall` の後に新しい版で起動すること）。署名なしの更新時の SmartScreen の出方。録画中に実際に更新が止まること（偽の autoUpdater では確認済み）。
+- 注意: 動作確認で `autoInstallOnAppQuit` が有効のまま終了すると、本物のインストーラーが静かに走る（確認中に 0.1.6 がこの PC に入ってしまった）。確認用の起動では、`autoInstallOnAppQuit` を切ってある。
