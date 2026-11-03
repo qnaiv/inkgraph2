@@ -30,7 +30,7 @@
       "title": "書き出し先フォルダ",
       "description": "InkGraph の設定画面「AI 連携」に表示される書き出し先（records.json のあるフォルダ）",
       "required": true,
-      "default": "${HOME}\AppData\Roaming\inkgraph-desktop\ai-export"
+      "default": "${HOME}\\AppData\\Roaming\\inkgraph-desktop\\ai-export"
     }
   },
   "compatibility": { "platforms": ["win32"], "runtimes": { "node": ">=18.0.0" } },
