@@ -1,0 +1,38 @@
+{
+  "manifest_version": "0.3",
+  "name": "inkgraph-ai",
+  "display_name": "InkGraph",
+  "version": "0.2.0",
+  "description": "InkGraph の戦績要約・録画のコマ・検出の根拠・人の訂正を読む（読み取り専用）。中身はインストール済みの InkGraph のものを使うので、アプリを更新すれば自動で新しくなる",
+  "author": { "name": "qnaiv" },
+  "repository": { "type": "git", "url": "https://github.com/qnaiv/inkgraph2" },
+  "server": {
+    "type": "node",
+    "entry_point": "server/launch.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/launch.mjs"],
+      "env": { "INKGRAPH_AI_EXPORT_DIR": "${user_config.export_dir}" }
+    }
+  },
+  "tools": [
+    { "name": "get_summary", "description": "今日の連戦・直近20試合・直近30日の集計済み要約" },
+    { "name": "list_matches", "description": "試合の一覧（新しい順）" },
+    { "name": "get_match", "description": "試合1件の詳細" },
+    { "name": "get_video", "description": "試合の録画のパス・サイズ・バトル開始位置" },
+    { "name": "get_frames", "description": "指定した秒のコマを画像で返す" },
+    { "name": "get_analysis", "description": "ルール判定の根拠・カウント推移・デス/キル" },
+    { "name": "get_corrections", "description": "人の訂正の前/後" }
+  ],
+  "user_config": {
+    "export_dir": {
+      "type": "directory",
+      "title": "書き出し先フォルダ",
+      "description": "InkGraph の設定画面「AI 連携」に表示される書き出し先（records.json のあるフォルダ）",
+      "required": true,
+      "default": "${HOME}\\AppData\\Roaming\\inkgraph-desktop\\ai-export"
+    }
+  },
+  "compatibility": { "platforms": ["win32"], "runtimes": { "node": ">=18.0.0" } },
+  "license": "MIT"
+}

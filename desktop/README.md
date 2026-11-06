@@ -47,3 +47,7 @@ npm start                              # 起動（../web/dist を読む）
 npm run check                          # Linux: xvfb-run -a electron --no-sandbox tools/desktop_check.js
 ```
 `desktop_check` は、デスクトップ版として開く・ウィンドウを隠しても取り込みが止まらない・2 試合続けて録画ファイルが 2 つできる、を確認します（Windows 実機での最小化・遮蔽は未確認）。
+
+## Claude Desktop 拡張（.mcpb）
+`desktop/mcp/extension/` は Claude Desktop に入れる拡張の元。中身は入口の `server/launch.mjs` だけで、サーバー本体は**インストール済みの InkGraph**（`%LOCALAPPDATA%\Programs\InkGraph\resources\mcp\server.mjs`、環境変数 `INKGRAPH_MCP_SERVER` で上書き可）をそのまま読む。アプリを更新すれば MCP のツールも自動で新しくなるので、拡張は入れ直さなくてよい。
+作り方: `manifest.json` と `server/launch.mjs` を zip にして拡張子を `.mcpb` にする。Claude Desktop の設定 → 拡張機能 で入れる（旧版 0.1.0 は先に削除）。
