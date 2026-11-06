@@ -164,12 +164,12 @@ export class Analyzer {
     // D65: 味方 4 人（自分を含む）のブキのアイコンも同じ形で保存する。自分の行には own:true を付ける（自分のブキの集計用）
     rec.ally_icons = (rs.board && ownRow) ? rs.board.filter(b => b.group === ownRow.group).map(b => (b.own ? { slot: `${b.group}${b.idx}`, icon: b.icon, own: true } : { slot: `${b.group}${b.idx}`, icon: b.icon })) : [];
     if (isTowerRule(rs.mode) && m.tower.length) tagEvents(rec, T.series(m.tower));
-    else if (isAreaRule(rs.mode) && m.area && m.area.length) tagEvents(rec, areaSeries(m.area));
+    else if ((isAreaRule(rs.mode) || isAsariRule(rs.mode)) && m.area && m.area.length) tagEvents(rec, areaSeries(m.area));
     else if (isHokoRule(rs.mode) && m.hoko && m.hoko.length) tagEvents(rec, hokoSeries(m.hoko));
     if (isTowerRule(rs.mode)) {
       rec.tower_rows = m.tower.map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: r.grid ? 1 : 0, o: r.marker ? r.marker.owner[0] : null }));
       rec.tower_raw = m.tower.length;
-    } else if (isAreaRule(rs.mode)) {
+    } else if (isAreaRule(rs.mode) || isAsariRule(rs.mode)) {
       rec.tower_rows = (m.area || []).map(r => ({ t: r.t, own: r.own, enemy: r.enemy, g: 1, o: null }));
       rec.tower_raw = (m.area || []).length;
     } else if (isHokoRule(rs.mode)) {
@@ -199,6 +199,8 @@ export function countEvidence(m) {
 export function isTowerRule(mode) { return mode === 'ガチヤグラ'; }
 /** D104: ガチエリア（画面上部中央の左右のパネルの「のこり」） */
 export function isAreaRule(mode) { return mode === 'ガチエリア'; }
+/** D112: ガチアサリ。画面上部中央の左右のパネルの「のこり」は、ガチエリアと同じ位置・同じ見た目で出る（実録画のアサリ 1 試合で 257 行中 248 行＝96% 読めた）ので、エリアの読み取り（area_count.js）をそのまま使う */
+export function isAsariRule(mode) { return mode === 'ガチアサリ'; }
 /** D105: ガチホコバトル。トラックの下のバッジ 2 つの「のこり」（hoko_count.js）。アサリは未確認 */
 export function isHokoRule(mode) { return mode === 'ガチホコバトル'; }
 export function aliveAt(m, t) { if (m.hud_layout === 'tricolor') return [4, 4]; // 3チームの HUD は人数の枠の位置が違う（D107）。人数は読めないので、中立の 4v4 を返す

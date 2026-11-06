@@ -20,7 +20,8 @@ check(turfByEvidence(rec(183, FEST), 'ガチホコバトル'), '(1) フェスオ
 check(!turfByEvidence(rec(303, HOKO), 'ガチホコバトル') && !turfByEvidence(rec(317, HOKO2), 'ガチホコバトル'), '(2) 本物のホコ（のこりが読めている）は、そのまま');
 check(!turfByEvidence(rec(256, AREA), 'ガチエリア'), '(3) 本物のエリアも、そのまま');
 check(!turfByEvidence(rec(300, FEST), 'ガチホコバトル') && !turfByEvidence(rec(120, FEST), 'ガチヤグラ'), '(4) のこりが読めなくても、時間がナワバリと違えば（延長・短い試合）直さない', `${TURF_SEC}`);
-check(!turfByEvidence(rec(183, FEST), 'ガチアサリ') && !turfByEvidence(rec(183, FEST), 'ナワバリバトル'), '(5) アサリ（のこりを読んでいない）は対象外。ナワバリと読めていれば何もしない');
+check(turfByEvidence(rec(183, FEST), 'ガチアサリ') && !turfByEvidence(rec(183, FEST), 'ナワバリバトル'), '(5) D112: アサリも「のこり」が読めるので対象。ナワバリと読めていれば何もしない');
+check(!turfByEvidence(rec(303, ev(frac(270, 0), frac(270, 248), frac(270, 0))), 'ガチアサリ') && !turfByEvidence(rec(183, ev(frac(257, 0), frac(257, 248), frac(257, 0))), 'ガチアサリ'), '(5b) D112: 本物のアサリ（エリアのパネルが 96% 読める）は、時間が短くてもそのまま');
 check(!turfByEvidence(rec(183, ev(frac(30, 0), frac(30, 0), frac(30, 0))), 'ガチホコバトル'), '(6) 読んだ行が少なすぎる（60 行未満）ときは決めない');
 check(!turfByEvidence(rec(183, ev(frac(160, 0), frac(160, 0), frac(160, 9))), 'ガチホコバトル') && MIN_COUNT_SHARE === 0.05, '(7) どれかのルールで 5% 以上読めていれば、直さない（9/160=5.6%）');
 check(!turfByEvidence({ battle: [0, 183] }, 'ガチホコバトル') && !turfByEvidence({ count_evidence: FEST }, 'ガチホコバトル'), '(8) 古い記録（count_evidence や battle が無い）は触らない');

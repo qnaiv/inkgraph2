@@ -1,7 +1,7 @@
 // area_count_check.mjs: ガチエリアの「のこり」カウントを読む（数字の見本・パネルの読み取り・推移の整え方）
 import fs from 'node:fs'; import path from 'node:path';
 import { AREA_DIGITS } from '../src/core/area_digits.js'; import { areaRow, areaSeries, classify, AREA_PANELS } from '../src/core/area_count.js';
-import { isAreaRule, isTowerRule, tagEvents } from '../src/core/analyzer.js'; import { b64bytes } from '../src/core/img.js';
+import { isAreaRule, isAsariRule, isHokoRule, isTowerRule, tagEvents } from '../src/core/analyzer.js'; import { b64bytes } from '../src/core/img.js';
 
 let fails = 0; const check = (ok, name, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' - ' + extra : ''}`); if (!ok) fails++; };
 const F = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'fixtures/area_count/glyphs.json'), 'utf8')).glyphs;
@@ -16,19 +16,21 @@ const vec = ([, , ar, b64]) => { const v = new Float32Array(97); v.set(Float32Ar
 
 // 画面を作る: パネルの塗りと数字（見本の絵を拡大）
 const W = 1280, H = 720; const glyphBits = ch => { const rows = AREA_DIGITS.filter(r => r[0] === ch); const r = rows[0]; return { ar: r[1], d: b64bytes(r[2]) }; };
-function frame(own, enemy, style) {
+function frame(own, enemy, style, dy = 7) {
   const data = new Uint8ClampedArray(W * H * 4); for (let i = 0; i < data.length; i += 4) { data[i] = 90; data[i + 1] = 110; data[i + 2] = 80; data[i + 3] = 255; }
   const paint = (rect, val, st) => { const [x0, y0, x1, y1] = rect; const colored = st === 'colored';
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const o = (y * W + x) * 4; [data[o], data[o + 1], data[o + 2]] = colored ? [235, 100, 130] : [25, 22, 30]; }
     if (val === null) return; const s = String(val), gh = 26; let x = x0 + (x1 - x0 - s.length * 16) / 2 + 2;
     for (const ch of s) { const g = glyphBits(ch), gw = Math.max(5, Math.round(g.ar * gh));
-      for (let yy = 0; yy < gh; yy++) for (let xx = 0; xx < gw; xx++) { if (g.d[Math.floor(yy * 12 / gh) * 8 + Math.floor(xx * 8 / gw)] > 128) { const o = ((y0 + 7 + yy) * W + Math.round(x) + xx) * 4; [data[o], data[o + 1], data[o + 2]] = colored ? [250, 250, 250] : [200, 200, 245]; } }
+      for (let yy = 0; yy < gh; yy++) for (let xx = 0; xx < gw; xx++) { if (g.d[Math.floor(yy * 12 / gh) * 8 + Math.floor(xx * 8 / gw)] > 128) { const o = ((y0 + dy + yy) * W + Math.round(x) + xx) * 4; [data[o], data[o + 1], data[o + 2]] = colored ? [250, 250, 250] : [200, 200, 245]; } }
       x += gw + 3; } };
   paint(AREA_PANELS.own, own, style[0]); paint(AREA_PANELS.enemy, enemy, style[1]); return { w: W, h: H, data };
 }
 { const cases = [[100, 100, ['dark', 'dark']], [98, 61, ['dark', 'colored']], [75, 50, ['colored', 'dark']], [41, 9, ['colored', 'dark']], [30, 24, ['dark', 'colored']]];
   const bad = []; for (const [o, e, st] of cases) { const r = areaRow(frame(o, e, st), 5); if (r.own !== o || r.enemy !== e) bad.push(`${o}/${e} → ${r.own}/${r.enemy}`); }
   check(!bad.length, '(3) パネルが暗くても色付きでも、のこりを読む（1〜3 桁）', bad.join('; '));
+  const hi = []; for (const [o, e, st] of [[100, 100, ['dark', 'dark']], [59, 100, ['dark', 'dark']], [19, 100, ['colored', 'dark']]]) { const r = areaRow(frame(o, e, st, 3), 5); if (r.own !== o || r.enemy !== e) hi.push(`${o}/${e} → ${r.own}/${r.enemy}`); }
+  check(!hi.length, '(3b) D112: アサリの実録画のように、数字の上端がパネルの上から 3px でも読む（100 を 0 や 10 と読まない）', hi.join('; '));
   const blank = areaRow(frame(null, null, ['dark', 'dark']), 5); check(blank.own === null && blank.enemy === null, '(4) 数字が無い画面（リザルトなど）では読まない'); }
 
 // 推移: 読み違い・欠けを除き、減る一方にそろえる
@@ -46,4 +48,6 @@ function frame(own, enemy, style) {
   check(m.own_deaths[0].phase === '抑え' && m.tower_series.length === 40, '(9) 自分が先に減っているとき、そのデスは「抑え」', m.own_deaths[0].phase); }
 
 check(isAreaRule('ガチエリア') && !isAreaRule('ガチヤグラ') && !isAreaRule(null) && !isTowerRule('ガチエリア'), '(10) ルールの判定: エリアはヤグラ用の読み取りを使わない');
+check(isAsariRule('ガチアサリ') && !isAsariRule('ガチエリア') && !isAsariRule(null) && !isAreaRule('ガチアサリ') && !isHokoRule('ガチアサリ') && !isTowerRule('ガチアサリ'), '(11) D112: ガチアサリは、エリアと同じパネルの読み取りを使う（ルールの判定は別）');
+
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);

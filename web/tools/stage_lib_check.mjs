@@ -21,12 +21,17 @@ check(STAGES.length >= 20 && new Set(STAGES).size === STAGES.length && STAGES.in
 // 実フレーム: 同梱の見本に無いステージ（オヒョウ海運）の結果画面。読めなかったときに残す特徴を、見本として足すと、読めるようになる
 const dec = f => spawnSync('ffmpeg', ['-loglevel', 'error', '-i', f, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'], { maxBuffer: 1 << 28 }).stdout;
 const fr = { w: 1280, h: 720, data: new Uint8ClampedArray(dec(path.join(web, 'tools/fixtures/asari_x_result_720p.jpg'))) };
-const A = prepAssets(JSON.parse(fs.readFileSync(path.join(web, 'public/assets/inkgraph_assets.json'), 'utf8')));
-const c = R.classify(A, fr), h0 = R.readHeader(A, fr, ...c.off, undefined, c.panel);
+const loadA = noOhyo => { const j = JSON.parse(fs.readFileSync(path.join(web, 'public/assets/inkgraph_assets.json'), 'utf8'));
+  if (noOhyo) for (const k of Object.keys(j.lib.stage)) if (k.startsWith('オヒョウ海運')) delete j.lib.stage[k]; // D112: 録画から作った見本を外し、「見本に無いステージ」に戻す
+  return prepAssets(j); };
+const A = loadA(true), A_full = loadA(false);
+const c = R.classify(A, fr);
+{ const hf = R.readHeader(A_full, fr, ...c.off, undefined, c.panel); check(hf.stage === 'オヒョウ海運', '(9a) D112: 録画から取り込んだ見本で、この画面のステージ名が読める', JSON.stringify({ stage: hf.stage, score: +hf.stage_score.toFixed(2) })); }
+const h0 = R.readHeader(A, fr, ...c.off, undefined, c.panel);
 check(h0.stage === null && h0.stage_feat && Object.keys(h0.stage_feat).length >= 1, '(9) 見本に無いステージは読めず、特徴が残る（ルールが読めなければ位置 0/19/38、読めればその位置）', JSON.stringify({ stage: h0.stage, score: +h0.stage_score.toFixed(2), keys: Object.keys(h0.stage_feat || {}) }));
 const fs3 = R.finalizeResult({ celebration: [], personal: [{ t: 1, header: h0, personal: null }, { t: 1.2, header: h0, personal: null }], board: [] });
 check(fs3.stage_feats.length === 2, '(10) 試合の結果に、特徴が（最大 2 枚）残る');
 let hit = null;
-for (const dx of ['0', '19', '38']) { const B = prepAssets(JSON.parse(fs.readFileSync(path.join(web, 'public/assets/inkgraph_assets.json'), 'utf8'))); mergeIntoAssets(B, [{ name: 'オヒョウ海運', feat: h0.stage_feat[dx] }]); const h1 = R.readHeader(B, fr, ...c.off, undefined, c.panel); if (h1.stage === 'オヒョウ海運') hit = { dx, score: +h1.stage_score.toFixed(3) }; }
+for (const dx of Object.keys(h0.stage_feat)) { const B = loadA(true); mergeIntoAssets(B, [{ name: 'オヒョウ海運', feat: h0.stage_feat[dx] }]); const h1 = R.readHeader(B, fr, ...c.off, undefined, c.panel); if (h1.stage === 'オヒョウ海運') hit = { dx, score: +h1.stage_score.toFixed(3) }; }
 check(!!hit && hit.score > 0.95, '(11) 特徴を見本に足すと、同じ画面でステージ名（オヒョウ海運）が読める（ワーカーの足し込みと同じ形）', JSON.stringify(hit));
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS'); process.exit(fails ? 1 : 0);

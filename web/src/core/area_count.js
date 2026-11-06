@@ -10,8 +10,8 @@ export function digitGlyphs(cr) {
   for (const rule of RULES) {
     const m = new Uint8Array(cr.w * cr.h); for (let i = 0; i < m.length; i++) m[i] = rule(h.V[i], h.S[i]) ? 1 : 0;
     const { comps } = components(m, cr.w, cr.h);
-    // 数字は高さが約 26px（パネルの高さの 0.55〜0.76 倍）で、上端が 6〜9px の位置にそろう。パネルの縁や背景の明るい塊は、この条件で除く
-    const cs = comps.filter(s => s.h >= cr.h * 0.55 && s.h <= cr.h * 0.76 && s.y >= cr.h * 0.08 && s.y <= cr.h * 0.28 && s.a >= 20).sort((a, b) => a.x - b.x);
+    // 数字は高さが約 26px（パネルの高さの 0.55〜0.76 倍）で、上端が 3〜9px の位置にそろう（D112: アサリの 3 桁は 3〜6px。エリアは 6〜9px）。パネルの縁や背景の明るい塊は、この条件で除く
+    const cs = comps.filter(s => s.h >= cr.h * 0.55 && s.h <= cr.h * 0.76 && s.y >= cr.h * 0.04 && s.y <= cr.h * 0.28 && s.a >= 20).sort((a, b) => a.x - b.x);
     if (cs.length >= 1 && cs.length <= 3 && cs.every(s => s.w <= s.h * 0.9)) return { m, w: cr.w, cs };
   }
   return null;

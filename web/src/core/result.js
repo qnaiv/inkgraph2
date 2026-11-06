@@ -42,7 +42,11 @@ export const STAGE_DX_BY_MODE = { 'ガチホコバトル': 38 };
 export const MODE_MIN_SCORE = 0.75;
 export function acceptMode(rule, score, margin, mThr = 0.5) { return !!rule && score > Math.max(mThr, MODE_MIN_SCORE) && (margin === null || margin >= MODE_MARGIN); }
 // ルール名の長さでステージ名の位置がずれる。測ってあるルールはその値、ガチアサリ・ルール不明は文字数の差から見込んだ 0/19/38 を試して最も合うものを使う（D55。実測は未）
-export function stageDxCandidates(mode) { if (mode in STAGE_DX_BY_MODE) return [STAGE_DX_BY_MODE[mode]]; return (mode === 'ガチアサリ' || mode == null) ? [0, 19, 38] : [0]; }
+// D112: Xマッチの結果画面は、見出しの並びが違う。手元の録画で、ステージ名がいちばん合うずれを測った: ホコ +16（2 試合・3 ステージ）、アサリ +4（5 試合）、ヤグラ +4（1 試合）。エリアは測れていない（見本が無いステージばかり）ので、ヤグラ・アサリと同じ +4 を最初に試し、ほかのずれも試す
+export const STAGE_DX_X = { 'ガチホコバトル': 16, 'ガチアサリ': 4, 'ガチヤグラ': 4 };
+export function stageDxCandidates(mode, panel = null) {
+  if (panel === 'x') { if (mode in STAGE_DX_X) return [STAGE_DX_X[mode]]; return [4, 0, 16, 38]; }
+  if (mode in STAGE_DX_BY_MODE) return [STAGE_DX_BY_MODE[mode]]; return (mode === 'ガチアサリ' || mode == null) ? [0, 19, 38] : [0]; }
 function normText(c) { const b = bin(gray(c), 170); for (let i = 0; i < b.length; i++) b[i] *= 255; return resizeArea(b, c.w, c.h, 120, 32); }
 function pearson(a, b) { let ma = 0, mb = 0; const n = a.length; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n; let s = 0, sa = 0, sb = 0;
   for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; s += x * y; sa += x * x; sb += y * y; } return s / (Math.sqrt(sa * sb) + 1e-6); }
@@ -77,7 +81,7 @@ export function readHeader(A, fr, dx, dy, thr = DEFAULT_HEADER_THR, panel = null
   const mode = acceptMode(bestRule, ms, margin, mThr) ? bestRule : null;
 
   let sk = null, ss = -1; const stageVecs = {};
-  for (const stageDx of stageDxCandidates(mode)) {
+  for (const stageDx of stageDxCandidates(mode, panel)) {
     const stageBox = [STAGE_BOX[0] + stageDx, STAGE_BOX[1], STAGE_BOX[2] + stageDx, STAGE_BOX[3]];
     const v = normText(bx(stageBox)); stageVecs[stageDx] = v;
     const [k, sc2] = bestOf(v, A.lib.stage); if (sc2 > ss) { sk = k; ss = sc2; }

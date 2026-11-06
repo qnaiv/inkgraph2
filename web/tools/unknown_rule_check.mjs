@@ -1,5 +1,5 @@
 // unknown_rule_check.mjs: D55 見本に無いルール（ガチアサリなど）を別ルールと読み違えない歯止め（Node のみ）
-import { acceptMode, stageDxCandidates, MODE_MIN_SCORE, finalizeResult } from '../src/core/result.js';
+import { acceptMode, stageDxCandidates, STAGE_DX_X, MODE_MIN_SCORE, finalizeResult } from '../src/core/result.js';
 import { isTowerRule } from '../src/core/analyzer.js';
 let fails = 0;
 const check = (ok, name, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' - ' + extra : ''}`); if (!ok) fails++; };
@@ -17,4 +17,8 @@ check(JSON.stringify(stageDxCandidates('ガチアサリ')) === '[0,19,38]' && JS
   const rs = finalizeResult({ celebration: [{ t: 1, value: 'WIN' }], personal: [1, 2, 3, 4, 5].map(i => ({ t: i, header: { mode: null, mode_guess: 'ガチホコバトル', mode_score: 0.7, stage: null, stage_score: 0.2, match_type: null }, personal: { ka: 5, deaths: 3, specials: 1 } })), board: [] });
   check(rs.mode === null && rs.mode_guess === 'ガチホコバトル' && rs.own.deaths === 3, '(9) ルールが読めなくても最良の見本（mode_guess）と個人成績は残る', JSON.stringify([rs.mode, rs.mode_guess]));
 }
+// D112: Xマッチの結果画面は、ステージ名の位置が違う（手元の録画で測った）
+check(JSON.stringify(stageDxCandidates('ガチホコバトル', 'x')) === '[16]' && JSON.stringify(stageDxCandidates('ガチアサリ', 'x')) === '[4]' && JSON.stringify(stageDxCandidates('ガチヤグラ', 'x')) === '[4]', '(10) D112: X のホコは +16、アサリ・ヤグラは +4', JSON.stringify(STAGE_DX_X));
+check(JSON.stringify(stageDxCandidates('ガチエリア', 'x')) === '[4,0,16,38]' && JSON.stringify(stageDxCandidates(null, 'x')) === '[4,0,16,38]', '(11) D112: X のエリア・ルール不明は、+4 から順に試す');
+check(JSON.stringify(stageDxCandidates('ガチホコバトル', 'bankara')) === '[38]' && JSON.stringify(stageDxCandidates('ガチホコバトル')) === '[38]', '(12) D112: バンカラ（や画面の種類が不明）のホコは従来どおり +38');
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS'); process.exit(fails ? 1 : 0);

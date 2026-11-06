@@ -68,8 +68,8 @@ export function voteReads(reads) {
 export const TURF_SEC = [175, 192];
 // 試合中に「のこり」（ヤグラ・エリア・ホコ）が読めた毎秒の行の割合の下限。手元の本物のホコは 17〜39%、エリアは 96%、フェスは 3 種とも 0%
 export const MIN_COUNT_SHARE = 0.05, MIN_COUNT_ROWS = 60;
-const COUNT_RULES = ['ガチホコバトル', 'ガチヤグラ', 'ガチエリア'];
-/** YOLO が「のこり」を使うガチのルールと読んだのに、その試合では 3 種の「のこり」が一つも読めず、時間もナワバリと同じか。ガチアサリは「のこり」を読んでいないので対象外 */
+const COUNT_RULES = ['ガチホコバトル', 'ガチヤグラ', 'ガチエリア', 'ガチアサリ'];
+/** YOLO が「のこり」を使うガチのルールと読んだのに、その試合では 3 種の「のこり」が一つも読めず、時間もナワバリと同じか。ガチアサリの「のこり」はエリアと同じパネルで読める（D112） */
 export function turfByEvidence(rec, rule) {
   if (!COUNT_RULES.includes(rule)) return false;
   const ev = rec && rec.count_evidence, b = rec && rec.battle; if (!ev || !Array.isArray(b)) return false;
